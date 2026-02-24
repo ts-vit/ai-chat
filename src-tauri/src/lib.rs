@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
 
+use commands::attachments::save_attachment;
 use commands::chat::{send_message, stop_generation, StreamState};
 use commands::database::{
     create_chat, delete_chat, delete_messages_after, get_all_chats, get_messages, save_message,
@@ -88,6 +89,7 @@ pub fn run() {
                 "ALTER TABLE messages ADD COLUMN completion_tokens INTEGER DEFAULT 0",
                 "ALTER TABLE messages ADD COLUMN cost REAL DEFAULT 0.0",
                 "ALTER TABLE chats ADD COLUMN system_prompt TEXT DEFAULT ''",
+                "ALTER TABLE messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0",
             ];
             for sql in alter_queries {
                 let _ = tauri::async_runtime::block_on(sqlx::query(sql).execute(&pool));
@@ -99,6 +101,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            save_attachment,
             send_message,
             stop_generation,
             save_settings,

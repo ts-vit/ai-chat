@@ -1,12 +1,15 @@
 // команда отправки сообщения в OpenRouter (со стримингом)
 use std::sync::Arc;
+use base64::Engine;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::models::chat::{ChatRequest, Message, StreamResponse};
+use crate::commands::attachments::save_attachment_file;
+use crate::commands::database::update_message_content_with_attachments;
+use crate::models::chat::{AttachmentInput, ChatRequest, ContentBlock, Message, StreamResponse};
 
 /// Состояние для отмены текущего стрима.
 pub struct StreamState {
@@ -40,27 +43,109 @@ pub struct StreamUsagePayload {
 pub async fn send_message(
     app: AppHandle,
     stream_state: State<'_, StreamState>,
+    pool: State<'_, sqlx::SqlitePool>,
     api_key: String,
     model: String,
     messages: Vec<Message>,
     temperature: Option<f32>,
     max_tokens: Option<u32>,
+    user_message_id: Option<String>,
+    attachments: Option<Vec<AttachmentInput>>,
 ) -> Result<(), String> {
-    // Собираем запрос
-    let request_body = ChatRequest {
-        model,
-        messages,
-        stream: true,
-        temperature,
-        max_tokens,
+    let user_content = messages.last().map(|m| m.content.as_str()).unwrap_or("");
+
+    let (request_body, _) = if let (Some(ref msg_id), Some(ref atts)) = (&user_message_id, &attachments) {
+        if atts.is_empty() {
+            let request_body = ChatRequest {
+                model: model.clone(),
+                messages: messages.clone(),
+                stream: true,
+                temperature,
+                max_tokens,
+            };
+            (serde_json::to_value(&request_body).map_err(|e| e.to_string())?, None)
+        } else {
+            let mut db_blocks: Vec<ContentBlock> = Vec::new();
+            let mut api_blocks: Vec<serde_json::Value> = Vec::new();
+
+            for att in atts.iter() {
+                let path = save_attachment_file(&app, msg_id, &att.name, &att.data)?;
+                let mime_lower = att.mime_type.to_lowercase();
+                if mime_lower.starts_with("image/") {
+                    db_blocks.push(ContentBlock {
+                        block_type: "image".to_string(),
+                        text: None,
+                        image_url: None,
+                        path: Some(path.clone()),
+                        name: Some(att.name.clone()),
+                        mime: None,
+                    });
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&att.data);
+                    api_blocks.push(serde_json::json!({
+                        "type": "image_url",
+                        "image_url": { "url": format!("data:{};base64,{}", att.mime_type, b64) }
+                    }));
+                } else {
+                    db_blocks.push(ContentBlock {
+                        block_type: "file".to_string(),
+                        text: None,
+                        image_url: None,
+                        path: Some(path.clone()),
+                        name: Some(att.name.clone()),
+                        mime: Some(att.mime_type.clone()),
+                    });
+                    let text_content = String::from_utf8_lossy(&att.data);
+                    let file_block = format!("--- Файл: {} ---\n{}\n---", att.name, text_content);
+                    api_blocks.push(serde_json::json!({ "type": "text", "text": file_block }));
+                }
+            }
+            api_blocks.push(serde_json::json!({ "type": "text", "text": user_content }));
+            db_blocks.push(ContentBlock {
+                block_type: "text".to_string(),
+                text: Some(user_content.to_string()),
+                image_url: None,
+                path: None,
+                name: None,
+                mime: None,
+            });
+
+            let content_json = serde_json::to_string(&db_blocks).map_err(|e| e.to_string())?;
+            update_message_content_with_attachments(pool.inner(), msg_id, &content_json).await?;
+
+            let mut messages_json: Vec<serde_json::Value> = messages
+                .iter()
+                .take(messages.len().saturating_sub(1))
+                .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
+                .collect();
+            messages_json.push(serde_json::json!({
+                "role": "user",
+                "content": api_blocks
+            }));
+
+            let body = serde_json::json!({
+                "model": model,
+                "messages": messages_json,
+                "stream": true,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            });
+            (body, Some(()))
+        }
+    } else {
+        let request_body = ChatRequest {
+            model: model.clone(),
+            messages: messages.clone(),
+            stream: true,
+            temperature,
+            max_tokens,
+        };
+        (serde_json::to_value(&request_body).map_err(|e| e.to_string())?, None)
     };
 
-    // Заголовки
     let mut headers = HeaderMap::new();
     headers.insert(AUTHORIZATION, format!("Bearer {}", api_key).parse().unwrap());
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
 
-    // Отправляем запрос
     let client = reqwest::Client::new();
     let response = client
         .post("https://openrouter.ai/api/v1/chat/completions")

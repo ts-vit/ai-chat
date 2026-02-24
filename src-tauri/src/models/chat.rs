@@ -8,6 +8,35 @@ pub struct Message {
     pub content: String, // текст сообщения
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentInput {
+    pub name: String,
+    pub mime_type: String,
+    pub data: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ContentBlock {
+    #[serde(rename = "type")]
+    pub block_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<ImageUrl>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImageUrl {
+    pub url: String,
+}
+
 // Запрос к OpenRouter API
 #[derive(Debug, Serialize)]
 pub struct ChatRequest {
@@ -89,6 +118,8 @@ pub struct DbMessage {
     pub completion_tokens: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<f64>,
+    #[serde(rename = "hasAttachments", skip_serializing_if = "Option::is_none")]
+    pub has_attachments: Option<i64>,
 }
 
 // Настройки приложения

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { notify } from "../utils/notify";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+    Attachment,
     Chat,
     Message,
     Preset,
@@ -36,6 +37,7 @@ interface DbMessageResponse {
     promptTokens?: number;
     completionTokens?: number;
     cost?: number;
+    has_attachments?: number;
 }
 
 function dbMessageToMessage(m: DbMessageResponse): Message {
@@ -49,6 +51,7 @@ function dbMessageToMessage(m: DbMessageResponse): Message {
         promptTokens: m.promptTokens,
         completionTokens: m.completionTokens,
         cost: m.cost,
+        hasAttachments: m.has_attachments ? true : undefined,
     };
 }
 
@@ -63,12 +66,16 @@ interface ChatState {
     isStreaming: boolean;
     isStopping: boolean;
     balance: BalanceInfo | null;
+    draftAttachments: Attachment[];
 
     currentView: "chat" | "settings" | "snippets";
     setView: (view: "chat" | "settings" | "snippets") => void;
     models: ModelInfo[];
     modelsLoading: boolean;
     modelsError: string | null;
+    addAttachment: (attachment: Attachment) => void;
+    removeAttachment: (id: string) => void;
+    clearAttachments: () => void;
     loadModels: (force?: boolean) => Promise<void>;
     loadBalance: () => Promise<void>;
     loadPresets: () => Promise<void>;
@@ -118,6 +125,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     isStreaming: false,
     isStopping: false,
     balance: null,
+    draftAttachments: [],
+
+    addAttachment: (attachment) =>
+        set((state) => ({ draftAttachments: [...state.draftAttachments, attachment] })),
+    removeAttachment: (id) =>
+        set((state) => ({ draftAttachments: state.draftAttachments.filter((a) => a.id !== id) })),
+    clearAttachments: () => set({ draftAttachments: [] }),
 
     currentView: "chat",
     setView: (view) => set({ currentView: view }),
@@ -135,25 +149,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 set({ models: [], modelsLoading: false, modelsError: "Неверный формат ответа" });
                 return;
             }
+            interface ModelRaw {
+                id: string;
+                name: string;
+                context_length: number;
+                pricing: { prompt: string; completion: string };
+                architecture?: { modality?: string };
+            }
             const list: ModelInfo[] = raw
                 .filter(
-                    (m: unknown): m is ModelInfo =>
+                    (m: unknown): m is ModelRaw =>
                         typeof m === "object" &&
                         m !== null &&
-                        typeof (m as ModelInfo).id === "string" &&
-                        typeof (m as ModelInfo).name === "string" &&
-                        typeof (m as ModelInfo).context_length === "number" &&
-                        typeof (m as ModelInfo).pricing === "object" &&
-                        (m as ModelInfo).pricing !== null &&
-                        typeof (m as ModelInfo).pricing.prompt === "string" &&
-                        typeof (m as ModelInfo).pricing.completion === "string"
+                        typeof (m as ModelRaw).id === "string" &&
+                        typeof (m as ModelRaw).name === "string" &&
+                        typeof (m as ModelRaw).context_length === "number" &&
+                        typeof (m as ModelRaw).pricing === "object" &&
+                        (m as ModelRaw).pricing !== null &&
+                        typeof (m as ModelRaw).pricing.prompt === "string" &&
+                        typeof (m as ModelRaw).pricing.completion === "string"
                 )
-                .map((m) => ({
-                    id: m.id,
-                    name: m.name,
-                    pricing: { prompt: m.pricing.prompt, completion: m.pricing.completion },
-                    context_length: m.context_length,
-                }));
+                .map((m) => {
+                    const modality = m.architecture?.modality;
+                    return {
+                        id: m.id,
+                        name: m.name,
+                        pricing: { prompt: m.pricing.prompt, completion: m.pricing.completion },
+                        context_length: m.context_length,
+                        supportsVision: modality?.includes("image") ?? false,
+                    };
+                });
             set({ models: list, modelsLoading: false, modelsError: null });
         } catch (e) {
             set({ modelsLoading: false, modelsError: String(e) });
@@ -398,7 +423,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     },
 
     setActiveChat: async (id: string) => {
-        set({ activeChatId: id });
+        set({ activeChatId: id, draftAttachments: [] });
         const { chats } = get();
         const chat = chats.find((c) => c.id === id);
         if (chat && chat.messages.length === 0) {
@@ -619,13 +644,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ...history,
                 { role: "user" as const, content },
             ];
-            await invoke("send_message", {
+            const { draftAttachments } = get();
+            const invokePayload: Record<string, unknown> = {
                 apiKey: settings.api_key,
                 model: settings.model,
                 messages: apiMessages,
                 temperature: settings.temperature,
                 maxTokens: settings.max_tokens,
-            });
+            };
+            if (draftAttachments.length > 0) {
+                invokePayload.userMessageId = userMsg.id;
+                invokePayload.attachments = draftAttachments.map((a) => ({
+                    name: a.name,
+                    mimeType: a.mimeType,
+                    data: a.data,
+                }));
+            }
+            const hadAttachments = get().draftAttachments.length > 0;
+            await invoke("send_message", invokePayload);
+            set({ draftAttachments: [] });
+            if (hadAttachments) {
+                try {
+                    const rows = await invoke<DbMessageResponse[]>("get_messages", {
+                        chatId: activeChatId,
+                    });
+                    const updatedUser = rows.find((m) => m.id === userMsg.id);
+                    if (updatedUser) {
+                        set((state) => ({
+                            chats: state.chats.map((c) =>
+                                c.id === activeChatId
+                                    ? {
+                                          ...c,
+                                          messages: c.messages.map((msg) =>
+                                              msg.id === userMsg.id
+                                                  ? {
+                                                        ...msg,
+                                                        content: updatedUser.content,
+                                                        hasAttachments: updatedUser.has_attachments
+                                                            ? true
+                                                            : undefined,
+                                                    }
+                                                  : msg
+                                          ),
+                                    }
+                                : c
+                            ),
+                        }));
+                    }
+                } catch {
+                    // не обновляем content в сторе при ошибке get_messages
+                }
+            }
         } catch (e) {
             set({ isStreaming: false });
             notify.error(String(e));

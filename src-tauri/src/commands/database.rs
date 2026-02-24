@@ -1,8 +1,9 @@
 // Команды для работы с SQLite (чаты и сообщения)
 use sqlx::Row;
-use tauri::State;
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
+use crate::commands::attachments::delete_attachments_for_message;
 use crate::models::chat::{DbChat, DbMessage};
 
 type Pool = sqlx::SqlitePool;
@@ -41,7 +42,16 @@ pub async fn create_chat(
 }
 
 #[tauri::command]
-pub async fn delete_chat(pool: State<'_, Pool>, id: String) -> Result<(), String> {
+pub async fn delete_chat(app: AppHandle, pool: State<'_, Pool>, id: String) -> Result<(), String> {
+    let rows = sqlx::query("SELECT id, content FROM messages WHERE chat_id = ? AND has_attachments = 1")
+        .bind(&id)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    for row in rows {
+        let content: String = row.try_get("content").unwrap_or_default();
+        delete_attachments_for_message(&app, &content);
+    }
     sqlx::query("DELETE FROM chats WHERE id = ?")
         .bind(&id)
         .execute(pool.inner())
@@ -90,7 +100,7 @@ pub async fn save_message(
     let ct = completion_tokens as i64;
 
     sqlx::query(
-        "INSERT INTO messages (id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO messages (id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
     )
     .bind(&id)
     .bind(&chat_id)
@@ -117,6 +127,7 @@ pub async fn save_message(
         prompt_tokens: Some(pt),
         completion_tokens: Some(ct),
         cost: Some(cost),
+        has_attachments: Some(0),
     })
 }
 
@@ -156,10 +167,25 @@ pub async fn update_message_content(
     Ok(())
 }
 
+/// Обновляет content сообщения и выставляет has_attachments = 1 (для сообщений с вложениями).
+pub async fn update_message_content_with_attachments(
+    pool: &Pool,
+    id: &str,
+    content: &str,
+) -> Result<(), String> {
+    sqlx::query("UPDATE messages SET content = ?, has_attachments = 1 WHERE id = ?")
+        .bind(content)
+        .bind(id)
+        .execute(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_messages(pool: State<'_, Pool>, chat_id: String) -> Result<Vec<DbMessage>, String> {
     let rows = sqlx::query(
-        "SELECT id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost FROM messages WHERE chat_id = ? ORDER BY timestamp",
+        "SELECT id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments FROM messages WHERE chat_id = ? ORDER BY timestamp",
     )
     .bind(&chat_id)
     .fetch_all(pool.inner())
@@ -179,6 +205,7 @@ pub async fn get_messages(pool: State<'_, Pool>, chat_id: String) -> Result<Vec<
             prompt_tokens: row.try_get("prompt_tokens").ok(),
             completion_tokens: row.try_get("completion_tokens").ok(),
             cost: row.try_get("cost").ok(),
+            has_attachments: row.try_get("has_attachments").ok(),
         })
         .collect();
     Ok(messages)
@@ -186,10 +213,23 @@ pub async fn get_messages(pool: State<'_, Pool>, chat_id: String) -> Result<Vec<
 
 #[tauri::command]
 pub async fn delete_messages_after(
+    app: AppHandle,
     pool: State<'_, Pool>,
     chat_id: String,
     timestamp: i64,
 ) -> Result<(), String> {
+    let rows = sqlx::query(
+        "SELECT id, content FROM messages WHERE chat_id = ? AND timestamp > ? AND has_attachments = 1",
+    )
+    .bind(&chat_id)
+    .bind(timestamp)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+    for row in rows {
+        let content: String = row.try_get("content").unwrap_or_default();
+        delete_attachments_for_message(&app, &content);
+    }
     sqlx::query("DELETE FROM messages WHERE chat_id = ? AND timestamp > ?")
         .bind(&chat_id)
         .bind(timestamp)

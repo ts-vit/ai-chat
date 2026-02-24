@@ -21,6 +21,7 @@ dependencies = [
 name = "ai-chat"
 version = "0.1.0"
 dependencies = [
+ "base64 0.21.7",
  "futures-util",
  "reqwest",
  "serde",

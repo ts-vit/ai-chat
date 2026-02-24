@@ -1,11 +1,33 @@
-import { useEffect, useRef, useState } from "react";
-import { ActionIcon, Box, Button, Group, Paper, Text, Textarea, Tooltip } from "@mantine/core";
-import { IconCheck, IconCopy, IconEdit } from "@tabler/icons-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActionIcon, Box, Button, Group, Modal, Paper, Text, Textarea, Tooltip } from "@mantine/core";
+import { IconCheck, IconCopy, IconEdit, IconFile, IconFileText } from "@tabler/icons-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
+import { openPath } from "@tauri-apps/plugin-opener";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { appDataDir, join } from "@tauri-apps/api/path";
 import { useChatStore } from "../store/chatStore";
-import type { Message } from "../types";
+import { notify } from "../utils/notify";
+import type { ContentBlock, Message } from "../types";
+
+function tryParseContentBlocks(content: string): ContentBlock[] | null {
+    const trimmed = content.trimStart();
+    if (!trimmed.startsWith("[")) return null;
+    try {
+        const parsed = JSON.parse(content) as unknown;
+        if (!Array.isArray(parsed)) return null;
+        const valid = parsed.every(
+            (b: unknown) =>
+                typeof b === "object" &&
+                b !== null &&
+                typeof (b as ContentBlock).type === "string"
+        );
+        return valid ? (parsed as ContentBlock[]) : null;
+    } catch {
+        return null;
+    }
+}
 
 function CodeBlock({
     children,
@@ -66,11 +88,27 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState("");
+    const [appDataDirPath, setAppDataDirPath] = useState<string | null>(null);
+    const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
+    useEffect(() => {
+        appDataDir().then(setAppDataDirPath).catch(() => setAppDataDirPath(null));
+    }, []);
 
     // Автоскролл при новых сообщениях и стриминге
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isStreaming]);
+
+    const handleOpenFile = useCallback(async (relativePath: string) => {
+        if (!appDataDirPath) return;
+        try {
+            const fullPath = await join(appDataDirPath, relativePath);
+            await openPath(fullPath);
+        } catch (e) {
+            notify.error(String(e));
+        }
+    }, [appDataDirPath]);
 
     const handleCopyMessage = async (content: string, messageId: string) => {
         try {
@@ -81,6 +119,104 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
             // clipboard API unavailable or denied
         }
     };
+
+    const renderUserMessageBody = useCallback(
+        (content: string) => {
+            const blocks = tryParseContentBlocks(content);
+            if (!blocks || blocks.length === 0) {
+                return (
+                    <Text
+                        size="sm"
+                        style={{
+                            whiteSpace: "pre-wrap",
+                            fontSize: settings.font_size ?? 14,
+                        }}
+                    >
+                        {content}
+                    </Text>
+                );
+            }
+            const sep = appDataDirPath?.includes("\\") ? "\\" : "/";
+            const base = appDataDirPath?.replace(/[/\\]+$/, "") ?? "";
+            return (
+                <Box>
+                    {blocks.map((block, i) => {
+                        if (block.type === "image") {
+                            if (!appDataDirPath) return <Text key={i} size="xs" c="dimmed">Загрузка...</Text>;
+                            const fullPath = base + sep + block.path.replace(/^[/\\]+/, "");
+                            const src = convertFileSrc(fullPath);
+                            return (
+                                <Box key={i} mb="xs">
+                                    <img
+                                        src={src}
+                                        alt={block.name}
+                                        style={{
+                                            maxWidth: 400,
+                                            borderRadius: "var(--mantine-radius-sm)",
+                                            cursor: "pointer",
+                                            display: "block",
+                                        }}
+                                        onClick={() => setLightboxSrc(src)}
+                                    />
+                                </Box>
+                            );
+                        }
+                        if (block.type === "file") {
+                            return (
+                                <Paper key={i} p="xs" mb="xs" withBorder radius="sm">
+                                    <Group gap="xs" wrap="nowrap">
+                                        {block.mime === "application/pdf" ? (
+                                            <IconFile size={20} stroke={1.5} style={{ color: "var(--mantine-color-default-color)" }} />
+                                        ) : (
+                                            <IconFileText size={20} stroke={1.5} style={{ color: "var(--mantine-color-default-color)" }} />
+                                        )}
+                                        <Text size="sm" lineClamp={1} style={{ flex: 1 }}>
+                                            {block.name}
+                                        </Text>
+                                        {block.mime && (
+                                            <Text size="xs" c="dimmed">
+                                                {block.mime}
+                                            </Text>
+                                        )}
+                                        <Button
+                                            size="xs"
+                                            variant="light"
+                                            onClick={() => handleOpenFile(block.path)}
+                                        >
+                                            Открыть
+                                        </Button>
+                                    </Group>
+                                </Paper>
+                            );
+                        }
+                        if (block.type === "text") {
+                            return (
+                                <Box
+                                    key={i}
+                                    className="markdown-body"
+                                    style={{ fontSize: settings.font_size ?? 14 }}
+                                >
+                                    <ReactMarkdown
+                                        remarkPlugins={[remarkGfm]}
+                                        rehypePlugins={[rehypeHighlight]}
+                                        components={{
+                                            pre: ({ children, ...props }) => (
+                                                <CodeBlock {...props}>{children}</CodeBlock>
+                                            ),
+                                        }}
+                                    >
+                                        {block.text}
+                                    </ReactMarkdown>
+                                </Box>
+                            );
+                        }
+                        return null;
+                    })}
+                </Box>
+            );
+        },
+        [settings.font_size, appDataDirPath, handleOpenFile]
+    );
 
     if (messages.length === 0) {
         return (
@@ -169,15 +305,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                 }}
                             >
                                 {msg.role === "user" ? (
-                                    <Text
-                                        size="sm"
-                                        style={{
-                                            whiteSpace: "pre-wrap",
-                                            fontSize: settings.font_size ?? 14,
-                                        }}
-                                    >
-                                        {msg.content}
-                                    </Text>
+                                    renderUserMessageBody(msg.content)
                                 ) : (
                                     <Box
                                         className="markdown-body"
@@ -249,6 +377,22 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                 </Box>
             ))}
             <div ref={bottomRef} />
+            <Modal
+                opened={lightboxSrc !== null}
+                onClose={() => setLightboxSrc(null)}
+                withCloseButton
+                size="lg"
+                padding={0}
+                styles={{ body: { padding: 0 } }}
+            >
+                {lightboxSrc && (
+                    <img
+                        src={lightboxSrc}
+                        alt=""
+                        style={{ maxWidth: "100%", height: "auto", display: "block" }}
+                    />
+                )}
+            </Modal>
         </Box>
     );
 }

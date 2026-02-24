@@ -1,3 +1,13 @@
+// Вложение (черновик на фронте перед отправкой)
+export interface Attachment {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    previewUrl: string;
+    data: number[];
+}
+
 // Одно сообщение в чате
 export interface Message {
     id: string;
@@ -9,6 +19,7 @@ export interface Message {
     promptTokens?: number;
     completionTokens?: number;
     cost?: number;
+    hasAttachments?: boolean;
 }
 
 // Пресет системного промпта
@@ -39,7 +50,26 @@ export interface ModelInfo {
         completion: string;
     };
     context_length: number;
+    supportsVision: boolean;
 }
+
+// Блоки content для сообщений с вложениями (формат в БД)
+export interface ContentBlockImage {
+    type: "image";
+    path: string;
+    name: string;
+}
+export interface ContentBlockFile {
+    type: "file";
+    path: string;
+    name: string;
+    mime?: string;
+}
+export interface ContentBlockText {
+    type: "text";
+    text: string;
+}
+export type ContentBlock = ContentBlockImage | ContentBlockFile | ContentBlockText;
 
 // Настройки приложения — соответствует Rust AppSettings
 export interface AppSettings {

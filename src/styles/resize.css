@@ -1,0 +1,13 @@
+.resize-handle {
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    border-left: 1px solid var(--mantine-color-default-border);
+    transition: background 0.2s;
+    flex-shrink: 0;
+}
+
+.resize-handle:hover,
+.resize-handle.active {
+    background: var(--mantine-color-blue-5);
+}

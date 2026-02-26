@@ -16,7 +16,16 @@ use commands::presets::{
     create_preset, delete_preset, get_all_presets, get_chat_system_prompt, set_chat_system_prompt,
     update_preset,
 };
-use commands::settings::{get_balance, get_credits, get_models, load_settings, save_settings};
+use commands::ollama::{
+    check_ollama_status, delete_ollama_model, get_local_ollama_models, pull_ollama_model,
+};
+use commands::providers::{
+    create_custom_provider, delete_custom_provider, get_custom_providers, update_custom_provider,
+};
+use commands::settings::{
+    fetch_custom_provider_models, get_balance, get_credits, get_models, get_ollama_models,
+    load_settings, save_settings,
+};
 use commands::snippets::{
     create_category, create_snippet, delete_category, delete_snippet, get_all_categories,
     get_all_snippets, get_snippets_by_category, update_category, update_snippet,
@@ -59,6 +68,13 @@ const DB_MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL,
         FOREIGN KEY (category_id) REFERENCES categories(id)
     )",
+    "CREATE TABLE IF NOT EXISTS custom_providers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        api_key TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+    )",
 ];
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -66,6 +82,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let path = app
                 .path()
@@ -90,6 +107,8 @@ pub fn run() {
                 "ALTER TABLE messages ADD COLUMN cost REAL DEFAULT 0.0",
                 "ALTER TABLE chats ADD COLUMN system_prompt TEXT DEFAULT ''",
                 "ALTER TABLE messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE chats ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'openrouter'",
+                "ALTER TABLE chats ADD COLUMN model TEXT DEFAULT ''",
             ];
             for sql in alter_queries {
                 let _ = tauri::async_runtime::block_on(sqlx::query(sql).execute(&pool));
@@ -107,8 +126,18 @@ pub fn run() {
             save_settings,
             load_settings,
             get_models,
+            get_ollama_models,
+            fetch_custom_provider_models,
             get_balance,
+            check_ollama_status,
+            get_local_ollama_models,
+            pull_ollama_model,
+            delete_ollama_model,
             get_credits,
+            get_custom_providers,
+            create_custom_provider,
+            update_custom_provider,
+            delete_custom_provider,
             create_chat,
             delete_chat,
             get_all_chats,

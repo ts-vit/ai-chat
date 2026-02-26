@@ -6,7 +6,7 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "store:default",
+    "store:default","shell:allow-execute","shell:allow-open",
     {
       "identifier": "opener:allow-open-path",
       "allow": [{ "path": "$APPDATA/**" }]

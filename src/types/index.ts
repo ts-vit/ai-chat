@@ -39,6 +39,14 @@ export interface Chat {
     createdAt: number;
     updatedAt?: number;
     systemPrompt?: string;
+    providerId?: string;
+    model?: string;
+}
+
+// Локальная модель Ollama (вывод ollama list)
+export interface OllamaLocalModel {
+    name: string;
+    size: string;
 }
 
 // Модель из OpenRouter /api/v1/models
@@ -71,6 +79,15 @@ export interface ContentBlockText {
 }
 export type ContentBlock = ContentBlockImage | ContentBlockFile | ContentBlockText;
 
+// Кастомный провайдер (OpenAI-совместимый API)
+export interface CustomProvider {
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    createdAt: number;
+}
+
 // Настройки приложения — соответствует Rust AppSettings
 export interface AppSettings {
     api_key: string;
@@ -78,7 +95,15 @@ export interface AppSettings {
     model: string;
     temperature: number;
     max_tokens: number;
+    topP?: number | null;
+    topK?: number | null;
+    frequencyPenalty?: number | null;
+    presencePenalty?: number | null;
     font_size: number;
+    ollamaUrl: string;
+    openrouterEnabledModels: string[];
+    ollamaEnabledModels: string[];
+    customProviderEnabledModels: Record<string, string[]>;
 }
 
 // Payload событий стриминга — приходят из Rust через emit

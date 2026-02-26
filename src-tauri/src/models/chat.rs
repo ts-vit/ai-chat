@@ -47,6 +47,16 @@ pub struct ChatRequest {
     pub temperature: Option<f32>, // креативность 0.0-2.0
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,  // лимит длины ответа
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<serde_json::Value>,
 }
 
 // Структура SSE-чанка от API (при stream: true)
@@ -97,6 +107,45 @@ pub struct DbChat {
     pub updated_at: i64,
     #[serde(rename = "systemPrompt", default)]
     pub system_prompt: Option<String>,
+    #[serde(rename = "providerId", default)]
+    pub provider_id: String,
+    #[serde(rename = "model", default)]
+    pub model: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DbCustomProvider {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateCustomProviderInput {
+    pub name: String,
+    pub base_url: String,
+    pub api_key: String,
+}
+
+/// Модель для ответа get_models / get_ollama_models (совместимость с фронтом ModelInfo)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Model {
+    pub id: String,
+    pub name: String,
+    pub context_length: u32,
+    pub pricing: ModelPricing,
+    pub supports_vision: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPricing {
+    pub prompt: String,
+    pub completion: String,
 }
 
 // Сообщение из БД (ответы команд)
@@ -131,6 +180,26 @@ pub struct AppSettings {
     pub temperature: f32,
     pub max_tokens: u32,
     pub font_size: u32,
+    #[serde(default = "default_ollama_url", rename = "ollamaUrl")]
+    pub ollama_url: String,
+    #[serde(default, rename = "openrouterEnabledModels")]
+    pub openrouter_enabled_models: Vec<String>,
+    #[serde(default, rename = "ollamaEnabledModels")]
+    pub ollama_enabled_models: Vec<String>,
+    #[serde(default, rename = "customProviderEnabledModels")]
+    pub custom_provider_enabled_models: std::collections::HashMap<String, Vec<String>>,
+    #[serde(default, rename = "topP")]
+    pub top_p: Option<f32>,
+    #[serde(default, rename = "topK")]
+    pub top_k: Option<u32>,
+    #[serde(default, rename = "frequencyPenalty")]
+    pub frequency_penalty: Option<f32>,
+    #[serde(default, rename = "presencePenalty")]
+    pub presence_penalty: Option<f32>,
+}
+
+fn default_ollama_url() -> String {
+    "http://localhost:11434/v1".to_string()
 }
 
 impl Default for AppSettings {
@@ -142,6 +211,14 @@ impl Default for AppSettings {
             temperature: 0.7,
             max_tokens: 4096,
             font_size: 14,
+            ollama_url: default_ollama_url(),
+            openrouter_enabled_models: Vec::new(),
+            ollama_enabled_models: Vec::new(),
+            custom_provider_enabled_models: std::collections::HashMap::new(),
+            top_p: None,
+            top_k: None,
+            frequency_penalty: None,
+            presence_penalty: None,
         }
     }
 }

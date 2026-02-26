@@ -3,5 +3,7 @@ pub mod attachments;
 pub mod chat;
 pub mod database;
 pub mod presets;
+pub mod providers;
 pub mod settings;
+pub mod ollama;
 pub mod snippets;

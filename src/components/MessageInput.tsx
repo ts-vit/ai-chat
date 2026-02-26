@@ -16,7 +16,6 @@ import { useChatStore } from "../store/chatStore";
 import { getUniqueVariableNames } from "./VariablesModal";
 import { VariablesModal } from "./VariablesModal";
 import { notify } from "../utils/notify";
-import type { Attachment } from "../types";
 
 const SLASH_POPUP_MAX_ITEMS = 6;
 const SLASH_POPUP_ITEM_HEIGHT = 44;

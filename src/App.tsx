@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Box } from "@mantine/core";
 import { Sidebar } from "./components/Sidebar";
 import { ChatArea } from "./components/ChatArea";
 import { NavigationSidebar } from "./components/NavigationSidebar";
+import { ProviderSelectModal } from "./components/ProviderSelectModal";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SettingsPage } from "./components/SettingsPage";
 import { SnippetsPage } from "./components/SnippetsPage";
@@ -20,13 +21,28 @@ function App() {
     const loadPresets = useChatStore((s) => s.loadPresets);
     const loadCategories = useChatStore((s) => s.loadCategories);
     const loadSnippets = useChatStore((s) => s.loadSnippets);
+    const loadCustomProviders = useChatStore((s) => s.loadCustomProviders);
     const loadBalance = useChatStore((s) => s.loadBalance);
+    const createChat = useChatStore((s) => s.createChat);
 
     const { isCompact, isNarrow, isVeryNarrow } = useWindowSize();
     const [leftSidebarWidth, setLeftSidebarWidth] = useState(260);
     const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
+    const [providerModalOpened, setProviderModalOpened] = useState(false);
+
+    const handleNewChat = useCallback(() => {
+        setProviderModalOpened(true);
+    }, []);
+
+    const handleProviderConfirm = useCallback(
+        (providerId: string, model: string) => {
+            createChat(providerId, model);
+            setProviderModalOpened(false);
+        },
+        [createChat]
+    );
 
     useEffect(() => {
         if (isCompact) setRightSidebarOpen(false);
@@ -38,7 +54,8 @@ function App() {
         loadPresets();
         loadCategories();
         loadSnippets();
-    }, [loadSettings, loadChats, loadPresets, loadCategories, loadSnippets, loadBalance]);
+        loadCustomProviders();
+    }, [loadSettings, loadChats, loadPresets, loadCategories, loadSnippets, loadCustomProviders, loadBalance]);
 
     if (currentView === "settings") {
         return <SettingsPage />;
@@ -51,9 +68,18 @@ function App() {
 
     return (
         <Box style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+            <ProviderSelectModal
+                opened={providerModalOpened}
+                onClose={() => setProviderModalOpened(false)}
+                onConfirm={handleProviderConfirm}
+            />
             {leftSidebarOpen && (
                 <>
-                    <Sidebar style={{ width: effectiveLeftWidth }} compact={isNarrow} />
+                    <Sidebar
+                        style={{ width: effectiveLeftWidth }}
+                        compact={isNarrow}
+                        onNewChat={handleNewChat}
+                    />
                     {!isNarrow && (
                         <ResizeHandle
                             onResize={(delta) =>
@@ -70,6 +96,7 @@ function App() {
                 rightSidebarOpen={rightSidebarOpen}
                 compact={isCompact}
                 hideStats={isVeryNarrow}
+                onNewChat={handleNewChat}
             />
             {rightSidebarOpen && (
                 <>

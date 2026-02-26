@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ActionIcon, Box, Button, Group, Modal, Popover, Select, Stack, Text, Textarea, Title, Tooltip } from "@mantine/core";
+import { ActionIcon, Badge, Box, Button, Group, Modal, Popover, Select, Stack, Text, Textarea, Title, Tooltip } from "@mantine/core";
 import {
     IconLayoutSidebarLeftCollapse,
     IconLayoutSidebarLeftExpand,
@@ -23,6 +23,7 @@ interface ChatAreaProps {
     rightSidebarOpen: boolean;
     compact?: boolean;
     hideStats?: boolean;
+    onNewChat: () => void;
 }
 
 export function ChatArea({
@@ -32,6 +33,7 @@ export function ChatArea({
     rightSidebarOpen,
     compact = false,
     hideStats = false,
+    onNewChat,
 }: ChatAreaProps) {
     const {
         chats,
@@ -39,7 +41,6 @@ export function ChatArea({
         presets,
         isStreaming,
         isStopping,
-        createChat,
         sendMessage,
         editAndResend,
         stopGeneration,
@@ -173,6 +174,11 @@ export function ChatArea({
                             styles={{ input: { minWidth: 120, maxWidth: 180 } }}
                         />
                     ))}
+                {activeChat?.model ? (
+                    <Badge variant="light" size="sm" title={activeChat.model} style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {activeChat.model}
+                    </Badge>
+                ) : null}
                 <Tooltip label={rightSidebarOpen ? "Скрыть правую панель" : "Показать правую панель"}>
                     <ActionIcon
                         variant="subtle"
@@ -231,7 +237,7 @@ export function ChatArea({
                         <Text size="sm" c="dimmed" ta="center">
                             Создайте новый чат или выберите существующий из списка
                         </Text>
-                        <Button variant="light" leftSection={<IconPlus size={16} />} onClick={createChat}>
+                        <Button variant="light" leftSection={<IconPlus size={16} />} onClick={onNewChat}>
                             Новый чат
                         </Button>
                     </Stack>
@@ -244,7 +250,12 @@ export function ChatArea({
                         onEditResend={editAndResend}
                         compact={compact}
                     />
-                    {!hideStats && <ChatStats compact={compact} />}
+                    {!hideStats && (
+                        <ChatStats
+                            compact={compact}
+                            providerId={activeChat?.providerId ?? "openrouter"}
+                        />
+                    )}
                     <MessageInput
                         onSend={sendMessage}
                         onStop={stopGeneration}

@@ -12,7 +12,9 @@ type Pool = sqlx::SqlitePool;
 pub async fn create_chat(
     pool: State<'_, Pool>,
     title: String,
-    system_prompt: String,
+    system_prompt: Option<String>,
+    provider_id: Option<String>,
+    model: Option<String>,
 ) -> Result<DbChat, String> {
     let id = Uuid::new_v4().to_string();
     let now = std::time::SystemTime::now()
@@ -20,14 +22,22 @@ pub async fn create_chat(
         .map_err(|e| e.to_string())?
         .as_secs() as i64;
 
+    let system_prompt_str = system_prompt.unwrap_or_default();
+    let provider = provider_id
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "openrouter".to_string());
+    let model_str = model.unwrap_or_default();
+
     sqlx::query(
-        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model) VALUES (?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&title)
     .bind(now)
     .bind(now)
-    .bind(&system_prompt)
+    .bind(&system_prompt_str)
+    .bind(&provider)
+    .bind(&model_str)
     .execute(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
@@ -37,7 +47,9 @@ pub async fn create_chat(
         title,
         created_at: now,
         updated_at: now,
-        system_prompt: Some(system_prompt).filter(|s| !s.is_empty()),
+        system_prompt: Some(system_prompt_str.clone()).filter(|s| !s.is_empty()),
+        provider_id: provider,
+        model: model_str,
     })
 }
 
@@ -63,7 +75,7 @@ pub async fn delete_chat(app: AppHandle, pool: State<'_, Pool>, id: String) -> R
 #[tauri::command]
 pub async fn get_all_chats(pool: State<'_, Pool>) -> Result<Vec<DbChat>, String> {
     let rows = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt FROM chats ORDER BY updated_at DESC",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model FROM chats ORDER BY updated_at DESC",
     )
     .fetch_all(pool.inner())
     .await
@@ -77,6 +89,8 @@ pub async fn get_all_chats(pool: State<'_, Pool>) -> Result<Vec<DbChat>, String>
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
             system_prompt: row.try_get::<String, _>("system_prompt").ok(),
+            provider_id: row.try_get::<String, _>("provider_id").unwrap_or_else(|_| "openrouter".to_string()),
+            model: row.try_get::<String, _>("model").unwrap_or_default(),
         })
         .collect();
     Ok(chats)

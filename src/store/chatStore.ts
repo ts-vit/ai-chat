@@ -10,7 +10,9 @@ import type {
     Category,
     Snippet,
     AppSettings,
+    CustomProvider,
     ModelInfo,
+    OllamaLocalModel,
     BalanceInfo,
     StreamPayload,
     StreamDonePayload,
@@ -24,6 +26,32 @@ interface DbChatResponse {
     createdAt: number;
     updatedAt: number;
     systemPrompt?: string;
+    providerId?: string;
+    model?: string;
+}
+
+function resolveProvider(
+    providerId: string,
+    settings: AppSettings,
+    customProviders: CustomProvider[]
+): { baseUrl: string; apiKey: string } | null {
+    if (providerId === "openrouter") {
+        return {
+            baseUrl: "https://openrouter.ai/api/v1",
+            apiKey: settings.api_key ?? "",
+        };
+    }
+    if (providerId === "ollama") {
+        return {
+            baseUrl: settings.ollamaUrl?.trim() || "http://localhost:11434/v1",
+            apiKey: "",
+        };
+    }
+    const provider = customProviders.find((p) => p.id === providerId);
+    if (provider) {
+        return { baseUrl: provider.baseUrl, apiKey: provider.apiKey ?? "" };
+    }
+    return null;
 }
 
 interface DbMessageResponse {
@@ -62,6 +90,7 @@ interface ChatState {
     presets: Preset[];
     categories: Category[];
     snippets: Snippet[];
+    customProviders: CustomProvider[];
     insertSnippetText: string | null;
     isStreaming: boolean;
     isStopping: boolean;
@@ -71,8 +100,19 @@ interface ChatState {
     currentView: "chat" | "settings" | "snippets";
     setView: (view: "chat" | "settings" | "snippets") => void;
     models: ModelInfo[];
+    ollamaStatus: "unknown" | "available" | "unavailable";
+    localOllamaModels: OllamaLocalModel[];
+    checkOllamaStatus: () => Promise<void>;
+    loadLocalOllamaModels: () => Promise<void>;
+    deleteOllamaModel: (modelName: string) => Promise<void>;
     modelsLoading: boolean;
     modelsError: string | null;
+
+    loadCustomProviders: () => Promise<void>;
+    createCustomProvider: (name: string, baseUrl: string, apiKey: string) => Promise<void>;
+    updateCustomProvider: (id: string, name: string, baseUrl: string, apiKey: string) => Promise<void>;
+    deleteCustomProvider: (id: string) => Promise<void>;
+    testOllamaConnection: (baseUrl: string) => Promise<number>;
     addAttachment: (attachment: Attachment) => void;
     removeAttachment: (id: string) => void;
     clearAttachments: () => void;
@@ -94,7 +134,7 @@ interface ChatState {
     deleteSnippet: (id: string) => Promise<void>;
     setInsertSnippetText: (text: string | null) => void;
 
-    createChat: () => Promise<void>;
+    createChat: (providerId?: string, model?: string) => Promise<void>;
     deleteChat: (id: string) => Promise<void>;
     setActiveChat: (id: string) => Promise<void>;
     loadChats: () => Promise<void>;
@@ -113,6 +153,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     presets: [],
     categories: [],
     snippets: [],
+    customProviders: [],
     insertSnippetText: null,
     settings: {
         api_key: "",
@@ -121,6 +162,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         temperature: 0.7,
         max_tokens: 4096,
         font_size: 14,
+        ollamaUrl: "http://localhost:11434/v1",
+        openrouterEnabledModels: [],
+        ollamaEnabledModels: [],
+        customProviderEnabledModels: {},
     },
     isStreaming: false,
     isStopping: false,
@@ -138,6 +183,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
     models: [],
     modelsLoading: false,
     modelsError: null,
+    ollamaStatus: "unknown",
+    localOllamaModels: [],
+    checkOllamaStatus: async () => {
+        set({ ollamaStatus: "unknown" });
+        try {
+            const ok = await invoke<boolean>("check_ollama_status");
+            set({ ollamaStatus: ok ? "available" : "unavailable" });
+        } catch {
+            set({ ollamaStatus: "unavailable" });
+        }
+    },
+    loadLocalOllamaModels: async () => {
+        try {
+            const list = await invoke<OllamaLocalModel[]>("get_local_ollama_models");
+            set({ localOllamaModels: list ?? [] });
+        } catch {
+            set({ localOllamaModels: [] });
+        }
+    },
+    deleteOllamaModel: async (modelName) => {
+        try {
+            await invoke("delete_ollama_model", { modelName });
+            await get().loadLocalOllamaModels();
+            notify.success("Модель удалена");
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
     loadModels: async (force) => {
         const { models } = get();
         if (!force && models.length > 0) return;
@@ -339,6 +412,53 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
+    loadCustomProviders: async () => {
+        try {
+            const list = await invoke<CustomProvider[]>("get_custom_providers");
+            set({ customProviders: list ?? [] });
+        } catch (e) {
+            console.error("Failed to load custom providers:", e);
+        }
+    },
+
+    createCustomProvider: async (name, baseUrl, apiKey) => {
+        try {
+            await invoke("create_custom_provider", { name, baseUrl, apiKey });
+            await get().loadCustomProviders();
+            notify.success("Провайдер добавлен");
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    updateCustomProvider: async (id, name, baseUrl, apiKey) => {
+        try {
+            await invoke("update_custom_provider", {
+                id,
+                input: { name, baseUrl, apiKey },
+            });
+            await get().loadCustomProviders();
+            notify.success("Провайдер обновлён");
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    deleteCustomProvider: async (id) => {
+        try {
+            await invoke("delete_custom_provider", { id });
+            await get().loadCustomProviders();
+            notify.success("Провайдер удалён");
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    testOllamaConnection: async (baseUrl) => {
+        const list = await invoke<unknown[]>("get_ollama_models", { baseUrl });
+        return Array.isArray(list) ? list.length : 0;
+    },
+
     setInsertSnippetText: (text) => set({ insertSnippetText: text }),
 
     loadBalance: async () => {
@@ -376,7 +496,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
-    createChat: async () => {
+    createChat: async (providerId = "openrouter", model = "") => {
         try {
             const { presets } = get();
             const defaultPreset = presets.find((p) => p.isDefault);
@@ -385,6 +505,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const created = await invoke<DbChatResponse>("create_chat", {
                 title: "Новый чат",
                 systemPrompt,
+                providerId,
+                model,
             });
             const newChat: Chat = {
                 id: created.id,
@@ -393,6 +515,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 createdAt: created.createdAt,
                 updatedAt: created.updatedAt,
                 systemPrompt: systemPrompt || undefined,
+                providerId: created.providerId ?? "openrouter",
+                model: created.model ?? "",
             };
             set((state) => ({
                 chats: [newChat, ...state.chats],
@@ -453,6 +577,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 createdAt: c.createdAt,
                 updatedAt: c.updatedAt,
                 systemPrompt: c.systemPrompt || undefined,
+                providerId: c.providerId ?? "openrouter",
+                model: c.model ?? "",
             }));
             set({ chats });
         } catch (e) {
@@ -461,17 +587,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     },
 
     sendMessage: async (content: string) => {
-        const { settings, activeChatId, chats } = get();
-
-        if (!settings.api_key) {
-            notify.warning("API-ключ не задан. Откройте настройки.");
-            return;
-        }
+        const { settings, activeChatId, chats, customProviders } = get();
 
         if (!activeChatId) return;
 
         const chat = chats.find((c) => c.id === activeChatId);
         if (!chat) return;
+
+        const providerId = chat.providerId ?? "openrouter";
+        const resolved = resolveProvider(providerId, settings, customProviders);
+        if (!resolved) {
+            notify.error("Провайдер не найден");
+            return;
+        }
+        if (providerId === "openrouter" && !resolved.apiKey?.trim()) {
+            notify.warning("API-ключ не задан. Откройте настройки.");
+            return;
+        }
 
         const now = Date.now();
 
@@ -487,13 +619,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 completionTokens: 0,
                 cost: 0.0,
             });
+            const chatModel = chat.model ?? "";
             const assistantMsg = await invoke<DbMessageResponse>("save_message", {
                 chatId: activeChatId,
                 role: "assistant",
                 content: "",
                 parentId: userMsg.id,
                 timestamp: now + 1,
-                model: settings.model,
+                model: chatModel,
                 promptTokens: 0,
                 completionTokens: 0,
                 cost: 0.0,
@@ -502,7 +635,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const assistantMessage: Message = {
                 ...dbMessageToMessage(assistantMsg),
                 content: "",
-                model: settings.model,
+                model: chatModel,
             };
             set((state) => ({
                 chats: state.chats.map((c) =>
@@ -558,9 +691,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             unlisteners.push(
                 await listen<StreamUsagePayload>("chat-stream-usage", (event) => {
-                    const { models, settings } = get();
+                    const { models, chats } = get();
                     const payload = event.payload;
-                    const modelInfo = models.find((m) => m.id === settings.model);
+                    const currentChat = chats.find((c) => c.id === activeChatId);
+                    const modelId = currentChat?.model ?? "";
+                    const modelInfo = modelId ? models.find((m) => m.id === modelId) : null;
                     let cost = 0;
                     if (modelInfo?.pricing) {
                         cost =
@@ -646,11 +781,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ];
             const { draftAttachments } = get();
             const invokePayload: Record<string, unknown> = {
-                apiKey: settings.api_key,
-                model: settings.model,
+                chatId: activeChatId,
+                baseUrl: resolved.baseUrl,
+                apiKey: resolved.apiKey,
+                model: chat.model ?? "",
                 messages: apiMessages,
                 temperature: settings.temperature,
                 maxTokens: settings.max_tokens,
+                topP: settings.topP ?? null,
+                topK: settings.topK ?? null,
+                frequencyPenalty: settings.frequencyPenalty ?? null,
+                presencePenalty: settings.presencePenalty ?? null,
             };
             if (draftAttachments.length > 0) {
                 invokePayload.userMessageId = userMsg.id;
@@ -702,17 +843,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     },
 
     editAndResend: async (messageId: string, newContent: string) => {
-        const { settings, activeChatId, chats, isStreaming } = get();
+        const { settings, activeChatId, chats, customProviders, isStreaming } = get();
 
         if (isStreaming) return;
-        if (!settings.api_key) {
-            notify.warning("API-ключ не задан. Откройте настройки.");
-            return;
-        }
         if (!activeChatId) return;
 
         const chat = chats.find((c) => c.id === activeChatId);
         if (!chat) return;
+
+        const providerId = chat.providerId ?? "openrouter";
+        const resolved = resolveProvider(providerId, settings, customProviders);
+        if (!resolved) {
+            notify.error("Провайдер не найден");
+            return;
+        }
+        if (providerId === "openrouter" && !resolved.apiKey?.trim()) {
+            notify.warning("API-ключ не задан. Откройте настройки.");
+            return;
+        }
 
         const idx = chat.messages.findIndex((m) => m.id === messageId);
         if (idx === -1) return;
@@ -751,13 +899,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ...history,
             ];
 
+            const chatModel = chat.model ?? "";
             const assistantMsg = await invoke<DbMessageResponse>("save_message", {
                 chatId: activeChatId,
                 role: "assistant",
                 content: "",
                 parentId: messageId,
                 timestamp: msg.timestamp + 1,
-                model: settings.model,
+                model: chatModel,
                 promptTokens: 0,
                 completionTokens: 0,
                 cost: 0.0,
@@ -766,7 +915,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const assistantMessage: Message = {
                 ...dbMessageToMessage(assistantMsg),
                 content: "",
-                model: settings.model,
+                model: chatModel,
             };
 
             set((state) => ({
@@ -804,9 +953,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             unlisteners.push(
                 await listen<StreamUsagePayload>("chat-stream-usage", (event) => {
-                    const { models, settings: s } = get();
+                    const { models, chats } = get();
                     const payload = event.payload;
-                    const modelInfo = models.find((m) => m.id === s.model);
+                    const currentChat = chats.find((c) => c.id === activeChatId);
+                    const modelId = currentChat?.model ?? "";
+                    const modelInfo = modelId ? models.find((m) => m.id === modelId) : null;
                     let cost = 0;
                     if (modelInfo?.pricing) {
                         cost =
@@ -877,11 +1028,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
             );
 
             await invoke("send_message", {
-                apiKey: settings.api_key,
-                model: settings.model,
+                chatId: activeChatId,
+                baseUrl: resolved.baseUrl,
+                apiKey: resolved.apiKey,
+                model: chat.model ?? "",
                 messages: apiMessages,
                 temperature: settings.temperature,
                 maxTokens: settings.max_tokens,
+                topP: settings.topP ?? null,
+                topK: settings.topK ?? null,
+                frequencyPenalty: settings.frequencyPenalty ?? null,
+                presencePenalty: settings.presencePenalty ?? null,
             });
         } catch (e) {
             set({ isStreaming: false });
@@ -901,7 +1058,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     loadSettings: async () => {
         try {
-            const settings = await invoke<AppSettings>("load_settings");
+            const loaded = await invoke<AppSettings>("load_settings");
+            const settings: AppSettings = {
+                ...loaded,
+                ollamaUrl: loaded.ollamaUrl ?? "http://localhost:11434/v1",
+                openrouterEnabledModels: Array.isArray(loaded.openrouterEnabledModels) ? loaded.openrouterEnabledModels : [],
+                ollamaEnabledModels: Array.isArray(loaded.ollamaEnabledModels) ? loaded.ollamaEnabledModels : [],
+                customProviderEnabledModels: loaded.customProviderEnabledModels && typeof loaded.customProviderEnabledModels === "object"
+                    ? loaded.customProviderEnabledModels
+                    : {},
+            };
             set({ settings });
         } catch (e) {
             notify.error("Не удалось загрузить настройки");

@@ -20,11 +20,12 @@ interface SidebarProps {
     width?: number;
     style?: React.CSSProperties;
     compact?: boolean;
+    onNewChat: () => void;
 }
 
-export function Sidebar({ width = 260, style, compact = false }: SidebarProps) {
+export function Sidebar({ width = 260, style, compact = false, onNewChat }: SidebarProps) {
     const { colorScheme, toggleColorScheme } = useMantineColorScheme();
-    const { chats, activeChatId, createChat, deleteChat, setActiveChat, setView } =
+    const { chats, activeChatId, deleteChat, setActiveChat, setView } =
         useChatStore();
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
     const [chatsPopoverOpened, setChatsPopoverOpened] = useState(false);
@@ -49,14 +50,14 @@ export function Sidebar({ width = 260, style, compact = false }: SidebarProps) {
                             size="lg"
                             radius="xl"
                             variant="filled"
-                            onClick={createChat}
+                            onClick={onNewChat}
                             aria-label="Новый чат"
                         >
                             <IconPlus size={18} stroke={1.5} />
                         </ActionIcon>
                     </Tooltip>
                 ) : (
-                    <Button fullWidth onClick={createChat}>
+                    <Button fullWidth onClick={onNewChat}>
                         + Новый чат
                     </Button>
                 )}

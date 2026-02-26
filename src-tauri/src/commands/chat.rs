@@ -1,6 +1,7 @@
 // команда отправки сообщения в OpenRouter (со стримингом)
 use std::sync::Arc;
 use base64::Engine;
+use sqlx::Row;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE};
 use tauri::{AppHandle, Emitter, State};
@@ -44,14 +45,34 @@ pub async fn send_message(
     app: AppHandle,
     stream_state: State<'_, StreamState>,
     pool: State<'_, sqlx::SqlitePool>,
+    chat_id: String,
+    base_url: Option<String>,
     api_key: String,
     model: String,
     messages: Vec<Message>,
     temperature: Option<f32>,
     max_tokens: Option<u32>,
+    top_p: Option<f32>,
+    top_k: Option<u32>,
+    frequency_penalty: Option<f32>,
+    presence_penalty: Option<f32>,
     user_message_id: Option<String>,
     attachments: Option<Vec<AttachmentInput>>,
 ) -> Result<(), String> {
+    // Модель берём из чата в БД (per-чат), fallback на переданный параметр
+    let model = if !chat_id.is_empty() {
+        let row = sqlx::query("SELECT model FROM chats WHERE id = ?")
+            .bind(&chat_id)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+        row.and_then(|r| r.try_get::<String, _>("model").ok())
+            .filter(|s: &String| !s.is_empty())
+            .unwrap_or(model)
+    } else {
+        model
+    };
+
     let user_content = messages.last().map(|m| m.content.as_str()).unwrap_or("");
 
     let (request_body, _) = if let (Some(ref msg_id), Some(ref atts)) = (&user_message_id, &attachments) {
@@ -62,6 +83,11 @@ pub async fn send_message(
                 stream: true,
                 temperature,
                 max_tokens,
+                top_p,
+                top_k,
+                frequency_penalty,
+                presence_penalty,
+                stream_options: Some(serde_json::json!({"include_usage": true})),
             };
             (serde_json::to_value(&request_body).map_err(|e| e.to_string())?, None)
         } else {
@@ -122,13 +148,26 @@ pub async fn send_message(
                 "content": api_blocks
             }));
 
-            let body = serde_json::json!({
+            let mut body = serde_json::json!({
                 "model": model,
                 "messages": messages_json,
                 "stream": true,
                 "temperature": temperature,
-                "max_tokens": max_tokens
+                "max_tokens": max_tokens,
+                "stream_options": {"include_usage": true}
             });
+            if top_p.is_some() {
+                body["top_p"] = serde_json::to_value(top_p).unwrap();
+            }
+            if top_k.is_some() {
+                body["top_k"] = serde_json::to_value(top_k).unwrap();
+            }
+            if frequency_penalty.is_some() {
+                body["frequency_penalty"] = serde_json::to_value(frequency_penalty).unwrap();
+            }
+            if presence_penalty.is_some() {
+                body["presence_penalty"] = serde_json::to_value(presence_penalty).unwrap();
+            }
             (body, Some(()))
         }
     } else {
@@ -138,17 +177,31 @@ pub async fn send_message(
             stream: true,
             temperature,
             max_tokens,
+            top_p,
+            top_k,
+            frequency_penalty,
+            presence_penalty,
+            stream_options: Some(serde_json::json!({"include_usage": true})),
         };
         (serde_json::to_value(&request_body).map_err(|e| e.to_string())?, None)
     };
 
+    let base = base_url
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
+    let url = format!("{}/chat/completions", base.trim_end_matches('/'));
+
     let mut headers = HeaderMap::new();
-    headers.insert(AUTHORIZATION, format!("Bearer {}", api_key).parse().unwrap());
+    if !api_key.is_empty() {
+        if let Ok(hv) = format!("Bearer {}", api_key).parse() {
+            headers.insert(AUTHORIZATION, hv);
+        }
+    }
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
 
     let client = reqwest::Client::new();
     let response = client
-        .post("https://openrouter.ai/api/v1/chat/completions")
+        .post(&url)
         .headers(headers)
         .json(&request_body)
         .send()

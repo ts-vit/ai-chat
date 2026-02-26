@@ -3,6 +3,7 @@ import { useChatStore } from "../store/chatStore";
 
 interface ChatStatsProps {
     compact?: boolean;
+    providerId?: string;
 }
 
 function formatTokens(n: number): string {
@@ -11,7 +12,7 @@ function formatTokens(n: number): string {
     return n.toLocaleString();
 }
 
-export function ChatStats({ compact = false }: ChatStatsProps) {
+export function ChatStats({ compact = false, providerId = "openrouter" }: ChatStatsProps) {
     const { chats, activeChatId, balance, models, settings } = useChatStore();
     const activeChat = chats.find((c) => c.id === activeChatId);
     const assistantMessages = activeChat?.messages.filter((m) => m.role === "assistant") ?? [];
@@ -37,8 +38,9 @@ export function ChatStats({ compact = false }: ChatStatsProps) {
         ) : null;
 
     const parts: React.ReactNode[] = [];
+    const showBalanceAndCost = providerId === "openrouter";
 
-    if (balance !== null) {
+    if (showBalanceAndCost && balance !== null) {
         parts.push(
             <Tooltip key="balance" label="Баланс">
                 <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
@@ -64,14 +66,16 @@ export function ChatStats({ compact = false }: ChatStatsProps) {
             </Text>
         </Tooltip>
     );
-    parts.push(sep("sep3"));
-    parts.push(
-        <Tooltip key="cost" label="Стоимость чата">
-            <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
-                ${totalCost.toFixed(4)}
-            </Text>
-        </Tooltip>
-    );
+    if (showBalanceAndCost) {
+        parts.push(sep("sep3"));
+        parts.push(
+            <Tooltip key="cost" label="Стоимость чата">
+                <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
+                    ${totalCost.toFixed(4)}
+                </Text>
+            </Tooltip>
+        );
+    }
 
     return (
         <Box

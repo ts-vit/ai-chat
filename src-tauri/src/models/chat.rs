@@ -57,6 +57,10 @@ pub struct ChatRequest {
     pub presence_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modalities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_config: Option<serde_json::Value>,
 }
 
 // Структура SSE-чанка от API (при stream: true)
@@ -67,9 +71,17 @@ pub struct StreamChoice {
     pub finish_reason: Option<String>,
 }
 
+/// Элемент изображения в SSE delta (OpenRouter streaming image generation).
+#[derive(Debug, Deserialize)]
+pub struct ImageDeltaItem {
+    pub image_url: ImageUrl,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Delta {
     pub content: Option<String>,
+    #[serde(default)]
+    pub images: Option<Vec<ImageDeltaItem>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -111,6 +123,18 @@ pub struct DbChat {
     pub provider_id: String,
     #[serde(rename = "model", default)]
     pub model: String,
+    #[serde(rename = "folderId", default)]
+    pub folder_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DbFolder {
+    pub id: String,
+    pub name: String,
+    pub color: Option<String>,
+    pub sort_order: i64,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

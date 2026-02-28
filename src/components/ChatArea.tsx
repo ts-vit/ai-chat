@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ActionIcon, Badge, Box, Button, Group, Modal, Popover, Select, Stack, Text, Textarea, Title, Tooltip } from "@mantine/core";
+import { ActionIcon, Badge, Box, Button, Group, Menu, Modal, Popover, Select, Stack, Text, Textarea, Title, Tooltip } from "@mantine/core";
 import {
+    IconDownload,
     IconLayoutSidebarLeftCollapse,
     IconLayoutSidebarLeftExpand,
     IconLayoutSidebarRightCollapse,
@@ -9,10 +10,12 @@ import {
     IconMessageChatbot,
     IconPlus,
 } from "@tabler/icons-react";
+import { invoke } from "@tauri-apps/api/core";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { ChatStats } from "./ChatStats";
 import { useChatStore } from "../store/chatStore";
+import { notify } from "../utils/notify";
 
 const CUSTOM_PROMPT_VALUE = "__custom__";
 
@@ -24,6 +27,7 @@ interface ChatAreaProps {
     compact?: boolean;
     hideStats?: boolean;
     onNewChat: () => void;
+    messageInputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 export function ChatArea({
@@ -34,6 +38,7 @@ export function ChatArea({
     compact = false,
     hideStats = false,
     onNewChat,
+    messageInputRef,
 }: ChatAreaProps) {
     const {
         chats,
@@ -179,6 +184,45 @@ export function ChatArea({
                         {activeChat.model}
                     </Badge>
                 ) : null}
+                {activeChat && (
+                    <Menu position="bottom-end" withArrow>
+                        <Menu.Target>
+                            <Tooltip label="Экспорт">
+                                <ActionIcon variant="subtle" size="xs" aria-label="Экспорт">
+                                    <IconDownload size={16} stroke={1.5} />
+                                </ActionIcon>
+                            </Tooltip>
+                        </Menu.Target>
+                        <Menu.Dropdown>
+                            <Menu.Item
+                                onClick={async () => {
+                                    if (!activeChatId) return;
+                                    try {
+                                        await invoke("export_chat_json", { chatId: activeChatId });
+                                        notify.success("Чат экспортирован");
+                                    } catch (e) {
+                                        notify.error(String(e));
+                                    }
+                                }}
+                            >
+                                Экспорт в JSON
+                            </Menu.Item>
+                            <Menu.Item
+                                onClick={async () => {
+                                    if (!activeChatId) return;
+                                    try {
+                                        await invoke("export_chat_markdown", { chatId: activeChatId });
+                                        notify.success("Чат экспортирован");
+                                    } catch (e) {
+                                        notify.error(String(e));
+                                    }
+                                }}
+                            >
+                                Экспорт в Markdown
+                            </Menu.Item>
+                        </Menu.Dropdown>
+                    </Menu>
+                )}
                 <Tooltip label={rightSidebarOpen ? "Скрыть правую панель" : "Показать правую панель"}>
                     <ActionIcon
                         variant="subtle"
@@ -262,6 +306,7 @@ export function ChatArea({
                         disabled={isStreaming}
                         isStopping={isStopping}
                         compact={compact}
+                        inputRef={messageInputRef}
                     />
                 </>
             )}

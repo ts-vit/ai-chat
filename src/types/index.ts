@@ -31,6 +31,15 @@ export interface Preset {
     createdAt: number;
 }
 
+// Папка для группировки чатов
+export interface Folder {
+    id: string;
+    name: string;
+    color: string | null;
+    sortOrder: number;
+    createdAt: number;
+}
+
 // Один чат (беседа)
 export interface Chat {
     id: string;
@@ -41,6 +50,7 @@ export interface Chat {
     systemPrompt?: string;
     providerId?: string;
     model?: string;
+    folderId?: string | null;
 }
 
 // Локальная модель Ollama (вывод ollama list)
@@ -59,6 +69,8 @@ export interface ModelInfo {
     };
     context_length: number;
     supportsVision: boolean;
+    supportsImageGeneration?: boolean;
+    description?: string;
 }
 
 // Блоки content для сообщений с вложениями (формат в БД)
@@ -125,6 +137,12 @@ export interface StreamUsagePayload {
     total_tokens: number;
 }
 
+export interface StreamImagePayload {
+    messageId: string;
+    path: string;
+    index: number;
+}
+
 export interface BalanceInfo {
     total_credits: number;
     total_usage: number;
@@ -143,4 +161,33 @@ export interface Snippet {
     content: string;
     categoryId: string;
     createdAt: number;
+}
+
+export interface SearchResult {
+    messageId: string;
+    chatId: string;
+    chatTitle: string;
+    content: string;
+    role: string;
+    timestamp: number;
+    score: number;
+    source: "semantic" | "fts" | "both";
+}
+
+export interface SearchResultGroup {
+    chatId: string;
+    chatTitle: string;
+    results: SearchResult[];
+}
+
+export interface IndexingStatus {
+    indexed: number;
+    total: number;
+    inProgress: boolean;
+}
+
+export interface ImportResult {
+    chatsImported: number;
+    messagesImported: number;
+    attachmentsImported: number;
 }

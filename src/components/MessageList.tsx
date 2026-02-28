@@ -83,7 +83,7 @@ interface Props {
 }
 
 export function MessageList({ messages, isStreaming, onEditResend, compact = false }: Props) {
-    const { settings } = useChatStore();
+    const { settings, scrollTargetId, setScrollTargetId } = useChatStore();
     const bottomRef = useRef<HTMLDivElement>(null);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -99,6 +99,22 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages, isStreaming]);
+
+    // Скролл к сообщению из поиска (scrollTargetId)
+    useEffect(() => {
+        if (!scrollTargetId) return;
+        const el = document.getElementById(scrollTargetId);
+        if (!el) return;
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        const node = el as HTMLElement;
+        const prevOutline = node.style.outline;
+        node.style.outline = "2px solid var(--mantine-color-blue-5)";
+        const t = setTimeout(() => {
+            node.style.outline = prevOutline;
+            setScrollTargetId(null);
+        }, 2000);
+        return () => clearTimeout(t);
+    }, [scrollTargetId, setScrollTargetId]);
 
     const handleOpenFile = useCallback(async (relativePath: string) => {
         if (!appDataDirPath) return;
@@ -143,8 +159,13 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                     {blocks.map((block, i) => {
                         if (block.type === "image") {
                             if (!appDataDirPath) return <Text key={i} size="xs" c="dimmed">Загрузка...</Text>;
-                            const fullPath = base + sep + block.path.replace(/^[/\\]+/, "");
+                            const isAbsolute =
+                                block.path.startsWith("/") || /^[A-Za-z]:[/\\]/.test(block.path);
+                            const fullPath = isAbsolute
+                                ? block.path
+                                : base + sep + block.path.replace(/^[/\\]+/, "").replace(/\//g, sep);
                             const src = convertFileSrc(fullPath);
+                            console.log("[image block]", { path: block.path, fullPath, src });
                             return (
                                 <Box key={i} mb="xs">
                                     <img
@@ -306,6 +327,21 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                             >
                                 {msg.role === "user" ? (
                                     renderUserMessageBody(msg.content)
+                                ) : msg.role === "assistant" && tryParseContentBlocks(msg.content) ? (
+                                    renderUserMessageBody(msg.content)
+                                ) : isStreaming &&
+                                  index === messages.length - 1 &&
+                                  !msg.content.trim() ? (
+                                    <Box
+                                        className="typing-indicator"
+                                        role="status"
+                                        aria-live="polite"
+                                        aria-label="Модель печатает"
+                                    >
+                                        <span className="typing-indicator-dot" />
+                                        <span className="typing-indicator-dot" />
+                                        <span className="typing-indicator-dot" />
+                                    </Box>
                                 ) : (
                                     <Box
                                         className="markdown-body"

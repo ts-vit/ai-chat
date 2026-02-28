@@ -34,6 +34,14 @@ pub struct StreamErrorPayload {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamImagePayload {
+    pub message_id: String,
+    pub path: String,
+    pub index: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct StreamUsagePayload {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
@@ -58,6 +66,8 @@ pub async fn send_message(
     presence_penalty: Option<f32>,
     user_message_id: Option<String>,
     attachments: Option<Vec<AttachmentInput>>,
+    supports_image_generation: Option<bool>,
+    assistant_message_id: Option<String>,
 ) -> Result<(), String> {
     // Модель берём из чата в БД (per-чат), fallback на переданный параметр
     let model = if !chat_id.is_empty() {
@@ -74,6 +84,18 @@ pub async fn send_message(
     };
 
     let user_content = messages.last().map(|m| m.content.as_str()).unwrap_or("");
+    let modalities = supports_image_generation
+        .filter(|&v| v)
+        .map(|_| vec!["image".to_string(), "text".to_string()]);
+
+    // Для моделей генерации изображений не передаём параметры текстовой генерации (API возвращает 400).
+    let no_text_params = supports_image_generation == Some(true);
+    let temperature = if no_text_params { None } else { temperature };
+    let max_tokens = if no_text_params { None } else { max_tokens };
+    let top_p = if no_text_params { None } else { top_p };
+    let top_k = if no_text_params { None } else { top_k };
+    let frequency_penalty = if no_text_params { None } else { frequency_penalty };
+    let presence_penalty = if no_text_params { None } else { presence_penalty };
 
     let (request_body, _) = if let (Some(ref msg_id), Some(ref atts)) = (&user_message_id, &attachments) {
         if atts.is_empty() {
@@ -88,6 +110,8 @@ pub async fn send_message(
                 frequency_penalty,
                 presence_penalty,
                 stream_options: Some(serde_json::json!({"include_usage": true})),
+                modalities: modalities.clone(),
+                image_config: None,
             };
             (serde_json::to_value(&request_body).map_err(|e| e.to_string())?, None)
         } else {
@@ -152,10 +176,17 @@ pub async fn send_message(
                 "model": model,
                 "messages": messages_json,
                 "stream": true,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
                 "stream_options": {"include_usage": true}
             });
+            if temperature.is_some() {
+                body["temperature"] = serde_json::to_value(temperature).unwrap();
+            }
+            if max_tokens.is_some() {
+                body["max_tokens"] = serde_json::to_value(max_tokens).unwrap();
+            }
+            if let Some(ref mods) = modalities {
+                body["modalities"] = serde_json::to_value(mods).unwrap();
+            }
             if top_p.is_some() {
                 body["top_p"] = serde_json::to_value(top_p).unwrap();
             }
@@ -182,6 +213,8 @@ pub async fn send_message(
             frequency_penalty,
             presence_penalty,
             stream_options: Some(serde_json::json!({"include_usage": true})),
+            modalities: modalities.clone(),
+            image_config: None,
         };
         (serde_json::to_value(&request_body).map_err(|e| e.to_string())?, None)
     };
@@ -234,6 +267,8 @@ pub async fn send_message(
     let mut buffer = String::new();
     let app_stream = app.clone();
     let token_check = token.clone();
+    let assistant_msg_id = assistant_message_id.clone();
+    let image_index = Arc::new(Mutex::new(0u32));
 
     let stream_result = tokio::select! {
         _ = token.cancelled() => {
@@ -286,6 +321,36 @@ pub async fn send_message(
                                     let _ = app_stream.emit("chat-stream", StreamPayload {
                                         content: content.clone(),
                                     });
+                                }
+                                if let Some(ref images) = choice.delta.images {
+                                    if let Some(ref msg_id) = assistant_msg_id {
+                                        for img in images.iter() {
+                                            let data_url = img.image_url.url.trim();
+                                            if let Some(base64_str) = data_url.splitn(2, ',').nth(1) {
+                                                match base64::engine::general_purpose::STANDARD.decode(base64_str.trim()) {
+                                                    Ok(decoded) => {
+                                                        let idx = {
+                                                            let mut i = image_index.lock().await;
+                                                            let n = *i;
+                                                            *i += 1;
+                                                            n
+                                                        };
+                                                        let file_name = format!("{}.png", idx);
+                                                        if let Ok(rel_path) = save_attachment_file(&app_stream, msg_id, &file_name, &decoded) {
+                                                            let _ = app_stream.emit("chat-stream-image", StreamImagePayload {
+                                                                message_id: msg_id.clone(),
+                                                                path: rel_path,
+                                                                index: idx,
+                                                            });
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        eprintln!("[chat] image base64 decode error: {}", e);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

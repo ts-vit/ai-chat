@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+    Accordion,
     Button,
     Checkbox,
     Group,
     Loader,
     Pagination,
+    PasswordInput,
     SegmentedControl,
     Stack,
     Table,
     Text,
     TextInput,
+    Tooltip,
 } from "@mantine/core";
 import { IconSearch } from "@tabler/icons-react";
 import { useChatStore } from "../../store/chatStore";
@@ -24,7 +27,7 @@ const POPULAR_PREFIXES = [
 ];
 const PAGE_SIZE = 20;
 
-type FilterSegment = "all" | "popular" | "free";
+type FilterSegment = "all" | "popular" | "free" | "selected";
 type SortKey = "name" | "prompt" | "completion" | "context";
 
 function formatContextLength(n: number): string {
@@ -38,15 +41,23 @@ function formatPrice(priceStr: string): string {
     return `$${perM.toFixed(2)}`;
 }
 
-export interface ModelsSectionProps {
+export interface OpenRouterSectionProps {
+    apiKey: string;
+    onApiKeyChange: (key: string) => void;
+    managementKey: string;
+    onManagementKeyChange: (key: string) => void;
     openrouterEnabledModels: string[];
     onOpenrouterEnabledModelsChange: (ids: string[]) => void;
 }
 
-export function ModelsSection({
+export function OpenRouterSection({
+    apiKey,
+    onApiKeyChange,
+    managementKey,
+    onManagementKeyChange,
     openrouterEnabledModels,
     onOpenrouterEnabledModelsChange,
-}: ModelsSectionProps) {
+}: OpenRouterSectionProps) {
     const { models, modelsLoading, modelsError, loadModels } = useChatStore();
 
     const [filterSegment, setFilterSegment] = useState<FilterSegment>("all");
@@ -78,6 +89,8 @@ export function ModelsSection({
                     parseFloat(m.pricing.prompt) === 0 &&
                     parseFloat(m.pricing.completion) === 0
             );
+        } else if (filterSegment === "selected") {
+            list = list.filter((m) => openrouterEnabledModels.includes(m.id));
         }
 
         const q = searchQuery.trim().toLowerCase();
@@ -119,7 +132,7 @@ export function ModelsSection({
         }
 
         return list;
-    }, [models, filterSegment, searchQuery, sortKey, sortDir]);
+    }, [models, filterSegment, searchQuery, sortKey, sortDir, openrouterEnabledModels]);
 
     const totalPages = Math.max(1, Math.ceil(filteredModels.length / PAGE_SIZE));
     const pageModels = useMemo(() => {
@@ -152,6 +165,34 @@ export function ModelsSection({
 
     return (
         <Stack gap="lg">
+            <Accordion variant="separated">
+                <Accordion.Item value="api-key">
+                    <Accordion.Control>API-ключ</Accordion.Control>
+                    <Accordion.Panel>
+                        <PasswordInput
+                            placeholder="sk-or-..."
+                            value={apiKey}
+                            onChange={(e) => onApiKeyChange(e.currentTarget.value)}
+                        />
+                    </Accordion.Panel>
+                </Accordion.Item>
+                <Accordion.Item value="management-key">
+                    <Accordion.Control>Management key</Accordion.Control>
+                    <Accordion.Panel>
+                        <Stack gap="xs">
+                            <PasswordInput
+                                placeholder="sk-or-..."
+                                value={managementKey}
+                                onChange={(e) => onManagementKeyChange(e.currentTarget.value)}
+                            />
+                            <Text size="xs" c="dimmed">
+                                Создайте на openrouter.ai/settings/keys с галочкой Management key (для отображения баланса)
+                            </Text>
+                        </Stack>
+                    </Accordion.Panel>
+                </Accordion.Item>
+            </Accordion>
+
             <Stack gap="xs">
                 <Group justify="space-between" wrap="nowrap">
                     <Text size="sm" fw={500}>
@@ -169,6 +210,7 @@ export function ModelsSection({
                             { label: "Все", value: "all" },
                             { label: "Популярные", value: "popular" },
                             { label: "Бесплатные", value: "free" },
+                            { label: "Выбранные", value: "selected" },
                         ]}
                     />
                     <TextInput
@@ -201,7 +243,17 @@ export function ModelsSection({
                     </Group>
                 )}
 
-                {!modelsLoading && !modelsError && (
+                {!modelsLoading && !modelsError &&
+                    filterSegment === "selected" &&
+                    filteredModels.length === 0 && (
+                        <Text size="sm" c="dimmed" py="md">
+                            Нет выбранных моделей
+                        </Text>
+                    )}
+
+                {!modelsLoading &&
+                    !modelsError &&
+                    !(filterSegment === "selected" && filteredModels.length === 0) && (
                     <Table
                         withTableBorder
                         withColumnBorders
@@ -216,6 +268,9 @@ export function ModelsSection({
                                     onClick={() => handleSort("name")}
                                 >
                                     Модель{sortArrow("name")}
+                                </Table.Th>
+                                <Table.Th style={{ width: 280, maxWidth: 300 }}>
+                                    Описание
                                 </Table.Th>
                                 <Table.Th
                                     style={{ cursor: "pointer", width: 110 }}
@@ -262,6 +317,38 @@ export function ModelsSection({
                                                 {m.id}
                                             </Text>
                                         </Table.Td>
+                                        <Table.Td
+                                            style={{
+                                                maxWidth: 300,
+                                                minWidth: 0,
+                                            }}
+                                        >
+                                            {m.description?.trim() ? (
+                                                <Tooltip
+                                                    label={m.description}
+                                                    multiline
+                                                    maw={400}
+                                                >
+                                                    <Text
+                                                        size="xs"
+                                                        c="dimmed"
+                                                        style={{
+                                                            display: "-webkit-box",
+                                                            WebkitLineClamp: 3,
+                                                            WebkitBoxOrient:
+                                                                "vertical",
+                                                            overflow: "hidden",
+                                                        }}
+                                                    >
+                                                        {m.description}
+                                                    </Text>
+                                                </Tooltip>
+                                            ) : (
+                                                <Text size="xs" c="dimmed">
+                                                    —
+                                                </Text>
+                                            )}
+                                        </Table.Td>
                                         <Table.Td>
                                             <Text size="sm">
                                                 {formatPrice(m.pricing.prompt)}
@@ -284,7 +371,10 @@ export function ModelsSection({
                     </Table>
                 )}
 
-                {!modelsLoading && !modelsError && totalPages > 1 && (
+                {!modelsLoading &&
+                    !modelsError &&
+                    !(filterSegment === "selected" && filteredModels.length === 0) &&
+                    totalPages > 1 && (
                     <Group justify="center" mt="sm">
                         <Pagination
                             total={totalPages}

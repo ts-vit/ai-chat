@@ -1,8 +1,20 @@
+/** Порог: больше — значение в миллисекундах, иначе в секундах (Unix). */
+const MS_THRESHOLD = 10_000_000_000;
+
 /**
- * Форматирует Unix timestamp (в секундах) в относительную дату для отображения в списке чатов.
+ * Приводит timestamp из БД к Unix-секундам (для отображения и передачи в API).
+ * Старые записи могли быть в миллисекундах — не мигрируем, нормализуем на фронте.
+ */
+export function toUnixSeconds(timestamp: number): number {
+    return timestamp > MS_THRESHOLD ? Math.floor(timestamp / 1000) : timestamp;
+}
+
+/**
+ * Форматирует Unix timestamp (в секундах или мс — нормализуется внутри) в относительную дату для отображения в списке чатов.
  */
 export function formatRelativeDate(timestamp: number): string {
-    const date = new Date(timestamp * 1000);
+    const sec = toUnixSeconds(timestamp);
+    const date = new Date(sec * 1000);
     const now = new Date();
 
     const dateDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();

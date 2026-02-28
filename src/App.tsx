@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Box } from "@mantine/core";
 import { Sidebar } from "./components/Sidebar";
 import { ChatArea } from "./components/ChatArea";
+import { ConfirmModal } from "./components/ConfirmModal";
 import { NavigationSidebar } from "./components/NavigationSidebar";
 import { ProviderSelectModal } from "./components/ProviderSelectModal";
 import { ResizeHandle } from "./components/ResizeHandle";
+import { SearchPage } from "./components/SearchPage";
 import { SettingsPage } from "./components/SettingsPage";
 import { SnippetsPage } from "./components/SnippetsPage";
 import { useChatStore } from "./store/chatStore";
+import { useAppHotkeys } from "./hooks/useHotkeys";
 import { useWindowSize } from "./hooks/useWindowSize";
 
 function clamp(value: number, min: number, max: number): number {
@@ -16,8 +19,14 @@ function clamp(value: number, min: number, max: number): number {
 
 function App() {
     const currentView = useChatStore((s) => s.currentView);
+    const chats = useChatStore((s) => s.chats);
+    const activeChatId = useChatStore((s) => s.activeChatId);
+    const setView = useChatStore((s) => s.setView);
+    const setActiveChat = useChatStore((s) => s.setActiveChat);
+    const deleteChat = useChatStore((s) => s.deleteChat);
     const loadSettings = useChatStore((s) => s.loadSettings);
     const loadChats = useChatStore((s) => s.loadChats);
+    const loadFolders = useChatStore((s) => s.loadFolders);
     const loadPresets = useChatStore((s) => s.loadPresets);
     const loadCategories = useChatStore((s) => s.loadCategories);
     const loadSnippets = useChatStore((s) => s.loadSnippets);
@@ -31,6 +40,8 @@ function App() {
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
     const [providerModalOpened, setProviderModalOpened] = useState(false);
+    const [hotkeyDeleteConfirmOpen, setHotkeyDeleteConfirmOpen] = useState(false);
+    const messageInputRef = useRef<HTMLTextAreaElement | null>(null);
 
     const handleNewChat = useCallback(() => {
         setProviderModalOpened(true);
@@ -51,17 +62,43 @@ function App() {
     useEffect(() => {
         loadSettings().then(() => loadBalance());
         loadChats();
+        loadFolders();
         loadPresets();
         loadCategories();
         loadSnippets();
         loadCustomProviders();
-    }, [loadSettings, loadChats, loadPresets, loadCategories, loadSnippets, loadCustomProviders, loadBalance]);
+    }, [loadSettings, loadChats, loadFolders, loadPresets, loadCategories, loadSnippets, loadCustomProviders, loadBalance]);
+
+    useAppHotkeys({
+        messageInputRef,
+        currentView,
+        chats,
+        activeChatId,
+        onNewChat: handleNewChat,
+        onSearch: () => setView("search"),
+        onSettings: () => setView("settings"),
+        onRequestDeleteChat: () => setHotkeyDeleteConfirmOpen(true),
+        setActiveChat: (id) => {
+            void setActiveChat(id);
+        },
+        onEscape: () => setView("chat"),
+    });
+
+    const handleHotkeyDeleteConfirm = useCallback(() => {
+        if (activeChatId) {
+            void deleteChat(activeChatId);
+        }
+        setHotkeyDeleteConfirmOpen(false);
+    }, [activeChatId, deleteChat]);
 
     if (currentView === "settings") {
         return <SettingsPage />;
     }
     if (currentView === "snippets") {
         return <SnippetsPage />;
+    }
+    if (currentView === "search") {
+        return <SearchPage />;
     }
 
     const effectiveLeftWidth = isNarrow ? 60 : leftSidebarWidth;
@@ -72,6 +109,12 @@ function App() {
                 opened={providerModalOpened}
                 onClose={() => setProviderModalOpened(false)}
                 onConfirm={handleProviderConfirm}
+            />
+            <ConfirmModal
+                opened={hotkeyDeleteConfirmOpen}
+                onClose={() => setHotkeyDeleteConfirmOpen(false)}
+                onConfirm={handleHotkeyDeleteConfirm}
+                message="Чат и все сообщения будут удалены безвозвратно."
             />
             {leftSidebarOpen && (
                 <>
@@ -97,6 +140,7 @@ function App() {
                 compact={isCompact}
                 hideStats={isVeryNarrow}
                 onNewChat={handleNewChat}
+                messageInputRef={messageInputRef}
             />
             {rightSidebarOpen && (
                 <>

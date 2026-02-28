@@ -9,6 +9,7 @@ import {
     Title,
 } from "@mantine/core";
 import {
+    IconBox,
     IconCpu,
     IconDatabase,
     IconFileText,
@@ -20,17 +21,19 @@ import {
 import { useChatStore } from "../store/chatStore";
 import {
     AboutSection,
+    CustomProvidersSection,
     DataSection,
     GenerationSection,
     InterfaceSection,
-    ModelsSection,
+    OllamaModelsSection,
+    OpenRouterSection,
     PresetsSection,
-    ProvidersSection,
 } from "./settings";
 
 export type SettingsSection =
-    | "providers"
-    | "models"
+    | "openRouter"
+    | "ollama"
+    | "customProviders"
     | "generation"
     | "interface"
     | "presets"
@@ -38,8 +41,9 @@ export type SettingsSection =
     | "about";
 
 const NAV_ITEMS: { section: SettingsSection; label: string; icon: React.ReactNode }[] = [
-    { section: "providers", label: "Провайдеры", icon: <IconKey size={18} stroke={1.5} /> },
-    { section: "models", label: "Модели", icon: <IconCpu size={18} stroke={1.5} /> },
+    { section: "openRouter", label: "Модели OpenRouter", icon: <IconKey size={18} stroke={1.5} /> },
+    { section: "ollama", label: "Модели Ollama", icon: <IconCpu size={18} stroke={1.5} /> },
+    { section: "customProviders", label: "Модели", icon: <IconBox size={18} stroke={1.5} /> },
     { section: "generation", label: "Генерация", icon: <IconSettings size={18} stroke={1.5} /> },
     { section: "interface", label: "Интерфейс", icon: <IconPalette size={18} stroke={1.5} /> },
     { section: "presets", label: "Пресеты", icon: <IconFileText size={18} stroke={1.5} /> },
@@ -50,7 +54,7 @@ const NAV_ITEMS: { section: SettingsSection; label: string; icon: React.ReactNod
 export function SettingsPage() {
     const { settings, saveSettings, setView } = useChatStore();
 
-    const [activeSection, setActiveSection] = useState<SettingsSection>("providers");
+    const [activeSection, setActiveSection] = useState<SettingsSection>("openRouter");
     const [apiKey, setApiKey] = useState(settings.api_key);
     const [managementKey, setManagementKey] = useState(settings.management_key);
     const [ollamaUrl, setOllamaUrl] = useState(settings.ollamaUrl);
@@ -128,26 +132,31 @@ export function SettingsPage() {
 
     const renderSection = () => {
         switch (activeSection) {
-            case "providers":
+            case "openRouter":
                 return (
-                    <ProvidersSection
+                    <OpenRouterSection
                         apiKey={apiKey}
                         onApiKeyChange={setApiKey}
                         managementKey={managementKey}
                         onManagementKeyChange={setManagementKey}
+                        openrouterEnabledModels={openrouterEnabledModels}
+                        onOpenrouterEnabledModelsChange={setOpenrouterEnabledModels}
+                    />
+                );
+            case "ollama":
+                return (
+                    <OllamaModelsSection
                         ollamaUrl={ollamaUrl}
                         onOllamaUrlChange={setOllamaUrl}
                         ollamaEnabledModels={ollamaEnabledModels}
                         onOllamaEnabledModelsChange={setOllamaEnabledModels}
-                        customProviderEnabledModels={customProviderEnabledModels}
-                        onCustomProviderEnabledModelsChange={setCustomProviderEnabledModels}
                     />
                 );
-            case "models":
+            case "customProviders":
                 return (
-                    <ModelsSection
-                        openrouterEnabledModels={openrouterEnabledModels}
-                        onOpenrouterEnabledModelsChange={setOpenrouterEnabledModels}
+                    <CustomProvidersSection
+                        customProviderEnabledModels={customProviderEnabledModels}
+                        onCustomProviderEnabledModelsChange={setCustomProviderEnabledModels}
                     />
                 );
             case "generation":

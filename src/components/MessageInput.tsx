@@ -39,9 +39,11 @@ interface Props {
     disabled: boolean;
     isStopping: boolean;
     compact?: boolean;
+    /** Optional ref for the message textarea (e.g. for Ctrl+/ focus). */
+    inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-export function MessageInput({ onSend, onStop, disabled, isStopping, compact = false }: Props) {
+export function MessageInput({ onSend, onStop, disabled, isStopping, compact = false, inputRef }: Props) {
     const [value, setValue] = useState("");
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [variablesModalOpen, setVariablesModalOpen] = useState(false);
@@ -372,6 +374,7 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
             )}
             <Group wrap="nowrap" align="flex-end">
                 <Textarea
+                    ref={inputRef}
                     placeholder={compact ? "Сообщение..." : "Напишите сообщение... (наберите / для шаблонов)"}
                     value={value}
                     onChange={handleChange}

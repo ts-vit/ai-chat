@@ -2,8 +2,12 @@
 pub mod attachments;
 pub mod chat;
 pub mod database;
+pub mod folders;
+pub mod embeddings;
+pub mod export_import;
 pub mod presets;
 pub mod providers;
 pub mod settings;
 pub mod ollama;
+pub mod search;
 pub mod snippets;

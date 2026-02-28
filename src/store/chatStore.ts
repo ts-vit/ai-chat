@@ -5,6 +5,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
     Attachment,
     Chat,
+    Folder,
     Message,
     Preset,
     Category,
@@ -18,7 +19,10 @@ import type {
     StreamDonePayload,
     StreamErrorPayload,
     StreamUsagePayload,
+    StreamImagePayload,
+    ContentBlock,
 } from "../types";
+import { toUnixSeconds } from "../utils/formatDate";
 
 interface DbChatResponse {
     id: string;
@@ -28,6 +32,7 @@ interface DbChatResponse {
     systemPrompt?: string;
     providerId?: string;
     model?: string;
+    folderId?: string | null;
 }
 
 function resolveProvider(
@@ -88,6 +93,7 @@ interface ChatState {
     activeChatId: string | null;
     settings: AppSettings;
     presets: Preset[];
+    folders: Folder[];
     categories: Category[];
     snippets: Snippet[];
     customProviders: CustomProvider[];
@@ -97,8 +103,10 @@ interface ChatState {
     balance: BalanceInfo | null;
     draftAttachments: Attachment[];
 
-    currentView: "chat" | "settings" | "snippets";
-    setView: (view: "chat" | "settings" | "snippets") => void;
+    currentView: "chat" | "settings" | "snippets" | "search";
+    setView: (view: "chat" | "settings" | "snippets" | "search") => void;
+    scrollTargetId: string | null;
+    setScrollTargetId: (id: string | null) => void;
     models: ModelInfo[];
     ollamaStatus: "unknown" | "available" | "unavailable";
     localOllamaModels: OllamaLocalModel[];
@@ -138,6 +146,12 @@ interface ChatState {
     deleteChat: (id: string) => Promise<void>;
     setActiveChat: (id: string) => Promise<void>;
     loadChats: () => Promise<void>;
+    loadFolders: () => Promise<void>;
+    createFolder: (name: string, color: string | null) => Promise<void>;
+    updateFolder: (id: string, name: string, color: string | null) => Promise<void>;
+    deleteFolder: (id: string) => Promise<void>;
+    reorderFolders: (ids: string[]) => Promise<void>;
+    moveChatToFolder: (chatId: string, folderId: string | null) => Promise<void>;
 
     sendMessage: (content: string) => Promise<void>;
     editAndResend: (messageId: string, newContent: string) => Promise<void>;
@@ -151,6 +165,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     chats: [],
     activeChatId: null,
     presets: [],
+    folders: [],
     categories: [],
     snippets: [],
     customProviders: [],
@@ -180,6 +195,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     currentView: "chat",
     setView: (view) => set({ currentView: view }),
+    scrollTargetId: null,
+    setScrollTargetId: (id) => set({ scrollTargetId: id }),
     models: [],
     modelsLoading: false,
     modelsError: null,
@@ -227,7 +244,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 name: string;
                 context_length: number;
                 pricing: { prompt: string; completion: string };
-                architecture?: { modality?: string };
+                architecture?: { modality?: string; output_modalities?: string[] };
+                output_modalities?: string[];
+                description?: string;
             }
             const list: ModelInfo[] = raw
                 .filter(
@@ -244,12 +263,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 )
                 .map((m) => {
                     const modality = m.architecture?.modality;
+                    const outputModalities =
+                        m.architecture?.output_modalities ?? m.output_modalities ?? [];
+                    const supportsImageGeneration = Array.isArray(outputModalities)
+                        ? outputModalities.includes("image")
+                        : false;
                     return {
                         id: m.id,
                         name: m.name,
                         pricing: { prompt: m.pricing.prompt, completion: m.pricing.completion },
                         context_length: m.context_length,
                         supportsVision: modality?.includes("image") ?? false,
+                        supportsImageGeneration,
+                        description:
+                            typeof (m as ModelRaw).description === "string"
+                                ? (m as ModelRaw).description
+                                : undefined,
                     };
                 });
             set({ models: list, modelsLoading: false, modelsError: null });
@@ -517,6 +546,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 systemPrompt: systemPrompt || undefined,
                 providerId: created.providerId ?? "openrouter",
                 model: created.model ?? "",
+                folderId: null,
             };
             set((state) => ({
                 chats: [newChat, ...state.chats],
@@ -529,6 +559,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     deleteChat: async (id: string) => {
         try {
+            await invoke("delete_search_index", { chatId: id }).catch(console.error);
             await invoke("delete_chat", { id });
             set((state) => {
                 const chats = state.chats.filter((c) => c.id !== id);
@@ -579,10 +610,86 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 systemPrompt: c.systemPrompt || undefined,
                 providerId: c.providerId ?? "openrouter",
                 model: c.model ?? "",
+                folderId: c.folderId ?? null,
             }));
             set({ chats });
         } catch (e) {
             console.error("Failed to load chats:", e);
+        }
+    },
+
+    loadFolders: async () => {
+        try {
+            const list = await invoke<Folder[]>("get_all_folders");
+            set({ folders: list ?? [] });
+        } catch (e) {
+            console.error("Failed to load folders:", e);
+        }
+    },
+
+    createFolder: async (name: string, color: string | null) => {
+        try {
+            const folder = await invoke<Folder>("create_folder", { name, color });
+            set((state) => ({ folders: [...state.folders, folder] }));
+            notify.success("Папка создана");
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    updateFolder: async (id: string, name: string, color: string | null) => {
+        try {
+            await invoke("update_folder", { id, name, color });
+            set((state) => ({
+                folders: state.folders.map((f) =>
+                    f.id === id ? { ...f, name, color } : f
+                ),
+            }));
+            notify.success("Папка обновлена");
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    deleteFolder: async (id: string) => {
+        try {
+            await invoke("delete_folder", { id });
+            set((state) => ({ folders: state.folders.filter((f) => f.id !== id) }));
+            notify.success("Папка удалена");
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    reorderFolders: async (ids: string[]) => {
+        try {
+            await invoke("reorder_folders", { folderIds: ids });
+            set((state) => {
+                const byId = new Map(state.folders.map((f) => [f.id, f]));
+                const reordered = ids
+                    .map((id, index) => {
+                        const f = byId.get(id);
+                        return f ? { ...f, sortOrder: index } : null;
+                    })
+                    .filter((f): f is Folder => f !== null);
+                const remaining = state.folders.filter((f) => !byId.has(f.id));
+                return { folders: [...reordered, ...remaining] };
+            });
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    moveChatToFolder: async (chatId: string, folderId: string | null) => {
+        try {
+            await invoke("move_chat_to_folder", { chatId, folderId });
+            set((state) => ({
+                chats: state.chats.map((c) =>
+                    c.id === chatId ? { ...c, folderId } : c
+                ),
+            }));
+        } catch (e) {
+            notify.error(String(e));
         }
     },
 
@@ -605,7 +712,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             return;
         }
 
-        const now = Date.now();
+        const now = Math.floor(Date.now() / 1000);
 
         try {
             const userMsg = await invoke<DbMessageResponse>("save_message", {
@@ -640,52 +747,130 @@ export const useChatStore = create<ChatState>((set, get) => ({
             set((state) => ({
                 chats: state.chats.map((c) =>
                     c.id === activeChatId
-                        ? {
-                              ...c,
-                              messages: [...c.messages, userMessage, assistantMessage],
-                              title:
-                                  c.messages.length === 0
-                                      ? content.slice(0, 30) +
-                                        (content.length > 30 ? "..." : "")
-                                      : c.title,
-                          }
+                        ? { ...c, messages: [...c.messages, userMessage, assistantMessage] }
                         : c
                 ),
                 isStreaming: true,
             }));
 
-            if (chat.messages.length === 0) {
-                const title =
-                    content.slice(0, 30) + (content.length > 30 ? "..." : "");
-                await invoke("update_chat_title", {
-                    id: activeChatId,
-                    title,
-                });
+            if (chat.title === "Новый чат" && chat.messages.length === 0) {
+                const trimmed = content.trim();
+                if (trimmed) {
+                    const title = trimmed.substring(0, 60);
+                    const truncated =
+                        title.length < trimmed.length
+                            ? (title.lastIndexOf(" ") > 0
+                                  ? title.substring(0, title.lastIndexOf(" "))
+                                  : title) + "…"
+                            : title;
+                    try {
+                        await invoke("update_chat_title", {
+                            chatId: activeChatId,
+                            title: truncated,
+                        });
+                        set((state) => ({
+                            chats: state.chats.map((c) =>
+                                c.id === activeChatId ? { ...c, title: truncated } : c
+                            ),
+                        }));
+                    } catch (e) {
+                        console.error("update_chat_title failed:", e);
+                    }
+                }
             }
 
             const unlisteners: UnlistenFn[] = [];
+            const streamImagePaths: { path: string; index: number }[] = [];
 
             unlisteners.push(
                 await listen<StreamPayload>("chat-stream", (event) => {
-                    set((state) => ({
-                        chats: state.chats.map((c) =>
-                            c.id === activeChatId
-                                ? {
-                                      ...c,
-                                      messages: c.messages.map((msg, idx) =>
-                                          idx === c.messages.length - 1
-                                              ? {
-                                                    ...msg,
-                                                    content:
-                                                        msg.content +
-                                                        event.payload.content,
-                                                }
-                                              : msg
-                                      ),
-                                  }
-                                : c
-                        ),
-                    }));
+                    set((state) => {
+                        const chat = state.chats.find((c) => c.id === activeChatId);
+                        if (!chat) return state;
+                        const lastMsg = chat.messages[chat.messages.length - 1];
+                        if (!lastMsg || lastMsg.id !== assistantMsg.id) return state;
+                        let newContent: string;
+                        const trimmed = lastMsg.content.trimStart();
+                        if (trimmed.startsWith("[")) {
+                            try {
+                                const blocks = JSON.parse(lastMsg.content) as ContentBlock[];
+                                const textBlock = blocks.find((b) => b.type === "text");
+                                if (textBlock && textBlock.type === "text") {
+                                    const updated = blocks.map((b) =>
+                                        b.type === "text"
+                                            ? { ...b, text: b.text + event.payload.content }
+                                            : b
+                                    );
+                                    newContent = JSON.stringify(updated);
+                                } else {
+                                    newContent = lastMsg.content + event.payload.content;
+                                }
+                            } catch {
+                                newContent = lastMsg.content + event.payload.content;
+                            }
+                        } else {
+                            newContent = lastMsg.content + event.payload.content;
+                        }
+                        return {
+                            chats: state.chats.map((c) =>
+                                c.id === activeChatId
+                                    ? {
+                                          ...c,
+                                          messages: c.messages.map((msg) =>
+                                              msg.id === assistantMsg.id
+                                                  ? { ...msg, content: newContent }
+                                                  : msg
+                                          ),
+                                      }
+                                    : c
+                            ),
+                        };
+                    });
+                })
+            );
+
+            unlisteners.push(
+                await listen<StreamImagePayload>("chat-stream-image", (event) => {
+                    const payload = event.payload;
+                    if (payload.messageId !== assistantMsg.id) return;
+                    streamImagePaths.push({ path: payload.path, index: payload.index });
+                    const imageBlock: ContentBlock = {
+                        type: "image",
+                        path: payload.path,
+                        name: `image_${payload.index}.png`,
+                    };
+                    set((state) => {
+                        const chat = state.chats.find((c) => c.id === activeChatId);
+                        if (!chat) return state;
+                        const msg = chat.messages.find((m) => m.id === assistantMsg.id);
+                        if (!msg) return state;
+                        let blocks: ContentBlock[];
+                        const trimmed = msg.content.trimStart();
+                        if (trimmed.startsWith("[")) {
+                            try {
+                                blocks = JSON.parse(msg.content) as ContentBlock[];
+                            } catch {
+                                blocks = [{ type: "text", text: msg.content }];
+                            }
+                            blocks = [...blocks, imageBlock];
+                        } else {
+                            blocks = [{ type: "text", text: msg.content }, imageBlock];
+                        }
+                        return {
+                            chats: state.chats.map((c) =>
+                                c.id === activeChatId
+                                    ? {
+                                          ...c,
+                                          messages: c.messages.map((m) =>
+                                              m.id === assistantMsg.id
+                                                  ? { ...m, content: JSON.stringify(blocks) }
+                                                  : m
+                                          ),
+                                      }
+                                    : c
+                            ),
+                        };
+                    });
                 })
             );
 
@@ -732,9 +917,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             unlisteners.push(
                 await listen<StreamDonePayload>("chat-stream-done", (event) => {
+                    const fullContent = event.payload.full_content;
+                    let contentToSave: string;
+                    if (streamImagePaths.length > 0) {
+                        const sorted = [...streamImagePaths].sort((a, b) => a.index - b.index);
+                        const blocks: ContentBlock[] = [
+                            { type: "text", text: fullContent },
+                            ...sorted.map((p) => ({
+                                type: "image" as const,
+                                path: p.path,
+                                name: `image_${p.index}.png`,
+                            })),
+                        ];
+                        contentToSave = JSON.stringify(blocks);
+                    } else {
+                        contentToSave = fullContent;
+                    }
                     invoke("update_message_content", {
                         id: assistantMsg.id,
-                        content: event.payload.full_content,
+                        content: contentToSave,
                     }).catch(console.error);
                     set((state) => ({
                         isStreaming: false,
@@ -745,11 +946,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                                       ...c,
                                       messages: c.messages.map((msg) =>
                                           msg.id === assistantMsg.id
-                                              ? {
-                                                    ...msg,
-                                                    content:
-                                                        event.payload.full_content,
-                                                }
+                                              ? { ...msg, content: contentToSave }
                                               : msg
                                       ),
                                   }
@@ -758,6 +955,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     }));
                     unlisteners.forEach((fn) => fn());
                     get().loadBalance();
+                    invoke("index_message", { messageId: userMsg.id }).catch(console.error);
+                    invoke("index_message", { messageId: assistantMsg.id }).catch(console.error);
                 })
             );
 
@@ -779,7 +978,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ...history,
                 { role: "user" as const, content },
             ];
-            const { draftAttachments } = get();
+            const { draftAttachments, models } = get();
+            const currentModel = chat.model ? models.find((m) => m.id === chat.model) : null;
             const invokePayload: Record<string, unknown> = {
                 chatId: activeChatId,
                 baseUrl: resolved.baseUrl,
@@ -792,6 +992,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 topK: settings.topK ?? null,
                 frequencyPenalty: settings.frequencyPenalty ?? null,
                 presencePenalty: settings.presencePenalty ?? null,
+                supportsImageGeneration: currentModel?.supportsImageGeneration ?? false,
+                assistantMessageId: assistantMsg.id,
             };
             if (draftAttachments.length > 0) {
                 invokePayload.userMessageId = userMsg.id;
@@ -905,7 +1107,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 role: "assistant",
                 content: "",
                 parentId: messageId,
-                timestamp: msg.timestamp + 1,
+                timestamp: toUnixSeconds(msg.timestamp) + 1,
                 model: chatModel,
                 promptTokens: 0,
                 completionTokens: 0,
@@ -928,26 +1130,97 @@ export const useChatStore = create<ChatState>((set, get) => ({
             }));
 
             const unlisteners: UnlistenFn[] = [];
+            const streamImagePathsEdit: { path: string; index: number }[] = [];
 
             unlisteners.push(
                 await listen<StreamPayload>("chat-stream", (event) => {
-                    set((state) => ({
-                        chats: state.chats.map((c) =>
-                            c.id === activeChatId
-                                ? {
-                                      ...c,
-                                      messages: c.messages.map((m, i) =>
-                                          i === c.messages.length - 1
-                                              ? {
-                                                    ...m,
-                                                    content: m.content + event.payload.content,
-                                                }
-                                              : m
-                                      ),
-                                  }
-                                : c
-                        ),
-                    }));
+                    set((state) => {
+                        const chat = state.chats.find((c) => c.id === activeChatId);
+                        if (!chat) return state;
+                        const lastMsg = chat.messages[chat.messages.length - 1];
+                        if (!lastMsg || lastMsg.id !== assistantMsg.id) return state;
+                        let newContent: string;
+                        const trimmed = lastMsg.content.trimStart();
+                        if (trimmed.startsWith("[")) {
+                            try {
+                                const blocks = JSON.parse(lastMsg.content) as ContentBlock[];
+                                const textBlock = blocks.find((b) => b.type === "text");
+                                if (textBlock && textBlock.type === "text") {
+                                    const updated = blocks.map((b) =>
+                                        b.type === "text"
+                                            ? { ...b, text: b.text + event.payload.content }
+                                            : b
+                                    );
+                                    newContent = JSON.stringify(updated);
+                                } else {
+                                    newContent = lastMsg.content + event.payload.content;
+                                }
+                            } catch {
+                                newContent = lastMsg.content + event.payload.content;
+                            }
+                        } else {
+                            newContent = lastMsg.content + event.payload.content;
+                        }
+                        return {
+                            chats: state.chats.map((c) =>
+                                c.id === activeChatId
+                                    ? {
+                                          ...c,
+                                          messages: c.messages.map((msg) =>
+                                              msg.id === assistantMsg.id
+                                                  ? { ...msg, content: newContent }
+                                                  : msg
+                                          ),
+                                      }
+                                    : c
+                            ),
+                        };
+                    });
+                })
+            );
+
+            unlisteners.push(
+                await listen<StreamImagePayload>("chat-stream-image", (event) => {
+                    const payload = event.payload;
+                    if (payload.messageId !== assistantMsg.id) return;
+                    streamImagePathsEdit.push({ path: payload.path, index: payload.index });
+                    const imageBlock: ContentBlock = {
+                        type: "image",
+                        path: payload.path,
+                        name: `image_${payload.index}.png`,
+                    };
+                    set((state) => {
+                        const chat = state.chats.find((c) => c.id === activeChatId);
+                        if (!chat) return state;
+                        const msg = chat.messages.find((m) => m.id === assistantMsg.id);
+                        if (!msg) return state;
+                        let blocks: ContentBlock[];
+                        const trimmed = msg.content.trimStart();
+                        if (trimmed.startsWith("[")) {
+                            try {
+                                blocks = JSON.parse(msg.content) as ContentBlock[];
+                            } catch {
+                                blocks = [{ type: "text", text: msg.content }];
+                            }
+                            blocks = [...blocks, imageBlock];
+                        } else {
+                            blocks = [{ type: "text", text: msg.content }, imageBlock];
+                        }
+                        return {
+                            chats: state.chats.map((c) =>
+                                c.id === activeChatId
+                                    ? {
+                                          ...c,
+                                          messages: c.messages.map((m) =>
+                                              m.id === assistantMsg.id
+                                                  ? { ...m, content: JSON.stringify(blocks) }
+                                                  : m
+                                          ),
+                                      }
+                                    : c
+                            ),
+                        };
+                    });
                 })
             );
 
@@ -994,9 +1267,25 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             unlisteners.push(
                 await listen<StreamDonePayload>("chat-stream-done", (event) => {
+                    const fullContentEdit = event.payload.full_content;
+                    let contentToSaveEdit: string;
+                    if (streamImagePathsEdit.length > 0) {
+                        const sorted = [...streamImagePathsEdit].sort((a, b) => a.index - b.index);
+                        const blocks: ContentBlock[] = [
+                            { type: "text", text: fullContentEdit },
+                            ...sorted.map((p) => ({
+                                type: "image" as const,
+                                path: p.path,
+                                name: `image_${p.index}.png`,
+                            })),
+                        ];
+                        contentToSaveEdit = JSON.stringify(blocks);
+                    } else {
+                        contentToSaveEdit = fullContentEdit;
+                    }
                     invoke("update_message_content", {
                         id: assistantMsg.id,
-                        content: event.payload.full_content,
+                        content: contentToSaveEdit,
                     }).catch(console.error);
                     set((state) => ({
                         isStreaming: false,
@@ -1007,7 +1296,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                                       ...c,
                                       messages: c.messages.map((m) =>
                                           m.id === assistantMsg.id
-                                              ? { ...m, content: event.payload.full_content }
+                                              ? { ...m, content: contentToSaveEdit }
                                               : m
                                       ),
                                   }
@@ -1016,6 +1305,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     }));
                     unlisteners.forEach((fn) => fn());
                     get().loadBalance();
+                    invoke("index_message", { messageId }).catch(console.error);
+                    invoke("index_message", { messageId: assistantMsg.id }).catch(console.error);
                 })
             );
 
@@ -1027,6 +1318,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 })
             );
 
+            const editModels = get().models;
+            const editModelInfo = chat.model ? editModels.find((m) => m.id === chat.model) : null;
             await invoke("send_message", {
                 chatId: activeChatId,
                 baseUrl: resolved.baseUrl,
@@ -1039,6 +1332,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 topK: settings.topK ?? null,
                 frequencyPenalty: settings.frequencyPenalty ?? null,
                 presencePenalty: settings.presencePenalty ?? null,
+                supportsImageGeneration: editModelInfo?.supportsImageGeneration ?? false,
+                assistantMessageId: assistantMsg.id,
             });
         } catch (e) {
             set({ isStreaming: false });

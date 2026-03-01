@@ -11,7 +11,7 @@ use commands::attachments::save_attachment;
 use commands::chat::{send_message, stop_generation, StreamState};
 use commands::database::{
     create_chat, delete_chat, delete_messages_after, get_all_chats, get_messages, save_message,
-    update_chat_title, update_message_content, update_message_usage,
+    update_chat_model, update_chat_title, update_message_content, update_message_usage,
 };
 use commands::folders::{
     create_folder, delete_folder, get_all_folders, move_chat_to_folder, reorder_folders,
@@ -138,6 +138,7 @@ pub fn run() {
                 "ALTER TABLE chats ADD COLUMN model TEXT DEFAULT ''",
                 "ALTER TABLE messages ADD COLUMN fts_indexed INTEGER DEFAULT 0",
                 "ALTER TABLE chats ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL",
+                "ALTER TABLE chats ADD COLUMN is_image_model INTEGER NOT NULL DEFAULT 0",
             ];
             for sql in alter_queries {
                 let _ = tauri::async_runtime::block_on(sqlx::query(sql).execute(&pool));
@@ -315,6 +316,7 @@ pub fn run() {
             update_message_usage,
             get_messages,
             update_chat_title,
+            update_chat_model,
             delete_messages_after,
             create_preset,
             update_preset,

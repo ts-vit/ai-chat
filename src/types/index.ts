@@ -116,6 +116,8 @@ export interface AppSettings {
     openrouterEnabledModels: string[];
     ollamaEnabledModels: string[];
     customProviderEnabledModels: Record<string, string[]>;
+    language: string;
+    sendByEnter?: boolean;
 }
 
 // Payload событий стриминга — приходят из Rust через emit

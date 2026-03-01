@@ -125,6 +125,8 @@ pub struct DbChat {
     pub model: String,
     #[serde(rename = "folderId", default)]
     pub folder_id: Option<String>,
+    #[serde(rename = "isImageModel", default)]
+    pub is_image_model: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -220,10 +222,18 @@ pub struct AppSettings {
     pub frequency_penalty: Option<f32>,
     #[serde(default, rename = "presencePenalty")]
     pub presence_penalty: Option<f32>,
+    #[serde(default)]
+    pub language: String,
+    #[serde(default = "default_send_by_enter", rename = "sendByEnter")]
+    pub send_by_enter: bool,
 }
 
 fn default_ollama_url() -> String {
     "http://localhost:11434/v1".to_string()
+}
+
+fn default_send_by_enter() -> bool {
+    true
 }
 
 impl Default for AppSettings {
@@ -243,6 +253,8 @@ impl Default for AppSettings {
             top_k: None,
             frequency_penalty: None,
             presence_penalty: None,
+            language: String::new(),
+            send_by_enter: true,
         }
     }
 }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
     Badge,
@@ -93,6 +94,7 @@ function VariablePreview({ content }: { content: string }) {
 }
 
 export function SnippetsPage() {
+    const { t } = useTranslation();
     const {
         categories,
         snippets,
@@ -130,10 +132,10 @@ export function SnippetsPage() {
 
     const categorySelectData = useMemo(
         () => [
-            { value: "all", label: "Все" },
+            { value: "all", label: t("snippets.allCategories") },
             ...categories.map((c) => ({ value: c.id, label: c.name })),
         ],
-        [categories]
+        [categories, t]
     );
 
     const filteredSnippets = useMemo(() => {
@@ -263,9 +265,9 @@ export function SnippetsPage() {
                     <Group justify="space-between" align="center">
                         <Group>
                             <Button variant="subtle" onClick={() => setView("chat")}>
-                                ← Назад
+                                ← {t("common.back")}
                             </Button>
-                            <Title order={2}>Шаблоны промптов</Title>
+                            <Title order={2}>{t("snippets.title")}</Title>
                         </Group>
                     </Group>
 
@@ -273,10 +275,10 @@ export function SnippetsPage() {
                     <Stack gap="xs">
                         <Group justify="space-between" align="center">
                             <Text size="sm" fw={500}>
-                                Категории
+                                {t("snippets.categories")}
                             </Text>
                             <Button size="xs" variant="light" onClick={() => openCategoryModal()}>
-                                + Категория
+                                {t("snippets.addCategory")}
                             </Button>
                         </Group>
                         <Group gap="xs" wrap="wrap">
@@ -285,23 +287,23 @@ export function SnippetsPage() {
                                     <Badge variant="light" size="lg">
                                         {c.name}
                                     </Badge>
-                                    <Tooltip label="Редактировать">
+                                    <Tooltip label={t("common.edit")}>
                                         <ActionIcon
                                             variant="subtle"
                                             size="xs"
                                             onClick={() => openCategoryModal(c)}
-                                            aria-label="Редактировать"
+                                            aria-label={t("common.edit")}
                                         >
                                             <IconEdit size={14} stroke={1.5} />
                                         </ActionIcon>
                                     </Tooltip>
-                                    <Tooltip label="Удалить">
+                                    <Tooltip label={t("common.delete")}>
                                         <ActionIcon
                                             variant="subtle"
                                             size="xs"
                                             color="red"
                                             onClick={() => setDeletingCategoryId(c.id)}
-                                            aria-label="Удалить"
+                                            aria-label={t("common.delete")}
                                         >
                                             <IconTrash size={14} stroke={1.5} />
                                         </ActionIcon>
@@ -315,10 +317,10 @@ export function SnippetsPage() {
                     <Stack gap="xs">
                         <Group justify="space-between" align="center" wrap="wrap">
                             <Text size="sm" fw={500}>
-                                Шаблоны
+                                {t("snippets.snippetsLabel")}
                             </Text>
                             <Button size="xs" variant="light" onClick={() => openSnippetModal()}>
-                                + Шаблон
+                                {t("snippets.addSnippet")}
                             </Button>
                         </Group>
                         <Group wrap="nowrap" align="flex-end" gap="sm">
@@ -333,7 +335,7 @@ export function SnippetsPage() {
                                 style={{ minWidth: 140 }}
                             />
                             <TextInput
-                                placeholder="Поиск..."
+                                placeholder={t("snippets.search")}
                                 leftSection={<IconSearch size={16} stroke={1.5} />}
                                 value={searchQuery}
                                 onChange={(e) => {
@@ -345,7 +347,7 @@ export function SnippetsPage() {
                         </Group>
                         {pageSnippets.length === 0 ? (
                             <Text size="xs" c="dimmed">
-                                Нет шаблонов. Добавьте категорию и шаблон.
+                                {t("snippets.noSnippetsHint")}
                             </Text>
                         ) : (
                             <Stack gap="xs">
@@ -362,23 +364,23 @@ export function SnippetsPage() {
                                                 <ContentPreview content={s.content} />
                                             </Stack>
                                             <Group gap="sm" wrap="nowrap">
-                                                <Tooltip label="Редактировать">
+                                                <Tooltip label={t("common.edit")}>
                                                     <ActionIcon
                                                         variant="subtle"
                                                         size="xs"
                                                         onClick={() => openSnippetModal(s)}
-                                                        aria-label="Редактировать"
+                                                        aria-label={t("common.edit")}
                                                     >
                                                         <IconEdit size={14} stroke={1.5} />
                                                     </ActionIcon>
                                                 </Tooltip>
-                                                <Tooltip label="Удалить">
+                                                <Tooltip label={t("common.delete")}>
                                                     <ActionIcon
                                                         variant="subtle"
                                                         size="xs"
                                                         color="red"
                                                         onClick={() => setDeletingSnippetId(s.id)}
-                                                        aria-label="Удалить"
+                                                        aria-label={t("common.delete")}
                                                     >
                                                         <IconTrash size={14} stroke={1.5} />
                                                     </ActionIcon>
@@ -388,7 +390,7 @@ export function SnippetsPage() {
                                                     variant="light"
                                                     onClick={() => handleInsertSnippet(s.content)}
                                                 >
-                                                    Вставить в чат
+                                                    {t("snippets.insertInChat")}
                                                 </Button>
                                             </Group>
                                         </Group>
@@ -411,23 +413,23 @@ export function SnippetsPage() {
 
             {/* Модалка категории */}
             <Modal
-                title={categoryEditId ? "Редактировать категорию" : "Добавить категорию"}
+                title={categoryEditId ? t("snippets.editCategory") : t("snippets.addCategoryModal")}
                 opened={categoryModalOpen}
                 onClose={closeCategoryModal}
             >
                 <Stack gap="sm">
                     <TextInput
-                        label="Название"
-                        placeholder="Название категории"
+                        label={t("common.name")}
+                        placeholder={t("snippets.namePlaceholder")}
                         value={categoryName}
                         onChange={(e) => setCategoryName(e.currentTarget.value)}
                     />
                     <Group justify="flex-end" gap="sm">
                         <Button variant="subtle" onClick={closeCategoryModal}>
-                            Отмена
+                            {t("common.cancel")}
                         </Button>
                         <Button onClick={saveCategoryFromModal} disabled={!categoryName.trim()}>
-                            Сохранить
+                            {t("common.save")}
                         </Button>
                     </Group>
                 </Stack>
@@ -435,28 +437,28 @@ export function SnippetsPage() {
 
             {/* Модалка сниппета */}
             <Modal
-                title={snippetEditId ? "Редактировать шаблон" : "Добавить шаблон"}
+                title={snippetEditId ? t("snippets.editSnippet") : t("snippets.addSnippetModal")}
                 opened={snippetModalOpen}
                 onClose={closeSnippetModal}
                 size="lg"
             >
                 <Stack gap="sm">
                     <TextInput
-                        label="Название"
-                        placeholder="Название шаблона"
+                        label={t("common.name")}
+                        placeholder={t("snippets.snippetNamePlaceholder")}
                         value={snippetName}
                         onChange={(e) => setSnippetName(e.currentTarget.value)}
                     />
                     <Select
-                        label="Категория"
+                        label={t("snippets.categoryLabel")}
                         data={categories.map((c) => ({ value: c.id, label: c.name }))}
                         value={snippetCategoryId}
                         onChange={setSnippetCategoryId}
-                        placeholder="Выберите категорию"
+                        placeholder={t("snippets.categoryPlaceholder")}
                     />
                     <Textarea
-                        label="Содержимое"
-                        placeholder="Текст шаблона. Используйте {название} для переменных."
+                        label={t("snippets.contentLabel")}
+                        placeholder={t("snippets.contentPlaceholder")}
                         value={snippetContent}
                         onChange={(e) => setSnippetContent(e.currentTarget.value)}
                         minRows={4}
@@ -464,25 +466,25 @@ export function SnippetsPage() {
                         autosize
                     />
                     <Text size="xs" c="dimmed">
-                        Используйте {"{название}"} для переменных.
+                        {t("snippets.variablesHint")}
                     </Text>
                     {snippetContent && (
                         <Stack gap={4}>
                             <Text size="xs" fw={500} c="dimmed">
-                                Превью переменных:
+                                {t("snippets.variablesPreview")}
                             </Text>
                             <VariablePreview content={snippetContent} />
                         </Stack>
                     )}
                     <Group justify="flex-end" gap="sm">
                         <Button variant="subtle" onClick={closeSnippetModal}>
-                            Отмена
+                            {t("common.cancel")}
                         </Button>
                         <Button
                             onClick={saveSnippetFromModal}
                             disabled={!snippetName.trim() || !snippetCategoryId}
                         >
-                            Сохранить
+                            {t("common.save")}
                         </Button>
                     </Group>
                 </Stack>
@@ -497,7 +499,7 @@ export function SnippetsPage() {
                         setDeletingCategoryId(null);
                     }
                 }}
-                message="Категория будет удалена. Нельзя удалить категорию, к которой привязаны шаблоны."
+                message={t("snippets.confirmDeleteCategory")}
             />
 
             <ConfirmModal
@@ -509,7 +511,7 @@ export function SnippetsPage() {
                         setDeletingSnippetId(null);
                     }
                 }}
-                message="Шаблон будет удалён безвозвратно."
+                message={t("snippets.confirmDeleteSnippet")}
             />
 
             <VariablesModal

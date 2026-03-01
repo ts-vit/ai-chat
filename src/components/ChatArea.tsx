@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { ActionIcon, Badge, Box, Button, Group, Menu, Modal, Popover, Select, Stack, Text, Textarea, Title, Tooltip } from "@mantine/core";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { ActionIcon, Box, Button, Group, Menu, Modal, Popover, Select, Stack, Text, Textarea, Title, Tooltip } from "@mantine/core";
 import {
     IconDownload,
     IconLayoutSidebarLeftCollapse,
@@ -40,27 +41,36 @@ export function ChatArea({
     onNewChat,
     messageInputRef,
 }: ChatAreaProps) {
+    const { t } = useTranslation();
     const {
         chats,
         activeChatId,
         presets,
+        models,
         isStreaming,
         isStopping,
         sendMessage,
         editAndResend,
         stopGeneration,
         setChatSystemPrompt,
+        updateChatModel,
+        settings,
+        customProviders,
+        localOllamaModels,
+        loadLocalOllamaModels,
     } = useChatStore();
 
     const activeChat = chats.find((c) => c.id === activeChatId);
     const [customModalOpen, setCustomModalOpen] = useState(false);
     const [customPromptDraft, setCustomPromptDraft] = useState("");
     const [presetPopoverOpen, setPresetPopoverOpen] = useState(false);
+    const [customProviderModelsCache, setCustomProviderModelsCache] = useState<Record<string, string[]>>({});
+    const [customModelsLoading, setCustomModelsLoading] = useState(false);
 
     const presetSelectData = [
-        { value: "", label: "Без промпта" },
+        { value: "", label: t("chat.noPrompt") },
         ...presets.map((p) => ({ value: p.id, label: p.name })),
-        { value: CUSTOM_PROMPT_VALUE, label: "Кастомный..." },
+        { value: CUSTOM_PROMPT_VALUE, label: t("chat.customPrompt") },
     ];
 
     const currentSystemPrompt = activeChat?.systemPrompt ?? "";
@@ -74,6 +84,57 @@ export function ChatArea({
           : currentSystemPrompt
             ? CUSTOM_PROMPT_VALUE
             : "";
+
+    const providerId = activeChat?.providerId ?? "openrouter";
+    const isCustomProvider = providerId !== "openrouter" && providerId !== "ollama";
+
+    useEffect(() => {
+        if (providerId === "ollama") {
+            loadLocalOllamaModels();
+        }
+    }, [providerId, loadLocalOllamaModels]);
+
+    useEffect(() => {
+        if (!isCustomProvider || !providerId) return;
+        if (customProviderModelsCache[providerId] !== undefined) return;
+        const provider = customProviders.find((p) => p.id === providerId);
+        if (!provider) return;
+        setCustomModelsLoading(true);
+        invoke<Array<{ id: string; name: string }>>("fetch_custom_provider_models", {
+            baseUrl: provider.baseUrl,
+            apiKey: provider.apiKey ?? "",
+        })
+            .then((list) => {
+                const ids = Array.isArray(list) ? list.map((m) => m.id) : [];
+                setCustomProviderModelsCache((prev) => ({ ...prev, [providerId]: ids }));
+            })
+            .catch((e) => {
+                notify.error(String(e));
+                setCustomProviderModelsCache((prev) => ({ ...prev, [providerId]: [] }));
+            })
+            .finally(() => setCustomModelsLoading(false));
+    }, [isCustomProvider, providerId, customProviders, customProviderModelsCache]);
+
+    const modelSelectData = useMemo(() => {
+        if (providerId === "openrouter") {
+            const models = settings.openrouterEnabledModels ?? [];
+            return models.map((id) => ({ value: id, label: id }));
+        }
+        if (providerId === "ollama") {
+            return localOllamaModels.map((m) => ({ value: m.name, label: m.name }));
+        }
+        if (isCustomProvider) {
+            const ids = customProviderModelsCache[providerId] ?? [];
+            return ids.map((id) => ({ value: id, label: id }));
+        }
+        return [];
+    }, [providerId, isCustomProvider, settings.openrouterEnabledModels, localOllamaModels, customProviderModelsCache]);
+
+    const handleModelChange = (value: string | null) => {
+        if (!activeChatId || value === null || value === "") return;
+        const modelInfo = models.find((m) => m.id === value);
+        updateChatModel(activeChatId, value, modelInfo?.supportsImageGeneration ?? false);
+    };
 
     const handlePresetChange = (value: string | null) => {
         if (!activeChatId) return;
@@ -120,12 +181,12 @@ export function ChatArea({
                 justify="space-between"
                 align="center"
             >
-                <Tooltip label={leftSidebarOpen ? "Скрыть левую панель" : "Показать левую панель"}>
+                <Tooltip label={leftSidebarOpen ? t("chat.hideLeftPanel") : t("chat.showLeftPanel")}>
                     <ActionIcon
                         variant="subtle"
                         size="lg"
                         onClick={onToggleLeftSidebar}
-                        aria-label={leftSidebarOpen ? "Скрыть левую панель" : "Показать левую панель"}
+                        aria-label={leftSidebarOpen ? t("chat.hideLeftPanel") : t("chat.showLeftPanel")}
                     >
                         {leftSidebarOpen ? (
                             <IconLayoutSidebarLeftCollapse size={18} stroke={1.5} />
@@ -145,12 +206,12 @@ export function ChatArea({
                             onChange={setPresetPopoverOpen}
                         >
                             <Popover.Target>
-                                <Tooltip label="Системный промпт">
+                                <Tooltip label={t("chat.systemPrompt")}>
                                     <ActionIcon
                                         variant="subtle"
                                         size="lg"
                                         onClick={() => setPresetPopoverOpen((o) => !o)}
-                                        aria-label="Системный промпт"
+                                        aria-label={t("chat.systemPrompt")}
                                     >
                                         <IconMessage2 size={18} stroke={1.5} />
                                     </ActionIcon>
@@ -162,7 +223,7 @@ export function ChatArea({
                                     data={presetSelectData}
                                     value={selectValue}
                                     onChange={handlePresetChange}
-                                    placeholder="Системный промпт"
+                                    placeholder={t("chat.systemPrompt")}
                                     allowDeselect={false}
                                     styles={{ input: { minWidth: "100%" } }}
                                 />
@@ -179,16 +240,24 @@ export function ChatArea({
                             styles={{ input: { minWidth: 120, maxWidth: 180 } }}
                         />
                     ))}
-                {activeChat?.model ? (
-                    <Badge variant="light" size="sm" title={activeChat.model} style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {activeChat.model}
-                    </Badge>
-                ) : null}
+                {activeChat && (
+                    <Select
+                        size="xs"
+                        data={modelSelectData}
+                        value={activeChat.model ?? ""}
+                        onChange={handleModelChange}
+                        placeholder={customModelsLoading && isCustomProvider ? t("common.loading") : t("chat.selectModel")}
+                        searchable
+                        allowDeselect={false}
+                        disabled={customModelsLoading && isCustomProvider}
+                        styles={{ input: { minWidth: 140, maxWidth: 300 } }}
+                    />
+                )}
                 {activeChat && (
                     <Menu position="bottom-end" withArrow>
                         <Menu.Target>
-                            <Tooltip label="Экспорт">
-                                <ActionIcon variant="subtle" size="xs" aria-label="Экспорт">
+                            <Tooltip label={t("chat.export")}>
+                                <ActionIcon variant="subtle" size="xs" aria-label={t("chat.export")}>
                                     <IconDownload size={16} stroke={1.5} />
                                 </ActionIcon>
                             </Tooltip>
@@ -199,36 +268,36 @@ export function ChatArea({
                                     if (!activeChatId) return;
                                     try {
                                         await invoke("export_chat_json", { chatId: activeChatId });
-                                        notify.success("Чат экспортирован");
+                                        notify.success(t("chat.exportSuccess"));
                                     } catch (e) {
                                         notify.error(String(e));
                                     }
                                 }}
                             >
-                                Экспорт в JSON
+                                {t("chat.exportJson")}
                             </Menu.Item>
                             <Menu.Item
                                 onClick={async () => {
                                     if (!activeChatId) return;
                                     try {
                                         await invoke("export_chat_markdown", { chatId: activeChatId });
-                                        notify.success("Чат экспортирован");
+                                        notify.success(t("chat.exportSuccess"));
                                     } catch (e) {
                                         notify.error(String(e));
                                     }
                                 }}
                             >
-                                Экспорт в Markdown
+                                {t("chat.exportMarkdown")}
                             </Menu.Item>
                         </Menu.Dropdown>
                     </Menu>
                 )}
-                <Tooltip label={rightSidebarOpen ? "Скрыть правую панель" : "Показать правую панель"}>
+                <Tooltip label={rightSidebarOpen ? t("chat.hideRightPanel") : t("chat.showRightPanel")}>
                     <ActionIcon
                         variant="subtle"
                         size="lg"
                         onClick={onToggleRightSidebar}
-                        aria-label={rightSidebarOpen ? "Скрыть правую панель" : "Показать правую панель"}
+                        aria-label={rightSidebarOpen ? t("chat.hideRightPanel") : t("chat.showRightPanel")}
                     >
                         {rightSidebarOpen ? (
                             <IconLayoutSidebarRightCollapse size={18} stroke={1.5} />
@@ -239,14 +308,14 @@ export function ChatArea({
                 </Tooltip>
             </Group>
             <Modal
-                title="Кастомный системный промпт"
+                title={t("chat.customPromptModalTitle")}
                 size="md"
                 opened={customModalOpen}
                 onClose={() => setCustomModalOpen(false)}
             >
                 <Stack gap="sm">
                     <Textarea
-                        placeholder="Введите системный промпт..."
+                        placeholder={t("chat.customPromptPlaceholder")}
                         value={customPromptDraft}
                         onChange={(e) => setCustomPromptDraft(e.currentTarget.value)}
                         minRows={3}
@@ -255,9 +324,9 @@ export function ChatArea({
                     />
                     <Group justify="flex-end" gap="sm">
                         <Button variant="subtle" onClick={() => setCustomModalOpen(false)}>
-                            Отмена
+                            {t("common.cancel")}
                         </Button>
-                        <Button onClick={saveCustomPrompt}>Сохранить</Button>
+                        <Button onClick={saveCustomPrompt}>{t("common.save")}</Button>
                     </Group>
                 </Stack>
             </Modal>
@@ -276,13 +345,13 @@ export function ChatArea({
                             <IconMessageChatbot size={64} stroke={1.2} />
                         </Box>
                         <Title order={3} c="dimmed">
-                            Начните общение
+                            {t("chat.emptyStateTitle")}
                         </Title>
                         <Text size="sm" c="dimmed" ta="center">
-                            Создайте новый чат или выберите существующий из списка
+                            {t("chat.emptyStateHint")}
                         </Text>
                         <Button variant="light" leftSection={<IconPlus size={16} />} onClick={onNewChat}>
-                            Новый чат
+                            {t("chat.newChat")}
                         </Button>
                     </Stack>
                 </Box>

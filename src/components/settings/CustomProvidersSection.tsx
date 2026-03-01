@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
     Button,
@@ -29,6 +30,7 @@ export function CustomProvidersSection({
     customProviderEnabledModels,
     onCustomProviderEnabledModelsChange,
 }: CustomProvidersSectionProps) {
+    const { t } = useTranslation();
     const {
         customProviders,
         createCustomProvider,
@@ -110,7 +112,7 @@ export function CustomProvidersSection({
         <Stack gap="lg">
             <Group justify="space-between" align="center">
                 <Text size="sm" fw={500}>
-                    Кастомные провайдеры (OpenAI-совместимый API)
+                    {t("settings.customProviders.title")}
                 </Text>
                 <Button
                     size="xs"
@@ -118,12 +120,12 @@ export function CustomProvidersSection({
                     leftSection={<IconPlus size={16} stroke={1.5} />}
                     onClick={() => openProviderModal()}
                 >
-                    Добавить провайдер
+                    {t("settings.customProviders.addProvider")}
                 </Button>
             </Group>
             {customProviders.length === 0 ? (
                 <Text size="xs" c="dimmed">
-                    Нет кастомных провайдеров. Добавьте OpenAI-совместимый endpoint.
+                    {t("settings.customProviders.noProviders")}
                 </Text>
             ) : (
                 <Stack gap="xs">
@@ -139,23 +141,23 @@ export function CustomProvidersSection({
                                     </Text>
                                 </Stack>
                                 <Group gap="xs" wrap="nowrap">
-                                    <Tooltip label="Редактировать">
+                                    <Tooltip label={t("common.edit")}>
                                         <ActionIcon
                                             variant="subtle"
                                             size="xs"
                                             onClick={() => openProviderModal(p)}
-                                            aria-label="Редактировать"
+                                            aria-label={t("common.edit")}
                                         >
                                             <IconPencil size={16} stroke={1.5} />
                                         </ActionIcon>
                                     </Tooltip>
-                                    <Tooltip label="Удалить">
+                                    <Tooltip label={t("common.delete")}>
                                         <ActionIcon
                                             variant="subtle"
                                             size="xs"
                                             color="red"
                                             onClick={() => setDeletingProviderId(p.id)}
-                                            aria-label="Удалить"
+                                            aria-label={t("common.delete")}
                                         >
                                             <IconTrash size={16} stroke={1.5} />
                                         </ActionIcon>
@@ -168,44 +170,44 @@ export function CustomProvidersSection({
             )}
 
             <Modal
-                title={providerEditId ? "Редактировать провайдер" : "Добавить провайдер"}
+                title={providerEditId ? t("settings.customProviders.editProvider") : t("settings.customProviders.addProviderModal")}
                 opened={providerModalOpen}
                 onClose={closeProviderModal}
                 size="sm"
             >
                 <Stack gap="sm">
                     <TextInput
-                        label="Название"
-                        placeholder="Название провайдера"
+                        label={t("common.name")}
+                        placeholder={t("settings.customProviders.namePlaceholder")}
                         value={providerName}
                         onChange={(e) => setProviderName(e.currentTarget.value)}
                         withAsterisk
                     />
                     <TextInput
-                        label="Base URL"
+                        label={t("settings.customProviders.baseUrl")}
                         placeholder="https://api.anthropic.com/v1"
                         value={providerBaseUrl}
                         onChange={(e) => setProviderBaseUrl(e.currentTarget.value)}
                         withAsterisk
                     />
                     <Text size="xs" c="dimmed">
-                        Примеры: https://api.anthropic.com/v1 · https://api.groq.com/openai/v1 · https://generativelanguage.googleapis.com/v1beta/openai
+                        {t("settings.customProviders.baseUrlExamples")}
                     </Text>
                     <PasswordInput
-                        label="API Key"
+                        label={t("settings.customProviders.apiKey")}
                         placeholder="sk-..."
                         value={providerApiKey}
                         onChange={(e) => setProviderApiKey(e.currentTarget.value)}
-                        description="Необязательно (для Ollama оставьте пустым)"
+                        description={t("settings.customProviders.apiKeyOptional")}
                     />
                     {providerEditId && (
                         <Stack gap="xs">
                             <Group justify="space-between">
                                 <Text size="sm" fw={500}>
-                                    Модели (показывать при создании чата)
+                                    {t("settings.customProviders.modelsTitle")}
                                 </Text>
                                 <Text size="xs" c="dimmed">
-                                    Выбрано: {(customProviderEnabledModels[providerEditId] ?? []).length}/5
+                                    {t("settings.openrouter.selectedCount", { count: (customProviderEnabledModels[providerEditId] ?? []).length })}
                                 </Text>
                             </Group>
                             <Button
@@ -215,7 +217,7 @@ export function CustomProvidersSection({
                                 onClick={loadCustomProviderModels}
                                 disabled={!providerBaseUrl.trim() || customProviderModelsLoading}
                             >
-                                Загрузить модели
+                                {t("settings.customProviders.loadModels")}
                             </Button>
                             {customProviderModelsList.length > 0 && (
                                 <Stack gap={4}>
@@ -240,13 +242,13 @@ export function CustomProvidersSection({
                     )}
                     <Group justify="flex-end" gap="sm">
                         <Button variant="subtle" onClick={closeProviderModal}>
-                            Отмена
+                            {t("common.cancel")}
                         </Button>
                         <Button
                             onClick={saveProviderFromModal}
                             disabled={!providerName.trim() || !providerBaseUrl.trim()}
                         >
-                            Сохранить
+                            {t("common.save")}
                         </Button>
                     </Group>
                 </Stack>
@@ -262,7 +264,7 @@ export function CustomProvidersSection({
                 }}
                 message={
                     deletingProviderId
-                        ? `Удалить провайдер ${customProviders.find((x) => x.id === deletingProviderId)?.name ?? ""}?`
+                        ? t("confirm.deleteProvider", { name: customProviders.find((x) => x.id === deletingProviderId)?.name ?? "" })
                         : ""
                 }
             />

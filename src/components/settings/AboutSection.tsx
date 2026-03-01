@@ -1,26 +1,28 @@
+import { useTranslation } from "react-i18next";
 import { Anchor, Stack, Text } from "@mantine/core";
 
 const APP_VERSION = "0.1.0";
 
 export function AboutSection() {
+    const { t } = useTranslation();
     return (
         <Stack gap="lg">
             <Stack gap="xs">
                 <Text size="lg" fw={600}>
-                    AI Chat
+                    {t("settings.about.appName")}
                 </Text>
                 <Text size="sm" c="dimmed">
-                    Версия {APP_VERSION}
+                    {t("settings.about.version", { version: APP_VERSION })}
                 </Text>
             </Stack>
             <Text size="sm" c="dimmed">
-                Tauri 2 + React + Rust
+                {t("settings.about.stack")}
             </Text>
             <Text size="sm">
-                Десктопный AI-чат клиент с поддержкой OpenRouter, Ollama и OpenAI-совместимых провайдеров.
+                {t("settings.about.description")}
             </Text>
             <Anchor href="#" size="sm">
-                GitHub
+                {t("settings.about.github")}
             </Anchor>
         </Stack>
     );

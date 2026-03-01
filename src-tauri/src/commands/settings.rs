@@ -27,6 +27,8 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     store.set("topK", serde_json::to_value(&settings.top_k).map_err(|e| e.to_string())?);
     store.set("frequencyPenalty", serde_json::to_value(&settings.frequency_penalty).map_err(|e| e.to_string())?);
     store.set("presencePenalty", serde_json::to_value(&settings.presence_penalty).map_err(|e| e.to_string())?);
+    store.set("language", serde_json::to_value(&settings.language).map_err(|e| e.to_string())?);
+    store.set("sendByEnter", serde_json::to_value(&settings.send_by_enter).map_err(|e| e.to_string())?);
 
     store.save().map_err(|e| e.to_string())?;
 
@@ -83,6 +85,10 @@ pub async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
         top_k: store.get("topK").and_then(|v| v.as_u64()).map(|v| v as u32),
         frequency_penalty: store.get("frequencyPenalty").and_then(|v| v.as_f64()).map(|v| v as f32),
         presence_penalty: store.get("presencePenalty").and_then(|v| v.as_f64()).map(|v| v as f32),
+        language: store.get("language")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        send_by_enter: store.get("sendByEnter").and_then(|v| v.as_bool()).unwrap_or(true),
     };
 
     Ok(settings)

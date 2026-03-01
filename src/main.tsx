@@ -11,6 +11,7 @@ import "@fontsource/inter/latin-700.css";
 import "@fontsource/jetbrains-mono";
 import "./styles/markdown.css";
 import "./styles/resize.css";
+import "./i18n";
 import App from "./App";
 
 // Тема приложения — тёмная по умолчанию

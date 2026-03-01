@@ -19,6 +19,7 @@ pub async fn create_chat(
     system_prompt: Option<String>,
     provider_id: Option<String>,
     model: Option<String>,
+    is_image_model: Option<bool>,
 ) -> Result<DbChat, String> {
     let id = Uuid::new_v4().to_string();
     let now = std::time::SystemTime::now()
@@ -31,9 +32,10 @@ pub async fn create_chat(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "openrouter".to_string());
     let model_str = model.unwrap_or_default();
+    let is_image = is_image_model.unwrap_or(false) as i64;
 
     sqlx::query(
-        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model, is_image_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&title)
@@ -42,6 +44,7 @@ pub async fn create_chat(
     .bind(&system_prompt_str)
     .bind(&provider)
     .bind(&model_str)
+    .bind(is_image)
     .execute(pool.inner())
     .await
     .map_err(|e| {
@@ -58,6 +61,7 @@ pub async fn create_chat(
         provider_id: provider,
         model: model_str,
         folder_id: None,
+        is_image_model: is_image_model.unwrap_or(false),
     })
 }
 
@@ -89,7 +93,7 @@ pub async fn delete_chat(app: AppHandle, pool: State<'_, Pool>, id: String) -> R
 #[tauri::command]
 pub async fn get_all_chats(pool: State<'_, Pool>) -> Result<Vec<DbChat>, String> {
     let rows = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id FROM chats ORDER BY updated_at DESC",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model FROM chats ORDER BY updated_at DESC",
     )
     .fetch_all(pool.inner())
     .await
@@ -109,6 +113,7 @@ pub async fn get_all_chats(pool: State<'_, Pool>) -> Result<Vec<DbChat>, String>
             provider_id: row.try_get::<String, _>("provider_id").unwrap_or_else(|_| "openrouter".to_string()),
             model: row.try_get::<String, _>("model").unwrap_or_default(),
             folder_id: row.try_get::<String, _>("folder_id").ok(),
+            is_image_model: row.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0,
         })
         .collect();
     Ok(chats)
@@ -362,6 +367,27 @@ pub async fn update_chat_title(
         .await
         .map_err(|e| {
             eprintln!("[update_chat_title] SQL error: {}", e);
+            e.to_string()
+        })?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_chat_model(
+    pool: State<'_, Pool>,
+    chat_id: String,
+    model: String,
+    is_image_model: Option<bool>,
+) -> Result<(), String> {
+    let is_image = is_image_model.unwrap_or(false) as i64;
+    sqlx::query("UPDATE chats SET model = ?, is_image_model = ?, updated_at = strftime('%s', 'now') WHERE id = ?")
+        .bind(&model)
+        .bind(is_image)
+        .bind(&chat_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| {
+            eprintln!("[update_chat_model] SQL error: {}", e);
             e.to_string()
         })?;
     Ok(())

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
     Box,
@@ -76,6 +77,7 @@ function ChatRow({
     isDragging?: boolean;
     isActiveDrag?: boolean;
 }) {
+    const { t } = useTranslation();
     return (
         <div
             className="chat-item"
@@ -121,7 +123,7 @@ function ChatRow({
                     },
                 }}
             />
-            <Tooltip label="Удалить">
+            <Tooltip label={t("sidebar.deleteChat")}>
                 <ActionIcon
                     className="chat-delete-btn"
                     size="xs"
@@ -140,6 +142,7 @@ function ChatRow({
 }
 
 export function Sidebar({ width = 260, style, compact = false, onNewChat }: SidebarProps) {
+    const { t } = useTranslation();
     const { colorScheme, toggleColorScheme } = useMantineColorScheme();
 
     const folderDropHighlightBg = useCallback(
@@ -399,7 +402,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                                     <Text size="xs" c="dimmed">
                                         {count}
                                     </Text>
-                                    <Tooltip label="Переименовать">
+                                    <Tooltip label={t("sidebar.renameFolder")}>
                                         <ActionIcon
                                             size="xs"
                                             variant="subtle"
@@ -411,7 +414,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                                             <IconPencil size={12} stroke={1.5} />
                                         </ActionIcon>
                                     </Tooltip>
-                                    <Tooltip label="Удалить папку">
+                                    <Tooltip label={t("sidebar.deleteFolder")}>
                                         <ActionIcon
                                             size="xs"
                                             variant="subtle"
@@ -613,13 +616,13 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 }
             >
                 {compact ? (
-                    <Tooltip label="Новый чат">
+                    <Tooltip label={t("sidebar.newChat")}>
                         <ActionIcon
                             size="lg"
                             radius="xl"
                             variant="filled"
                             onClick={onNewChat}
-                            aria-label="Новый чат"
+                            aria-label={t("sidebar.newChat")}
                         >
                             <IconPlus size={18} stroke={1.5} />
                         </ActionIcon>
@@ -630,14 +633,14 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                             style={{ flex: 1 }}
                             onClick={onNewChat}
                         >
-                            + Новый чат
+                            + {t("sidebar.newChat")}
                         </Button>
-                        <Tooltip label="Новая папка">
+                        <Tooltip label={t("sidebar.newFolder")}>
                             <ActionIcon
                                 size="lg"
                                 variant="subtle"
                                 onClick={() => setShowCreateFolder(true)}
-                                aria-label="Новая папка"
+                                aria-label={t("sidebar.newFolder")}
                             >
                                 <IconFolderPlus size={18} stroke={1.5} />
                             </ActionIcon>
@@ -650,7 +653,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 <Box px="md" pb="xs">
                     <TextInput
                         size="xs"
-                        placeholder="Название папки"
+                        placeholder={t("sidebar.folderName")}
                         value={newFolderName}
                         onChange={(e) => setNewFolderName(e.currentTarget.value)}
                         onKeyDown={(e) => {
@@ -701,7 +704,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                             onChange={setChatsPopoverOpened}
                         >
                             <Popover.Target>
-                                <Tooltip label="Чаты">
+                                <Tooltip label={t("sidebar.chats")}>
                                     <ActionIcon
                                         size="lg"
                                         radius="xl"
@@ -709,7 +712,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                                         onClick={() =>
                                             setChatsPopoverOpened((o) => !o)
                                         }
-                                        aria-label="Чаты"
+                                        aria-label={t("sidebar.chats")}
                                     >
                                         <IconMessages size={18} stroke={1.5} />
                                     </ActionIcon>
@@ -734,15 +737,15 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 }}
             >
                 <Group justify="center" gap="md">
-                    <Tooltip label="Сменить тему">
+                    <Tooltip label={t("sidebar.toggleTheme")}>
                         <ActionIcon
                             size="lg"
                             variant="subtle"
                             onClick={() => toggleColorScheme()}
                             aria-label={
                                 colorScheme === "dark"
-                                    ? "Светлая тема"
-                                    : "Тёмная тема"
+                                    ? t("sidebar.themeLight")
+                                    : t("sidebar.themeDark")
                             }
                         >
                             {colorScheme === "dark" ? (
@@ -752,17 +755,17 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                             )}
                         </ActionIcon>
                     </Tooltip>
-                    <Tooltip label="Поиск">
+                    <Tooltip label={t("common.search")}>
                         <ActionIcon
                             size="lg"
                             variant="subtle"
                             onClick={() => setView("search")}
-                            aria-label="Поиск"
+                            aria-label={t("common.search")}
                         >
                             <IconSearch size={18} stroke={1.5} />
                         </ActionIcon>
                     </Tooltip>
-                    <Tooltip label="Шаблоны">
+                    <Tooltip label={t("sidebar.snippets")}>
                         <ActionIcon
                             size="lg"
                             variant="subtle"
@@ -771,7 +774,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                             <IconTemplate size={18} stroke={1.5} />
                         </ActionIcon>
                     </Tooltip>
-                    <Tooltip label="Настройки">
+                    <Tooltip label={t("sidebar.settings")}>
                         <ActionIcon
                             size="lg"
                             variant="subtle"
@@ -803,7 +806,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                     />
                 </Menu.Target>
                 <Menu.Dropdown>
-                    <Menu.Label>Переместить в папку</Menu.Label>
+                    <Menu.Label>{t("sidebar.moveToFolder")}</Menu.Label>
                     {folders.map((f) => (
                         <Menu.Item
                             key={f.id}
@@ -828,7 +831,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                                     }
                                 }}
                             >
-                                Убрать из папки
+                                {t("sidebar.removeFromFolder")}
                             </Menu.Item>
                         </>
                     )}
@@ -867,7 +870,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                         setDeletingChatId(null);
                     }
                 }}
-                message="Чат и все сообщения будут удалены безвозвратно."
+                message={t("sidebar.confirmDeleteChat")}
             />
             <ConfirmModal
                 opened={deletingFolderId !== null}
@@ -878,7 +881,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                         setDeletingFolderId(null);
                     }
                 }}
-                message="Чаты не будут удалены, только папка."
+                message={t("sidebar.confirmDeleteFolder")}
             />
         </Box>
     );

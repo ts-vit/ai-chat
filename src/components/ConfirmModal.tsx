@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button, Group, Modal, Text } from "@mantine/core";
 
 interface ConfirmModalProps {
@@ -13,24 +14,25 @@ export function ConfirmModal({
     opened,
     onClose,
     onConfirm,
-    title = "Подтверждение",
+    title,
     message,
-    confirmLabel = "Удалить",
+    confirmLabel,
 }: ConfirmModalProps) {
+    const { t } = useTranslation();
     const handleConfirm = () => {
         onConfirm();
         onClose();
     };
 
     return (
-        <Modal opened={opened} onClose={onClose} title={title} size="sm">
+        <Modal opened={opened} onClose={onClose} title={title ?? t("confirm.defaultTitle")} size="sm">
             <Text>{message}</Text>
             <Group mt="md" justify="flex-end" gap="sm">
                 <Button variant="subtle" onClick={onClose}>
-                    Отмена
+                    {t("common.cancel")}
                 </Button>
                 <Button color="red" onClick={handleConfirm}>
-                    {confirmLabel}
+                    {confirmLabel ?? t("confirm.delete")}
                 </Button>
             </Group>
         </Modal>

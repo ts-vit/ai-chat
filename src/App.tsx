@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Box } from "@mantine/core";
 import { Sidebar } from "./components/Sidebar";
 import { ChatArea } from "./components/ChatArea";
@@ -18,6 +19,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function App() {
+    const { t } = useTranslation();
     const currentView = useChatStore((s) => s.currentView);
     const chats = useChatStore((s) => s.chats);
     const activeChatId = useChatStore((s) => s.activeChatId);
@@ -48,8 +50,8 @@ function App() {
     }, []);
 
     const handleProviderConfirm = useCallback(
-        (providerId: string, model: string) => {
-            createChat(providerId, model);
+        (providerId: string, model: string, isImageModel: boolean) => {
+            createChat(providerId, model, isImageModel);
             setProviderModalOpened(false);
         },
         [createChat]
@@ -114,7 +116,7 @@ function App() {
                 opened={hotkeyDeleteConfirmOpen}
                 onClose={() => setHotkeyDeleteConfirmOpen(false)}
                 onConfirm={handleHotkeyDeleteConfirm}
-                message="Чат и все сообщения будут удалены безвозвратно."
+                message={t("confirm.deleteChatMessage")}
             />
             {leftSidebarOpen && (
                 <>

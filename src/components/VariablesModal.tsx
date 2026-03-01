@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Button, Group, Modal, Stack, TextInput } from "@mantine/core";
 
 const VARIABLE_REGEX = /\{([^}]+)\}/g;
@@ -28,6 +29,7 @@ interface VariablesModalProps {
 }
 
 export function VariablesModal({ content, opened, onClose, onSubmit }: VariablesModalProps) {
+    const { t } = useTranslation();
     const variableNames = useMemo(() => getUniqueVariableNames(content), [content]);
     const [values, setValues] = useState<Record<string, string>>({});
 
@@ -38,7 +40,7 @@ export function VariablesModal({ content, opened, onClose, onSubmit }: Variables
     };
 
     return (
-        <Modal title="Заполните переменные" size="md" opened={opened} onClose={onClose}>
+        <Modal title={t("variablesModal.title")} size="md" opened={opened} onClose={onClose}>
             <Stack gap="sm">
                 {variableNames.map((name) => (
                     <TextInput
@@ -49,14 +51,14 @@ export function VariablesModal({ content, opened, onClose, onSubmit }: Variables
                             const val = e.currentTarget.value;
                             setValues((prev) => ({ ...prev, [name]: val }));
                         }}
-                        placeholder={`Значение для ${name}`}
+                        placeholder={t("variablesModal.valuePlaceholder", { name })}
                     />
                 ))}
                 <Group justify="flex-end" gap="sm" mt="md">
                     <Button variant="subtle" onClick={onClose}>
-                        Отмена
+                        {t("variablesModal.cancel")}
                     </Button>
-                    <Button onClick={handleSubmit}>Вставить</Button>
+                    <Button onClick={handleSubmit}>{t("variablesModal.insert")}</Button>
                 </Group>
             </Stack>
         </Modal>

@@ -1,4 +1,5 @@
 import { Box, Group, Text, Tooltip } from "@mantine/core";
+import { useTranslation } from "react-i18next";
 import { useChatStore } from "../store/chatStore";
 
 interface ChatStatsProps {
@@ -13,6 +14,7 @@ function formatTokens(n: number): string {
 }
 
 export function ChatStats({ compact = false, providerId = "openrouter" }: ChatStatsProps) {
+    const { t } = useTranslation();
     const { chats, activeChatId, balance, models, settings } = useChatStore();
     const activeChat = chats.find((c) => c.id === activeChatId);
     const assistantMessages = activeChat?.messages.filter((m) => m.role === "assistant") ?? [];
@@ -42,7 +44,7 @@ export function ChatStats({ compact = false, providerId = "openrouter" }: ChatSt
 
     if (showBalanceAndCost && balance !== null) {
         parts.push(
-            <Tooltip key="balance" label="Баланс">
+            <Tooltip key="balance" label={t("chatStats.balance")}>
                 <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
                     ${balance.remaining.toFixed(2)}
                 </Text>
@@ -52,7 +54,7 @@ export function ChatStats({ compact = false, providerId = "openrouter" }: ChatSt
     }
 
     parts.push(
-        <Tooltip key="context" label="Контекст">
+        <Tooltip key="context" label={t("chatStats.context")}>
             <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
                 {contextTokens.toLocaleString()}/{formatTokens(contextMax)}
             </Text>
@@ -60,7 +62,7 @@ export function ChatStats({ compact = false, providerId = "openrouter" }: ChatSt
     );
     parts.push(sep("sep2"));
     parts.push(
-        <Tooltip key="tokens" label="Токены за чат">
+        <Tooltip key="tokens" label={t("chatStats.tokensInChat")}>
             <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
                 {totalTokens.toLocaleString()}
             </Text>
@@ -69,7 +71,7 @@ export function ChatStats({ compact = false, providerId = "openrouter" }: ChatSt
     if (showBalanceAndCost) {
         parts.push(sep("sep3"));
         parts.push(
-            <Tooltip key="cost" label="Стоимость чата">
+            <Tooltip key="cost" label={t("chatStats.costOfChat")}>
                 <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
                     ${totalCost.toFixed(4)}
                 </Text>

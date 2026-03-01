@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ActionIcon, Box, Button, Group, Modal, Paper, Text, Textarea, Tooltip } from "@mantine/core";
 import { IconCheck, IconCopy, IconEdit, IconFile, IconFileText } from "@tabler/icons-react";
 import ReactMarkdown from "react-markdown";
@@ -33,6 +34,7 @@ function CodeBlock({
     children,
     ...props
 }: React.ComponentPropsWithoutRef<"pre">) {
+    const { t } = useTranslation();
     const wrapperRef = useRef<HTMLDivElement>(null);
     const [copied, setCopied] = useState(false);
 
@@ -54,14 +56,14 @@ function CodeBlock({
             className="code-block-wrapper"
             style={{ position: "relative" }}
         >
-            <Tooltip label={copied ? "Скопировано" : "Копировать код"}>
+            <Tooltip label={copied ? t("messageList.copied") : t("messageList.copyCode")}>
                 <ActionIcon
                     className="copy-button"
                     size="xs"
                     variant="subtle"
                     onClick={handleCopy}
                     style={{ position: "absolute", top: 8, right: 8 }}
-                    aria-label={copied ? "Скопировано" : "Копировать код"}
+                    aria-label={copied ? t("messageList.copied") : t("messageList.copyCode")}
                 >
                     {copied ? (
                         <IconCheck size={14} stroke={1.5} color="var(--mantine-color-green-6)" />
@@ -83,6 +85,7 @@ interface Props {
 }
 
 export function MessageList({ messages, isStreaming, onEditResend, compact = false }: Props) {
+    const { t } = useTranslation();
     const { settings, scrollTargetId, setScrollTargetId } = useChatStore();
     const bottomRef = useRef<HTMLDivElement>(null);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -158,7 +161,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                 <Box>
                     {blocks.map((block, i) => {
                         if (block.type === "image") {
-                            if (!appDataDirPath) return <Text key={i} size="xs" c="dimmed">Загрузка...</Text>;
+                            if (!appDataDirPath) return <Text key={i} size="xs" c="dimmed">{t("common.loading")}</Text>;
                             const isAbsolute =
                                 block.path.startsWith("/") || /^[A-Za-z]:[/\\]/.test(block.path);
                             const fullPath = isAbsolute
@@ -204,7 +207,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                             variant="light"
                                             onClick={() => handleOpenFile(block.path)}
                                         >
-                                            Открыть
+                                            {t("messageList.open")}
                                         </Button>
                                     </Group>
                                 </Paper>
@@ -250,7 +253,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                 }}
             >
                 <Text c="dimmed" size="lg">
-                    Начните диалог — напишите сообщение
+                    {t("messageList.startDialog")}
                 </Text>
             </Box>
         );
@@ -293,7 +296,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                         size="xs"
                                         onClick={() => setEditingMessageId(null)}
                                     >
-                                        Отмена
+                                        {t("messageList.cancel")}
                                     </Button>
                                     <Button
                                         variant="filled"
@@ -308,7 +311,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                         }}
                                         disabled={!editContent.trim() || isStreaming}
                                     >
-                                        Отправить
+                                        {t("messageList.send")}
                                     </Button>
                                 </Group>
                             </Box>
@@ -336,7 +339,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                         className="typing-indicator"
                                         role="status"
                                         aria-live="polite"
-                                        aria-label="Модель печатает"
+                                        aria-label={t("chat.modelTyping")}
                                     >
                                         <span className="typing-indicator-dot" />
                                         <span className="typing-indicator-dot" />
@@ -374,7 +377,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                         }}
                     >
                         {msg.role === "user" && !isStreaming && editingMessageId !== msg.id && (
-                            <Tooltip label="Редактировать">
+                            <Tooltip label={t("messageList.edit")}>
                                 <ActionIcon
                                     className="message-copy-btn"
                                     size="xs"
@@ -383,13 +386,13 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                         setEditingMessageId(msg.id);
                                         setEditContent(msg.content);
                                     }}
-                                    aria-label="Редактировать"
+                                    aria-label={t("messageList.edit")}
                                 >
                                     <IconEdit size={14} stroke={1.5} />
                                 </ActionIcon>
                             </Tooltip>
                         )}
-                        <Tooltip label={copiedMessageId === msg.id ? "Скопировано" : "Копировать"}>
+                        <Tooltip label={copiedMessageId === msg.id ? t("messageList.copied") : t("common.copy")}>
                             <ActionIcon
                                 className="message-copy-btn"
                                 size="xs"
@@ -400,7 +403,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                         msg.id
                                     )
                                 }
-                                aria-label={copiedMessageId === msg.id ? "Скопировано" : "Копировать"}
+                                aria-label={copiedMessageId === msg.id ? t("messageList.copied") : t("common.copy")}
                             >
                                 {copiedMessageId === msg.id ? (
                                     <IconCheck size={14} stroke={1.5} color="var(--mantine-color-green-6)" />

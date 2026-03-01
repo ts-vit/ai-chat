@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     Accordion,
     Button,
@@ -58,6 +59,7 @@ export function OpenRouterSection({
     openrouterEnabledModels,
     onOpenrouterEnabledModelsChange,
 }: OpenRouterSectionProps) {
+    const { t } = useTranslation();
     const { models, modelsLoading, modelsError, loadModels } = useChatStore();
 
     const [filterSegment, setFilterSegment] = useState<FilterSegment>("all");
@@ -167,7 +169,7 @@ export function OpenRouterSection({
         <Stack gap="lg">
             <Accordion variant="separated">
                 <Accordion.Item value="api-key">
-                    <Accordion.Control>API-ключ</Accordion.Control>
+                    <Accordion.Control>{t("settings.openrouter.apiKey")}</Accordion.Control>
                     <Accordion.Panel>
                         <PasswordInput
                             placeholder="sk-or-..."
@@ -177,7 +179,7 @@ export function OpenRouterSection({
                     </Accordion.Panel>
                 </Accordion.Item>
                 <Accordion.Item value="management-key">
-                    <Accordion.Control>Management key</Accordion.Control>
+                    <Accordion.Control>{t("settings.openrouter.managementKey")}</Accordion.Control>
                     <Accordion.Panel>
                         <Stack gap="xs">
                             <PasswordInput
@@ -186,7 +188,7 @@ export function OpenRouterSection({
                                 onChange={(e) => onManagementKeyChange(e.currentTarget.value)}
                             />
                             <Text size="xs" c="dimmed">
-                                Создайте на openrouter.ai/settings/keys с галочкой Management key (для отображения баланса)
+                                {t("settings.openrouter.managementKeyHint")}
                             </Text>
                         </Stack>
                     </Accordion.Panel>
@@ -196,10 +198,10 @@ export function OpenRouterSection({
             <Stack gap="xs">
                 <Group justify="space-between" wrap="nowrap">
                     <Text size="sm" fw={500}>
-                        Модели OpenRouter (показывать при создании чата)
+                        {t("settings.openrouter.modelsTitle")}
                     </Text>
                     <Text size="xs" c="dimmed">
-                        Выбрано: {openrouterEnabledModels.length}/5
+                        {t("settings.openrouter.selectedCount", { count: openrouterEnabledModels.length })}
                     </Text>
                 </Group>
                 <Group wrap="nowrap" align="flex-end" gap="sm">
@@ -207,14 +209,14 @@ export function OpenRouterSection({
                         value={filterSegment}
                         onChange={(v) => setFilterSegment(v as FilterSegment)}
                         data={[
-                            { label: "Все", value: "all" },
-                            { label: "Популярные", value: "popular" },
-                            { label: "Бесплатные", value: "free" },
-                            { label: "Выбранные", value: "selected" },
+                            { label: t("settings.openrouter.all"), value: "all" },
+                            { label: t("settings.openrouter.popular"), value: "popular" },
+                            { label: t("settings.openrouter.free"), value: "free" },
+                            { label: t("settings.openrouter.selected"), value: "selected" },
                         ]}
                     />
                     <TextInput
-                        placeholder="Поиск по имени или id..."
+                        placeholder={t("settings.openrouter.searchPlaceholder")}
                         leftSection={<IconSearch size={16} stroke={1.5} />}
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.currentTarget.value)}
@@ -232,7 +234,7 @@ export function OpenRouterSection({
                             size="xs"
                             onClick={() => loadModels(true)}
                         >
-                            Повторить
+                            {t("settings.openrouter.retry")}
                         </Button>
                     </Group>
                 )}
@@ -247,7 +249,7 @@ export function OpenRouterSection({
                     filterSegment === "selected" &&
                     filteredModels.length === 0 && (
                         <Text size="sm" c="dimmed" py="md">
-                            Нет выбранных моделей
+                            {t("settings.openrouter.noSelectedModels")}
                         </Text>
                     )}
 
@@ -267,28 +269,28 @@ export function OpenRouterSection({
                                     style={{ cursor: "pointer", width: "auto" }}
                                     onClick={() => handleSort("name")}
                                 >
-                                    Модель{sortArrow("name")}
+                                    {t("settings.openrouter.model")}{sortArrow("name")}
                                 </Table.Th>
                                 <Table.Th style={{ width: 280, maxWidth: 300 }}>
-                                    Описание
+                                    {t("settings.openrouter.description")}
                                 </Table.Th>
                                 <Table.Th
                                     style={{ cursor: "pointer", width: 110 }}
                                     onClick={() => handleSort("prompt")}
                                 >
-                                    Вход{sortArrow("prompt")}
+                                    {t("settings.openrouter.input")}{sortArrow("prompt")}
                                 </Table.Th>
                                 <Table.Th
                                     style={{ cursor: "pointer", width: 110 }}
                                     onClick={() => handleSort("completion")}
                                 >
-                                    Выход{sortArrow("completion")}
+                                    {t("settings.openrouter.output")}{sortArrow("completion")}
                                 </Table.Th>
                                 <Table.Th
                                     style={{ cursor: "pointer", width: 110 }}
                                     onClick={() => handleSort("context")}
                                 >
-                                    Контекст{sortArrow("context")}
+                                    {t("settings.openrouter.context")}{sortArrow("context")}
                                 </Table.Th>
                             </Table.Tr>
                         </Table.Thead>

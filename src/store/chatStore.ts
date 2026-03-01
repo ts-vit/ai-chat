@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
+import i18n from "../i18n";
 import { notify } from "../utils/notify";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
@@ -33,6 +34,7 @@ interface DbChatResponse {
     providerId?: string;
     model?: string;
     folderId?: string | null;
+    isImageModel?: boolean;
 }
 
 function resolveProvider(
@@ -57,6 +59,21 @@ function resolveProvider(
         return { baseUrl: provider.baseUrl, apiKey: provider.apiKey ?? "" };
     }
     return null;
+}
+
+function extractTextContent(content: string): string {
+    const trimmed = content.trimStart();
+    if (!trimmed.startsWith("[")) return content;
+    try {
+        const blocks = JSON.parse(content) as ContentBlock[];
+        if (!Array.isArray(blocks)) return content;
+        const textParts = blocks
+            .filter((b) => b.type === "text" && b.text)
+            .map((b) => b.text!);
+        return textParts.join("\n") || "";
+    } catch {
+        return content;
+    }
 }
 
 interface DbMessageResponse {
@@ -131,6 +148,7 @@ interface ChatState {
     updatePreset: (id: string, name: string, content: string, isDefault: boolean) => Promise<void>;
     deletePreset: (id: string) => Promise<void>;
     setChatSystemPrompt: (chatId: string, systemPrompt: string) => Promise<void>;
+    updateChatModel: (chatId: string, model: string, isImageModel?: boolean) => Promise<void>;
 
     loadCategories: () => Promise<void>;
     createCategory: (name: string) => Promise<void>;
@@ -142,7 +160,7 @@ interface ChatState {
     deleteSnippet: (id: string) => Promise<void>;
     setInsertSnippetText: (text: string | null) => void;
 
-    createChat: (providerId?: string, model?: string) => Promise<void>;
+    createChat: (providerId?: string, model?: string, isImageModel?: boolean) => Promise<void>;
     deleteChat: (id: string) => Promise<void>;
     setActiveChat: (id: string) => Promise<void>;
     loadChats: () => Promise<void>;
@@ -181,6 +199,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         openrouterEnabledModels: [],
         ollamaEnabledModels: [],
         customProviderEnabledModels: {},
+        language: "",
+        sendByEnter: true,
     },
     isStreaming: false,
     isStopping: false,
@@ -223,7 +243,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             await invoke("delete_ollama_model", { modelName });
             await get().loadLocalOllamaModels();
-            notify.success("Модель удалена");
+            notify.success(i18n.t("notifications.modelDeleted"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -236,7 +256,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             const response = await invoke<{ data: unknown }>("get_models");
             const raw = response?.data;
             if (!Array.isArray(raw)) {
-                set({ models: [], modelsLoading: false, modelsError: "Неверный формат ответа" });
+                set({ models: [], modelsLoading: false, modelsError: i18n.t("notifications.modelsLoadError") });
                 return;
             }
             interface ModelRaw {
@@ -284,7 +304,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             set({ models: list, modelsLoading: false, modelsError: null });
         } catch (e) {
             set({ modelsLoading: false, modelsError: String(e) });
-            notify.error("Не удалось загрузить список моделей");
+            notify.error(i18n.t("notifications.modelsLoadError"));
         }
     },
 
@@ -305,7 +325,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 isDefault,
             });
             set((state) => ({ presets: [...state.presets, preset] }));
-            notify.success("Пресет создан");
+            notify.success(i18n.t("notifications.presetCreated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -319,7 +339,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     p.id === id ? { ...p, name, content, isDefault } : p
                 ),
             }));
-            notify.success("Пресет обновлён");
+            notify.success(i18n.t("notifications.presetUpdated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -329,7 +349,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             await invoke("delete_preset", { id });
             set((state) => ({ presets: state.presets.filter((p) => p.id !== id) }));
-            notify.success("Пресет удалён");
+            notify.success(i18n.t("notifications.presetDeleted"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -351,6 +371,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
+    updateChatModel: async (chatId, model, isImageModel = false) => {
+        try {
+            await invoke("update_chat_model", { chatId, model, isImageModel });
+            set((state) => ({
+                chats: state.chats.map((c) =>
+                    c.id === chatId ? { ...c, model } : c
+                ),
+            }));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
     loadCategories: async () => {
         try {
             const list = await invoke<Category[]>("get_all_categories");
@@ -364,7 +397,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             const category = await invoke<Category>("create_category", { name });
             set((state) => ({ categories: [...state.categories, category] }));
-            notify.success("Категория создана");
+            notify.success(i18n.t("notifications.categoryCreated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -378,7 +411,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     c.id === id ? { ...c, name } : c
                 ),
             }));
-            notify.success("Категория обновлена");
+            notify.success(i18n.t("notifications.categoryUpdated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -388,7 +421,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             await invoke("delete_category", { id });
             set((state) => ({ categories: state.categories.filter((c) => c.id !== id) }));
-            notify.success("Категория удалена");
+            notify.success(i18n.t("notifications.categoryDeleted"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -411,7 +444,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 categoryId,
             });
             set((state) => ({ snippets: [...state.snippets, snippet] }));
-            notify.success("Шаблон создан");
+            notify.success(i18n.t("notifications.snippetCreated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -425,7 +458,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     s.id === id ? { ...s, name, content, categoryId } : s
                 ),
             }));
-            notify.success("Шаблон обновлён");
+            notify.success(i18n.t("notifications.snippetUpdated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -435,7 +468,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             await invoke("delete_snippet", { id });
             set((state) => ({ snippets: state.snippets.filter((s) => s.id !== id) }));
-            notify.success("Шаблон удалён");
+            notify.success(i18n.t("notifications.snippetDeleted"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -454,7 +487,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             await invoke("create_custom_provider", { name, baseUrl, apiKey });
             await get().loadCustomProviders();
-            notify.success("Провайдер добавлен");
+            notify.success(i18n.t("notifications.providerAdded"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -467,7 +500,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 input: { name, baseUrl, apiKey },
             });
             await get().loadCustomProviders();
-            notify.success("Провайдер обновлён");
+            notify.success(i18n.t("notifications.providerUpdated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -477,7 +510,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             await invoke("delete_custom_provider", { id });
             await get().loadCustomProviders();
-            notify.success("Провайдер удалён");
+            notify.success(i18n.t("notifications.providerDeleted"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -525,17 +558,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
-    createChat: async (providerId = "openrouter", model = "") => {
+    createChat: async (providerId = "openrouter", model = "", isImageModel = false) => {
         try {
             const { presets } = get();
             const defaultPreset = presets.find((p) => p.isDefault);
             const systemPrompt = defaultPreset?.content ?? "";
 
             const created = await invoke<DbChatResponse>("create_chat", {
-                title: "Новый чат",
+                title: i18n.t("chat.newChatTitle"),
                 systemPrompt,
                 providerId,
                 model,
+                isImageModel,
             });
             const newChat: Chat = {
                 id: created.id,
@@ -571,7 +605,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                         : state.activeChatId;
                 return { chats, activeChatId };
             });
-            notify.info("Чат удалён");
+            notify.info(i18n.t("notifications.chatDeleted"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -631,7 +665,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             const folder = await invoke<Folder>("create_folder", { name, color });
             set((state) => ({ folders: [...state.folders, folder] }));
-            notify.success("Папка создана");
+            notify.success(i18n.t("notifications.folderCreated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -645,7 +679,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     f.id === id ? { ...f, name, color } : f
                 ),
             }));
-            notify.success("Папка обновлена");
+            notify.success(i18n.t("notifications.folderUpdated"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -655,7 +689,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             await invoke("delete_folder", { id });
             set((state) => ({ folders: state.folders.filter((f) => f.id !== id) }));
-            notify.success("Папка удалена");
+            notify.success(i18n.t("notifications.folderDeleted"));
         } catch (e) {
             notify.error(String(e));
         }
@@ -704,11 +738,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const providerId = chat.providerId ?? "openrouter";
         const resolved = resolveProvider(providerId, settings, customProviders);
         if (!resolved) {
-            notify.error("Провайдер не найден");
+            notify.error(i18n.t("notifications.providerNotFound"));
             return;
         }
         if (providerId === "openrouter" && !resolved.apiKey?.trim()) {
-            notify.warning("API-ключ не задан. Откройте настройки.");
+            notify.warning(i18n.t("notifications.apiKeyNotSet"));
             return;
         }
 
@@ -753,7 +787,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 isStreaming: true,
             }));
 
-            if (chat.title === "Новый чат" && chat.messages.length === 0) {
+            if (chat.title === i18n.t("chat.newChatTitle") && chat.messages.length === 0) {
                 const trimmed = content.trim();
                 if (trimmed) {
                     const title = trimmed.substring(0, 60);
@@ -970,7 +1004,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             const history = chat.messages
                 .filter((m) => m.role !== "assistant" || m.content)
-                .map((m) => ({ role: m.role, content: m.content }));
+                .map((m) => ({ role: m.role, content: extractTextContent(m.content) }));
             const apiMessages = [
                 ...(chat.systemPrompt?.trim()
                     ? [{ role: "system" as const, content: chat.systemPrompt }]
@@ -978,8 +1012,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 ...history,
                 { role: "user" as const, content },
             ];
-            const { draftAttachments, models } = get();
-            const currentModel = chat.model ? models.find((m) => m.id === chat.model) : null;
+            const { draftAttachments } = get();
             const invokePayload: Record<string, unknown> = {
                 chatId: activeChatId,
                 baseUrl: resolved.baseUrl,
@@ -992,7 +1025,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 topK: settings.topK ?? null,
                 frequencyPenalty: settings.frequencyPenalty ?? null,
                 presencePenalty: settings.presencePenalty ?? null,
-                supportsImageGeneration: currentModel?.supportsImageGeneration ?? false,
                 assistantMessageId: assistantMsg.id,
             };
             if (draftAttachments.length > 0) {
@@ -1056,11 +1088,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const providerId = chat.providerId ?? "openrouter";
         const resolved = resolveProvider(providerId, settings, customProviders);
         if (!resolved) {
-            notify.error("Провайдер не найден");
+            notify.error(i18n.t("notifications.providerNotFound"));
             return;
         }
         if (providerId === "openrouter" && !resolved.apiKey?.trim()) {
-            notify.warning("API-ключ не задан. Откройте настройки.");
+            notify.warning(i18n.t("notifications.apiKeyNotSet"));
             return;
         }
 
@@ -1093,7 +1125,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             const history = chatAfter.messages
                 .filter((m) => m.role !== "assistant" || m.content)
-                .map((m) => ({ role: m.role, content: m.content }));
+                .map((m) => ({ role: m.role, content: extractTextContent(m.content) }));
             const apiMessages = [
                 ...(chatAfter.systemPrompt?.trim()
                     ? [{ role: "system" as const, content: chatAfter.systemPrompt }]
@@ -1318,8 +1350,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 })
             );
 
-            const editModels = get().models;
-            const editModelInfo = chat.model ? editModels.find((m) => m.id === chat.model) : null;
             await invoke("send_message", {
                 chatId: activeChatId,
                 baseUrl: resolved.baseUrl,
@@ -1332,7 +1362,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 topK: settings.topK ?? null,
                 frequencyPenalty: settings.frequencyPenalty ?? null,
                 presencePenalty: settings.presencePenalty ?? null,
-                supportsImageGeneration: editModelInfo?.supportsImageGeneration ?? false,
                 assistantMessageId: assistantMsg.id,
             });
         } catch (e) {
@@ -1362,10 +1391,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 customProviderEnabledModels: loaded.customProviderEnabledModels && typeof loaded.customProviderEnabledModels === "object"
                     ? loaded.customProviderEnabledModels
                     : {},
+                language: loaded.language ?? "",
+                sendByEnter: loaded.sendByEnter ?? true,
             };
             set({ settings });
+            const lang = settings.language?.trim() || (navigator.language.startsWith("ru") ? "ru" : "en");
+            i18n.changeLanguage(lang);
         } catch (e) {
-            notify.error("Не удалось загрузить настройки");
+            notify.error(i18n.t("notifications.settingsLoadError"));
         }
     },
 
@@ -1373,7 +1406,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         try {
             await invoke("save_settings", { settings });
             set({ settings });
-            notify.success("Настройки сохранены");
+            notify.success(i18n.t("notifications.settingsSaved"));
         } catch (e) {
             notify.error(String(e));
         }

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import {
     Box,
     Checkbox,
@@ -53,16 +54,17 @@ export function GenerationSection({
     onPresencePenaltyChange,
     onPresencePenaltyEnabledChange,
 }: GenerationSectionProps) {
+    const { t } = useTranslation();
     return (
         <Stack gap="lg">
             <Stack gap="xs">
                 <Text size="sm" fw={500}>
-                    Параметры генерации
+                    {t("settings.generation.title")}
                 </Text>
                 <Group align="flex-end" wrap="nowrap">
                     <Box style={{ flex: 1 }}>
                         <Text size="sm" mb={4}>
-                            Температура: {temperature}
+                            {t("settings.generation.temperature", { value: temperature })}
                         </Text>
                         <Slider
                             min={0}
@@ -73,7 +75,7 @@ export function GenerationSection({
                         />
                     </Box>
                     <NumberInput
-                        label="Макс. токенов"
+                        label={t("settings.generation.maxTokens")}
                         value={maxTokens}
                         onChange={(val) => onMaxTokensChange(Number(val) || 4096)}
                         min={1}
@@ -101,8 +103,7 @@ export function GenerationSection({
                     disabled={!topPEnabled}
                 />
                 <Text size="xs" c="dimmed">
-                    Ядровая выборка. Альтернатива температуре — обрезает маловероятные токены.
-                    Не рекомендуется использовать вместе с температурой.
+                    {t("settings.generation.topPHint")}
                 </Text>
             </Stack>
 
@@ -123,8 +124,7 @@ export function GenerationSection({
                     style={{ maxWidth: 140 }}
                 />
                 <Text size="xs" c="dimmed">
-                    Ограничивает выбор из N самых вероятных токенов. Поддерживается не всеми
-                    провайдерами.
+                    {t("settings.generation.topKHint")}
                 </Text>
             </Stack>
 
@@ -150,8 +150,7 @@ export function GenerationSection({
                     disabled={!frequencyPenaltyEnabled}
                 />
                 <Text size="xs" c="dimmed">
-                    Штраф за частоту. Положительные значения уменьшают повторение слов
-                    пропорционально их частоте в тексте.
+                    {t("settings.generation.frequencyPenaltyHint")}
                 </Text>
             </Stack>
 
@@ -177,8 +176,7 @@ export function GenerationSection({
                     disabled={!presencePenaltyEnabled}
                 />
                 <Text size="xs" c="dimmed">
-                    Штраф за присутствие. Положительные значения уменьшают повторение любых
-                    уже использованных слов.
+                    {t("settings.generation.presencePenaltyHint")}
                 </Text>
             </Stack>
         </Stack>

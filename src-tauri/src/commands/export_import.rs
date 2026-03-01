@@ -136,7 +136,7 @@ fn iso8601_now() -> String {
 
 async fn get_chat_by_id(pool: &Pool, chat_id: &str) -> Result<Option<DbChat>, String> {
     let row = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id FROM chats WHERE id = ?",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model FROM chats WHERE id = ?",
     )
     .bind(chat_id)
     .fetch_optional(pool)
@@ -158,12 +158,13 @@ async fn get_chat_by_id(pool: &Pool, chat_id: &str) -> Result<Option<DbChat>, St
         provider_id: row.try_get("provider_id").unwrap_or_else(|_| "openrouter".to_string()),
         model: row.try_get("model").unwrap_or_default(),
         folder_id: row.try_get("folder_id").ok(),
+        is_image_model: row.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0,
     }))
 }
 
 async fn get_all_chats_internal(pool: &Pool) -> Result<Vec<DbChat>, String> {
     let rows = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id FROM chats ORDER BY updated_at DESC",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model FROM chats ORDER BY updated_at DESC",
     )
     .fetch_all(pool)
     .await
@@ -182,6 +183,7 @@ async fn get_all_chats_internal(pool: &Pool) -> Result<Vec<DbChat>, String> {
             provider_id: row.try_get("provider_id").unwrap_or_else(|_| "openrouter".to_string()),
             model: row.try_get("model").unwrap_or_default(),
             folder_id: row.try_get("folder_id").ok(),
+            is_image_model: row.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0,
         })
         .collect())
 }

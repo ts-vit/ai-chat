@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Button, Divider, Stack, Text } from "@mantine/core";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "../../store/chatStore";
@@ -5,13 +6,14 @@ import { notify } from "../../utils/notify";
 import type { ImportResult } from "../../types";
 
 export function DataSection() {
+    const { t } = useTranslation();
     const loadChats = useChatStore((s) => s.loadChats);
 
     return (
         <Stack gap="lg">
             <Stack gap="xs">
                 <Text size="sm" fw={500}>
-                    Резервное копирование
+                    {t("settings.data.backup")}
                 </Text>
                 <Button
                     variant="light"
@@ -19,22 +21,22 @@ export function DataSection() {
                     onClick={async () => {
                         try {
                             await invoke("export_all_chats");
-                            notify.success("Чаты экспортированы");
+                            notify.success(t("notifications.chatsExported"));
                         } catch (e) {
                             notify.error(String(e));
                         }
                     }}
                 >
-                    Экспорт всех чатов
+                    {t("settings.data.exportAll")}
                 </Button>
                 <Text size="xs" c="dimmed">
-                    Скачать все чаты в ZIP-архив для резервной копии
+                    {t("settings.data.exportAllHint")}
                 </Text>
             </Stack>
 
             <Stack gap="xs">
                 <Text size="sm" fw={500}>
-                    Импорт чатов
+                    {t("settings.data.importTitle")}
                 </Text>
                 <Button
                     variant="light"
@@ -43,7 +45,11 @@ export function DataSection() {
                         try {
                             const result = await invoke<ImportResult>("import_chats");
                             notify.success(
-                                `Импортировано чатов: ${result.chatsImported}, сообщений: ${result.messagesImported}, вложений: ${result.attachmentsImported}`
+                                t("notifications.importSuccess", {
+                                    chats: result.chatsImported,
+                                    messages: result.messagesImported,
+                                    attachments: result.attachmentsImported,
+                                })
                             );
                             await loadChats();
                         } catch (e) {
@@ -51,10 +57,10 @@ export function DataSection() {
                         }
                     }}
                 >
-                    Импорт чатов
+                    {t("settings.data.importButton")}
                 </Button>
                 <Text size="xs" c="dimmed">
-                    Восстановить чаты из ранее экспортированного ZIP-архива
+                    {t("settings.data.importHint")}
                 </Text>
             </Stack>
 
@@ -62,13 +68,13 @@ export function DataSection() {
 
             <Stack gap="xs">
                 <Text size="sm" fw={500}>
-                    Очистка данных
+                    {t("settings.data.clearTitle")}
                 </Text>
                 <Button variant="light" size="sm" color="red" disabled>
-                    Удалить все чаты
+                    {t("settings.data.clearButton")}
                 </Button>
                 <Text size="xs" c="dimmed">
-                    Безвозвратно удалить все чаты и сообщения из приложения
+                    {t("settings.data.clearHint")}
                 </Text>
             </Stack>
         </Stack>

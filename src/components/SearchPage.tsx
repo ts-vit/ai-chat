@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     Badge,
     Box,
@@ -39,6 +40,7 @@ function groupByChat(results: SearchResult[]): { chatId: string; chatTitle: stri
 }
 
 export function SearchPage() {
+    const { t } = useTranslation();
     const { setView, setActiveChat, setScrollTargetId } = useChatStore();
     const [query, setQuery] = useState("");
     const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -133,14 +135,14 @@ export function SearchPage() {
                 }}
             >
                 <Button variant="subtle" onClick={() => setView("chat")}>
-                    ← Назад
+                    ← {t("common.back")}
                 </Button>
-                <Title order={2}>Поиск</Title>
+                <Title order={2}>{t("search.title")}</Title>
             </Group>
 
             <Stack p="md" gap="md" style={{ flexShrink: 0 }}>
                 <TextInput
-                    placeholder="Поиск по истории..."
+                    placeholder={t("search.placeholder")}
                     leftSection={<IconSearch size={18} stroke={1.5} />}
                     value={query}
                     onChange={(e) => setQuery(e.currentTarget.value)}
@@ -150,15 +152,15 @@ export function SearchPage() {
                     value={segment}
                     onChange={(v) => setSegment(v as "all" | "chats" | "docs")}
                     data={[
-                        { value: "all", label: "Всё" },
-                        { value: "chats", label: "Чаты" },
-                        { value: "docs", label: "Документы", disabled: true },
+                        { value: "all", label: t("search.segmentAll") },
+                        { value: "chats", label: t("search.segmentChats") },
+                        { value: "docs", label: t("search.segmentDocs"), disabled: true },
                     ]}
                 />
                 {indexingStatus.inProgress && (
                     <Box>
                         <Text size="sm" c="dimmed" mb={4}>
-                            Индексация: {indexingStatus.indexed}/{indexingStatus.total} сообщений
+                            {t("search.indexing", { indexed: indexingStatus.indexed, total: indexingStatus.total })}
                         </Text>
                         <Progress
                             value={
@@ -182,12 +184,12 @@ export function SearchPage() {
                     {!loading && !debouncedQuery && (
                         <Stack align="center" gap="sm" py="xl">
                             <IconSearch size={48} stroke={1.5} style={{ opacity: 0.5 }} />
-                            <Text c="dimmed">Введите запрос для поиска по истории чатов</Text>
+                            <Text c="dimmed">{t("search.noQuery")}</Text>
                         </Stack>
                     )}
                     {!loading && debouncedQuery && results.length === 0 && (
                         <Text c="dimmed" ta="center" py="xl">
-                            Ничего не найдено по запросу «{debouncedQuery}»
+                            {t("search.noResults", { query: debouncedQuery })}
                         </Text>
                     )}
                     {!loading && groups.length > 0 && (
@@ -204,7 +206,7 @@ export function SearchPage() {
                                             setView("chat");
                                         }}
                                     >
-                                        {g.chatTitle || "Без названия"}
+                                        {g.chatTitle || t("search.noTitle")}
                                     </Button>
                                     <Stack gap="xs">
                                         {g.results.map((r) => (

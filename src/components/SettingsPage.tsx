@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     Box,
     Button,
@@ -40,19 +41,21 @@ export type SettingsSection =
     | "data"
     | "about";
 
-const NAV_ITEMS: { section: SettingsSection; label: string; icon: React.ReactNode }[] = [
-    { section: "openRouter", label: "Модели OpenRouter", icon: <IconKey size={18} stroke={1.5} /> },
-    { section: "ollama", label: "Модели Ollama", icon: <IconCpu size={18} stroke={1.5} /> },
-    { section: "customProviders", label: "Модели", icon: <IconBox size={18} stroke={1.5} /> },
-    { section: "generation", label: "Генерация", icon: <IconSettings size={18} stroke={1.5} /> },
-    { section: "interface", label: "Интерфейс", icon: <IconPalette size={18} stroke={1.5} /> },
-    { section: "presets", label: "Пресеты", icon: <IconFileText size={18} stroke={1.5} /> },
-    { section: "data", label: "Данные", icon: <IconDatabase size={18} stroke={1.5} /> },
-    { section: "about", label: "О программе", icon: <IconInfoCircle size={18} stroke={1.5} /> },
+const getNavItems = (t: (key: string) => string): { section: SettingsSection; label: string; icon: React.ReactNode }[] => [
+    { section: "openRouter", label: t("settings.nav.openRouter"), icon: <IconKey size={18} stroke={1.5} /> },
+    { section: "ollama", label: t("settings.nav.ollama"), icon: <IconCpu size={18} stroke={1.5} /> },
+    { section: "customProviders", label: t("settings.nav.customProviders"), icon: <IconBox size={18} stroke={1.5} /> },
+    { section: "generation", label: t("settings.nav.generation"), icon: <IconSettings size={18} stroke={1.5} /> },
+    { section: "interface", label: t("settings.nav.interface"), icon: <IconPalette size={18} stroke={1.5} /> },
+    { section: "presets", label: t("settings.nav.presets"), icon: <IconFileText size={18} stroke={1.5} /> },
+    { section: "data", label: t("settings.nav.data"), icon: <IconDatabase size={18} stroke={1.5} /> },
+    { section: "about", label: t("settings.nav.about"), icon: <IconInfoCircle size={18} stroke={1.5} /> },
 ];
 
 export function SettingsPage() {
+    const { t } = useTranslation();
     const { settings, saveSettings, setView } = useChatStore();
+    const NAV_ITEMS = getNavItems(t);
 
     const [activeSection, setActiveSection] = useState<SettingsSection>("openRouter");
     const [apiKey, setApiKey] = useState(settings.api_key);
@@ -87,6 +90,8 @@ export function SettingsPage() {
     const [presencePenaltyEnabled, setPresencePenaltyEnabled] = useState(
         settings.presencePenalty != null
     );
+    const [language, setLanguage] = useState(settings.language ?? "");
+    const [sendByEnter, setSendByEnter] = useState(settings.sendByEnter ?? true);
 
     useEffect(() => {
         setApiKey(settings.api_key);
@@ -106,6 +111,8 @@ export function SettingsPage() {
         setFrequencyPenaltyEnabled(settings.frequencyPenalty != null);
         setPresencePenalty(settings.presencePenalty ?? 0);
         setPresencePenaltyEnabled(settings.presencePenalty != null);
+        setLanguage(settings.language ?? "");
+        setSendByEnter(settings.sendByEnter ?? true);
     }, [settings]);
 
     const handleSave = async () => {
@@ -126,6 +133,8 @@ export function SettingsPage() {
             topK: topKEnabled ? topK : null,
             frequencyPenalty: frequencyPenaltyEnabled ? frequencyPenalty : null,
             presencePenalty: presencePenaltyEnabled ? presencePenalty : null,
+            language: language ?? "",
+            sendByEnter,
         });
         setView("chat");
     };
@@ -189,6 +198,10 @@ export function SettingsPage() {
                     <InterfaceSection
                         fontSize={fontSize}
                         onFontSizeChange={setFontSize}
+                        language={language}
+                        onLanguageChange={setLanguage}
+                        sendByEnter={sendByEnter}
+                        onSendByEnterChange={setSendByEnter}
                     />
                 );
             case "presets":
@@ -213,9 +226,9 @@ export function SettingsPage() {
         >
             <Group p="md" gap="sm" style={{ flexShrink: 0, borderBottom: "1px solid var(--mantine-color-default-border)" }}>
                 <Button variant="subtle" onClick={() => setView("chat")}>
-                    ← Назад
+                    ← {t("common.back")}
                 </Button>
-                <Title order={2}>Настройки</Title>
+                <Title order={2}>{t("settings.title")}</Title>
             </Group>
 
             <Box
@@ -252,7 +265,7 @@ export function SettingsPage() {
                     <Stack p="lg" gap="lg">
                         {renderSection()}
                         <Group justify="flex-end">
-                            <Button onClick={handleSave}>Сохранить</Button>
+                            <Button onClick={handleSave}>{t("common.save")}</Button>
                         </Group>
                     </Stack>
                 </ScrollArea>

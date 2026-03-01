@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Stack, Text, TextInput } from "@mantine/core";
 import { OllamaSection } from "../OllamaSection";
 
@@ -14,19 +15,20 @@ export function OllamaModelsSection({
     ollamaEnabledModels,
     onOllamaEnabledModelsChange,
 }: OllamaModelsSectionProps) {
+    const { t } = useTranslation();
     return (
         <Stack gap="lg">
             <Stack gap="xs">
                 <Text size="sm" fw={500}>
-                    Ollama URL
+                    {t("settings.ollama.url")}
                 </Text>
                 <TextInput
-                    placeholder="http://localhost:11434/v1"
+                    placeholder={t("ollama.serverUrlPlaceholder")}
                     value={ollamaUrl}
                     onChange={(e) => onOllamaUrlChange(e.currentTarget.value)}
                 />
                 <Text size="xs" c="dimmed">
-                    Изменяйте только если Ollama запущена на другом порту
+                    {t("settings.ollama.urlHint")}
                 </Text>
             </Stack>
             <OllamaSection

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
     Badge,
@@ -44,6 +45,7 @@ interface Props {
 }
 
 export function MessageInput({ onSend, onStop, disabled, isStopping, compact = false, inputRef }: Props) {
+    const { t } = useTranslation();
     const [value, setValue] = useState("");
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [variablesModalOpen, setVariablesModalOpen] = useState(false);
@@ -149,9 +151,19 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                 return;
             }
         }
-        if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
+        if (e.key === "Enter") {
+            const sendByEnter = settings.sendByEnter !== false;
+            if (sendByEnter) {
+                if (!e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                }
+            } else {
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    handleSend();
+                }
+            }
         }
     };
 
@@ -166,12 +178,12 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
             const processFile = (file: File): Promise<void> => {
                 return new Promise((resolve) => {
                     if (!ALLOWED_MIME.includes(file.type)) {
-                        notify.error(`Тип файла не поддерживается: ${file.name}`);
+                        notify.error(t("messageInput.fileTypeNotSupported", { name: file.name }));
                         resolve();
                         return;
                     }
                     if (file.size > MAX_FILE_SIZE_BYTES) {
-                        notify.error(`Файл ${file.name} превышает 10 МБ`);
+                        notify.error(t("messageInput.fileTooBig", { name: file.name }));
                         resolve();
                         return;
                     }
@@ -234,7 +246,7 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
             e.preventDefault();
             setIsDragging(false);
             if (!supportsVision) {
-                notify.warning("Выбранная модель не поддерживает файлы");
+                notify.warning(t("messageInput.modelNoFiles"));
                 return;
             }
             handleFiles(e.dataTransfer.files);
@@ -356,14 +368,14 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                                     </Text>
                                 </Box>
                             )}
-                            <Tooltip label="Удалить">
+                            <Tooltip label={t("common.delete")}>
                                 <ActionIcon
                                     size="xs"
                                     variant="filled"
                                     color="red"
                                     style={{ position: "absolute", top: 2, right: 2 }}
                                     onClick={() => removeAttachment(a.id)}
-                                    aria-label="Удалить"
+                                    aria-label={t("common.delete")}
                                 >
                                     <IconX size={12} stroke={1.5} />
                                 </ActionIcon>
@@ -375,7 +387,7 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
             <Group wrap="nowrap" align="flex-end">
                 <Textarea
                     ref={inputRef}
-                    placeholder={compact ? "Сообщение..." : "Напишите сообщение... (наберите / для шаблонов)"}
+                    placeholder={compact ? t("messageInput.placeholderShort") : t("messageInput.placeholderLong")}
                     value={value}
                     onChange={handleChange}
                     onKeyDown={handleKeyDown}
@@ -389,19 +401,19 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                         transition: "border-color 150ms ease",
                     }}
                 />
-                <Tooltip label={supportsVision ? "Прикрепить файл" : "Модель не поддерживает файлы"}>
+                <Tooltip label={supportsVision ? t("messageInput.attachFile") : t("messageInput.modelNoFiles")}>
                     <ActionIcon
                         size="lg"
                         variant="subtle"
                         disabled={!supportsVision}
                         onClick={() => supportsVision && fileInputRef.current?.click()}
-                        aria-label={supportsVision ? "Прикрепить файл" : "Модель не поддерживает файлы"}
+                        aria-label={supportsVision ? t("messageInput.attachFile") : t("messageInput.modelNoFiles")}
                     >
                         <IconPaperclip size={18} stroke={1.5} />
                     </ActionIcon>
                 </Tooltip>
                 {disabled ? (
-                    <Tooltip label="Остановить">
+                    <Tooltip label={t("messageInput.stop")}>
                         <ActionIcon
                             size="lg"
                             variant="filled"
@@ -413,7 +425,7 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                         </ActionIcon>
                     </Tooltip>
                 ) : (
-                    <Tooltip label="Отправить">
+                    <Tooltip label={t("messageInput.send")}>
                         <ActionIcon
                             size="lg"
                             variant="filled"

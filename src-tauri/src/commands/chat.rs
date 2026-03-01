@@ -12,6 +12,20 @@ use crate::commands::attachments::save_attachment_file;
 use crate::commands::database::update_message_content_with_attachments;
 use crate::models::chat::{AttachmentInput, ChatRequest, ContentBlock, Message, StreamResponse};
 
+/// Определяет по ID модели, что это модель генерации изображений (fallback при отсутствии флага в БД).
+fn is_image_generation_model(model: &str) -> bool {
+    let m = model.to_lowercase();
+    m.contains("dall-e")
+        || m.contains("gpt-image")
+        || m.contains("-image-")
+        || m.ends_with("-image")
+        || m.contains("/flux")
+        || m.contains("stable-diffusion")
+        || m.contains("stabilityai")
+        || m.contains("imagen")
+        || m.contains("playground")
+}
+
 /// Состояние для отмены текущего стрима.
 pub struct StreamState {
     pub cancel_token: Arc<Mutex<Option<CancellationToken>>>,
@@ -69,27 +83,41 @@ pub async fn send_message(
     supports_image_generation: Option<bool>,
     assistant_message_id: Option<String>,
 ) -> Result<(), String> {
-    // Модель берём из чата в БД (per-чат), fallback на переданный параметр
-    let model = if !chat_id.is_empty() {
-        let row = sqlx::query("SELECT model FROM chats WHERE id = ?")
+    // Модель и флаг image берём из чата в БД (per-чат), fallback на переданные параметры
+    let (model, db_is_image_model) = if !chat_id.is_empty() {
+        let row = sqlx::query("SELECT model, is_image_model FROM chats WHERE id = ?")
             .bind(&chat_id)
             .fetch_optional(pool.inner())
             .await
             .map_err(|e| e.to_string())?;
-        row.and_then(|r| r.try_get::<String, _>("model").ok())
-            .filter(|s: &String| !s.is_empty())
-            .unwrap_or(model)
+        match row {
+            Some(r) => {
+                let db_model = r.try_get::<String, _>("model").ok();
+                let db_image = r.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0;
+                let resolved_model = db_model
+                    .filter(|s: &String| !s.is_empty())
+                    .unwrap_or_else(|| model.clone());
+                (resolved_model, db_image)
+            }
+            None => (model.clone(), false),
+        }
     } else {
-        model
+        (model.clone(), false)
     };
 
+    let is_image = db_is_image_model
+        || is_image_generation_model(&model)
+        || supports_image_generation == Some(true);
+
     let user_content = messages.last().map(|m| m.content.as_str()).unwrap_or("");
-    let modalities = supports_image_generation
-        .filter(|&v| v)
-        .map(|_| vec!["image".to_string(), "text".to_string()]);
+    let modalities = if is_image {
+        Some(vec!["image".to_string(), "text".to_string()])
+    } else {
+        None
+    };
 
     // Для моделей генерации изображений не передаём параметры текстовой генерации (API возвращает 400).
-    let no_text_params = supports_image_generation == Some(true);
+    let no_text_params = is_image;
     let temperature = if no_text_params { None } else { temperature };
     let max_tokens = if no_text_params { None } else { max_tokens };
     let top_p = if no_text_params { None } else { top_p };

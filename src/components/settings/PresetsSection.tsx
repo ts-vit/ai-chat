@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
     Button,
@@ -18,6 +19,7 @@ import type { Preset } from "../../types";
 import { ConfirmModal } from "../ConfirmModal";
 
 export function PresetsSection() {
+    const { t } = useTranslation();
     const { presets, createPreset, updatePreset, deletePreset } = useChatStore();
 
     const [presetModalOpen, setPresetModalOpen] = useState(false);
@@ -72,15 +74,15 @@ export function PresetsSection() {
             <Stack gap="xs">
                 <Group justify="space-between" align="center">
                     <Text size="sm" fw={500}>
-                        Системные промпты (пресеты)
+                        {t("settings.presets.title")}
                     </Text>
                     <Button size="xs" variant="light" onClick={() => openPresetModal()}>
-                        + Добавить пресет
+                        {t("settings.presets.addPreset")}
                     </Button>
                 </Group>
                 {presets.length === 0 ? (
                     <Text size="xs" c="dimmed">
-                        Нет пресетов. Добавьте пресет, чтобы задавать поведение модели для чатов.
+                        {t("settings.presets.noPresets")}
                     </Text>
                 ) : (
                     <Stack gap="xs">
@@ -97,33 +99,33 @@ export function PresetsSection() {
                                         </Text>
                                     </Stack>
                                     <Group gap="sm" wrap="nowrap">
-                                        <Tooltip label="Редактировать">
+                                        <Tooltip label={t("common.edit")}>
                                             <ActionIcon
                                                 variant="subtle"
                                                 size="xs"
                                                 onClick={() => openPresetModal(p)}
-                                                aria-label="Редактировать"
+                                                aria-label={t("common.edit")}
                                             >
                                                 <IconEdit size={14} stroke={1.5} />
                                             </ActionIcon>
                                         </Tooltip>
-                                        <Tooltip label="Удалить">
+                                        <Tooltip label={t("common.delete")}>
                                             <ActionIcon
                                                 variant="subtle"
                                                 size="xs"
                                                 color="red"
                                                 onClick={() => setDeletingPresetId(p.id)}
-                                                aria-label="Удалить"
+                                                aria-label={t("common.delete")}
                                             >
                                                 <IconTrash size={14} stroke={1.5} />
                                             </ActionIcon>
                                         </Tooltip>
-                                        <Tooltip label={p.isDefault ? "По умолчанию" : "Сделать по умолчанию"}>
+                                        <Tooltip label={p.isDefault ? t("settings.presets.defaultTooltip") : t("settings.presets.setDefaultTooltip")}>
                                             <ActionIcon
                                                 variant="subtle"
                                                 size="xs"
                                                 onClick={() => setPresetAsDefault(p.id)}
-                                                aria-label={p.isDefault ? "По умолчанию" : "Сделать по умолчанию"}
+                                                aria-label={p.isDefault ? t("settings.presets.defaultTooltip") : t("settings.presets.setDefaultTooltip")}
                                             >
                                                 {p.isDefault ? (
                                                     <IconStarFilled size={14} stroke={1.5} />
@@ -141,21 +143,21 @@ export function PresetsSection() {
             </Stack>
 
             <Modal
-                title={presetEditId ? "Редактировать пресет" : "Добавить пресет"}
+                title={presetEditId ? t("settings.presets.editPreset") : t("settings.presets.addPresetModal")}
                 opened={presetModalOpen}
                 onClose={closePresetModal}
                 size="sm"
             >
                 <Stack gap="sm">
                     <TextInput
-                        label="Название"
-                        placeholder="Название пресета"
+                        label={t("common.name")}
+                        placeholder={t("settings.presets.namePlaceholder")}
                         value={presetName}
                         onChange={(e) => setPresetName(e.currentTarget.value)}
                     />
                     <Textarea
-                        label="Системный промпт"
-                        placeholder="Текст, задающий поведение модели..."
+                        label={t("chat.systemPrompt")}
+                        placeholder={t("settings.presets.contentPlaceholder")}
                         value={presetContent}
                         onChange={(e) => setPresetContent(e.currentTarget.value)}
                         minRows={3}
@@ -163,16 +165,16 @@ export function PresetsSection() {
                         autosize
                     />
                     <Checkbox
-                        label="Использовать по умолчанию"
+                        label={t("settings.presets.useDefault")}
                         checked={presetIsDefault}
                         onChange={(e) => setPresetIsDefault(e.currentTarget.checked)}
                     />
                     <Group justify="flex-end" gap="sm">
                         <Button variant="subtle" onClick={closePresetModal}>
-                            Отмена
+                            {t("common.cancel")}
                         </Button>
                         <Button onClick={savePresetFromModal} disabled={!presetName.trim()}>
-                            Сохранить
+                            {t("common.save")}
                         </Button>
                     </Group>
                 </Stack>
@@ -187,7 +189,7 @@ export function PresetsSection() {
                         setDeletingPresetId(null);
                     }
                 }}
-                message="Пресет будет удалён безвозвратно."
+                message={t("settings.presets.confirmDeletePreset")}
             />
         </Stack>
     );

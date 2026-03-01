@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Box, NavLink, ScrollArea, Text } from "@mantine/core";
 import { useChatStore } from "../store/chatStore";
 
@@ -10,6 +11,7 @@ interface NavigationSidebarProps {
 }
 
 export function NavigationSidebar({ width = 240, style }: NavigationSidebarProps) {
+    const { t } = useTranslation();
     const { chats, activeChatId } = useChatStore();
     const [activeUserMessageId, setActiveUserMessageId] = useState<string | null>(
         null
@@ -97,7 +99,7 @@ export function NavigationSidebar({ width = 240, style }: NavigationSidebarProps
         >
             <Box p="xs">
                 <Text size="sm" c="dimmed" fw={500}>
-                    Сообщения
+                    {t("navSidebar.messages")}
                 </Text>
             </Box>
             <ScrollArea style={{ flex: 1 }} type="scroll">

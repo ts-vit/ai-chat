@@ -1,4 +1,5 @@
 import { notifications } from "@mantine/notifications";
+import i18n from "../i18n";
 
 export const notify = {
     success: (message: string) => {
@@ -10,7 +11,7 @@ export const notify = {
     },
     error: (message: string) => {
         notifications.show({
-            title: "Ошибка",
+            title: i18n.t("notifications.error"),
             message,
             color: "red",
             autoClose: 5000,

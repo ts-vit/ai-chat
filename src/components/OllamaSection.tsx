@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
     Button,
@@ -21,12 +22,12 @@ import { useChatStore } from "../store/chatStore";
 import { notify } from "../utils/notify";
 import { ConfirmModal } from "./ConfirmModal";
 
-const PULL_MODELS = [
-    { value: "llama3.2", label: "Llama 3.2 (~2 ГБ) — универсальная" },
-    { value: "qwen2.5:0.5b", label: "Qwen 2.5 0.5B (~400 МБ) — быстрая" },
-    { value: "mistral", label: "Mistral 7B (~4 ГБ) — качественная" },
-    { value: "phi3", label: "Phi-3 (~2 ГБ) — от Microsoft" },
-    { value: "gemma2:2b", label: "Gemma 2 2B (~1.6 ГБ) — от Google" },
+const PULL_MODEL_KEYS = [
+    { value: "llama3.2", labelKey: "ollama.pullLlama" as const },
+    { value: "qwen2.5:0.5b", labelKey: "ollama.pullQwen" as const },
+    { value: "mistral", labelKey: "ollama.pullMistral" as const },
+    { value: "phi3", labelKey: "ollama.pullPhi" as const },
+    { value: "gemma2:2b", labelKey: "ollama.pullGemma" as const },
 ] as const;
 
 const MAX_ENABLED_MODELS = 5;
@@ -39,6 +40,7 @@ interface OllamaSectionProps {
 }
 
 export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModels, onOllamaEnabledModelsChange }: OllamaSectionProps) {
+    const { t } = useTranslation();
     const {
         ollamaStatus,
         localOllamaModels,
@@ -100,12 +102,12 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
             const undone = await listen<{ model: string }>("ollama-pull-done", () => {
                 setIsPulling(false);
                 loadLocalOllamaModels();
-                notify.success("Модель скачана");
+                notify.success(t("notifications.modelDownloaded"));
                 cleanup();
             });
             const unerror = await listen<{ message: string }>("ollama-pull-error", (event) => {
                 setIsPulling(false);
-                notify.error("Ошибка: " + (event.payload.message ?? ""));
+                notify.error((event.payload.message ?? "") ? `${t("notifications.error")}: ${event.payload.message}` : t("notifications.error"));
                 cleanup();
             });
 
@@ -136,7 +138,7 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
     return (
         <Stack gap="xs">
             <Text size="sm" fw={500}>
-                Локальные модели (Ollama)
+                {t("ollama.title")}
             </Text>
 
             {/* Статус */}
@@ -144,7 +146,7 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                 {ollamaStatus === "unknown" && (
                     <>
                         <Loader size="xs" />
-                        <Text size="sm">Проверка...</Text>
+                        <Text size="sm">{t("ollama.checking")}</Text>
                     </>
                 )}
                 {ollamaStatus === "available" && (
@@ -152,19 +154,19 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                         <ThemeIcon size="sm" color="green">
                             <IconCircleCheck size={16} stroke={1.5} />
                         </ThemeIcon>
-                        <Text size="sm">Ollama запущена</Text>
+                        <Text size="sm">{t("ollama.running")}</Text>
                     </>
                 )}
                 {ollamaStatus === "unavailable" && (
                     <>
                         <IconCircleX size={18} stroke={1.5} color="var(--mantine-color-red-6)" />
-                        <Text size="sm">Ollama не найдена</Text>
+                        <Text size="sm">{t("ollama.notFound")}</Text>
                         <Button
                             variant="light"
                             size="xs"
                             onClick={handleInstallOllama}
                         >
-                            Установить Ollama
+                            {t("ollama.installOllama")}
                         </Button>
                     </>
                 )}
@@ -174,16 +176,16 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                 <>
                     {/* Установленные модели */}
                     <Text size="sm" fw={500} mt="xs">
-                        Установленные модели
+                        {t("ollama.installedModels")}
                     </Text>
                     {localOllamaModels.length === 0 ? (
                         <Text size="sm" c="dimmed">
-                            Нет установленных моделей
+                            {t("ollama.noInstalledModels")}
                         </Text>
                     ) : (
                         <Stack gap="xs">
                             <Text size="xs" c="dimmed">
-                                Выбрано: {ollamaEnabledModels.length}/{MAX_ENABLED_MODELS}
+                                {t("ollama.selectedCount", { count: ollamaEnabledModels.length, total: MAX_ENABLED_MODELS })}
                             </Text>
                             {localOllamaModels.map((m) => {
                                 const checked = ollamaEnabledModels.includes(m.name);
@@ -201,7 +203,7 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                                                         onOllamaEnabledModelsChange([...ollamaEnabledModels, m.name]);
                                                     }
                                                 }}
-                                                label="Показывать при выборе чата"
+                                                label={t("ollama.showWhenSelectingChat")}
                                                 size="xs"
                                             />
                                             <Text size="sm" fw={500}>
@@ -211,12 +213,12 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                                                 {m.size}
                                             </Text>
                                         </Group>
-                                        <Tooltip label="Удалить модель">
+                                        <Tooltip label={t("ollama.deleteModel")}>
                                             <ActionIcon
                                                 size="xs"
                                                 variant="subtle"
                                                 onClick={() => setDeletingModelName(m.name)}
-                                                aria-label="Удалить модель"
+                                                aria-label={t("ollama.deleteModel")}
                                             >
                                                 <IconTrash size={16} stroke={1.5} />
                                             </ActionIcon>
@@ -229,12 +231,12 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
 
                     {/* Скачать модель */}
                     <Text size="sm" fw={500} mt="xs">
-                        Скачать модель
+                        {t("ollama.downloadModel")}
                     </Text>
                     <Group align="flex-end" gap="sm">
                         <Select
                             label={null}
-                            data={PULL_MODELS.map((p) => ({ value: p.value, label: p.label }))}
+                            data={PULL_MODEL_KEYS.map((p) => ({ value: p.value, label: t(p.labelKey) }))}
                             value={selectedModel}
                             onChange={(v) => v && setSelectedModel(v)}
                             allowDeselect={false}
@@ -245,7 +247,7 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                             onClick={handlePull}
                             disabled={isModelInstalled || isPulling}
                         >
-                            Скачать
+                            {t("ollama.download")}
                         </Button>
                     </Group>
 
@@ -253,24 +255,24 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                         <Stack gap="xs">
                             <Progress value={pullProgress} size="sm" animated />
                             <Text size="xs" c="dimmed">
-                                {pullStatus || "Загрузка..."}
+                                {pullStatus || t("common.loading")}
                             </Text>
                             <Button variant="subtle" size="xs" onClick={handleCancelPull}>
-                                Отмена
+                                {t("ollama.cancel")}
                             </Button>
                         </Stack>
                     )}
 
                     {/* URL сервера */}
                     <TextInput
-                        label="URL сервера"
-                        placeholder="http://localhost:11434/v1"
+                        label={t("ollama.serverUrl")}
+                        placeholder={t("ollama.serverUrlPlaceholder")}
                         value={ollamaUrl}
                         onChange={(e) => onOllamaUrlChange(e.currentTarget.value)}
                         mt="xs"
                     />
                     <Text size="xs" c="dimmed">
-                        Изменяйте только если Ollama запущена на другом порту
+                        {t("ollama.serverUrlHint")}
                     </Text>
                 </>
             )}
@@ -281,7 +283,7 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                 onConfirm={handleConfirmDelete}
                 message={
                     deletingModelName
-                        ? `Удалить модель ${deletingModelName}?`
+                        ? t("ollama.deleteModelConfirm", { name: deletingModelName })
                         : ""
                 }
             />

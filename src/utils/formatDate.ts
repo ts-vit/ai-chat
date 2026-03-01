@@ -9,6 +9,8 @@ export function toUnixSeconds(timestamp: number): number {
     return timestamp > MS_THRESHOLD ? Math.floor(timestamp / 1000) : timestamp;
 }
 
+import i18n from "../i18n";
+
 /**
  * Форматирует Unix timestamp (в секундах или мс — нормализуется внутри) в относительную дату для отображения в списке чатов.
  */
@@ -21,8 +23,9 @@ export function formatRelativeDate(timestamp: number): string {
     const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const diffDays = Math.floor((nowDay - dateDay) / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 0) return "Сегодня";
-    if (diffDays === 1) return "Вчера";
+    if (diffDays === 0) return i18n.t("dates.today");
+    if (diffDays === 1) return i18n.t("dates.yesterday");
 
-    return date.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    const locale = i18n.language === "ru" ? "ru-RU" : "en-US";
+    return date.toLocaleDateString(locale, { day: "numeric", month: "short" });
 }

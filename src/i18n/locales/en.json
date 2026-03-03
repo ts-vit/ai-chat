@@ -53,6 +53,17 @@
     "modelTyping": "Model is typing",
     "startConversation": "Start a conversation — type a message"
   },
+  "chatParams": {
+    "title": "Generation Parameters",
+    "temperature": "Temperature",
+    "maxTokens": "Max Tokens",
+    "topP": "Top-P",
+    "topK": "Top-K",
+    "frequencyPenalty": "Frequency Penalty",
+    "presencePenalty": "Presence Penalty",
+    "useCustom": "Set custom value",
+    "globalValue": "Global: {{value}}"
+  },
   "messageList": {
     "startDialog": "Start a conversation — type a message",
     "copyCode": "Copy code",
@@ -131,6 +142,7 @@
       "generation": "Generation",
       "interface": "Interface",
       "presets": "Presets",
+      "templates": "Templates",
       "data": "Data",
       "about": "About"
     },
@@ -226,13 +238,38 @@
       "github": "GitHub"
     }
   },
+  "templates": {
+    "title": "Chat Templates",
+    "description": "Templates for quickly creating chats with preset parameters",
+    "create": "Create Template",
+    "edit": "Edit Template",
+    "noTemplates": "No templates yet",
+    "noTemplatesHint": "Create a template to quickly start chats with the right provider, model and prompt.",
+    "name": "Name",
+    "namePlaceholder": "E.g.: Coding",
+    "icon": "Icon (emoji)",
+    "iconPlaceholder": "💬",
+    "provider": "Provider",
+    "model": "Model",
+    "systemPrompt": "System Prompt",
+    "systemPromptPlaceholder": "Instructions for the model...",
+    "generationParams": "Generation Parameters",
+    "generationParamsHint": "If not set — global settings are used",
+    "setParam": "Set value",
+    "deleteConfirm": "Delete template '{{name}}'?",
+    "providerModel": "{{provider}} → {{model}}"
+  },
   "providerModal": {
     "title": "New Chat",
     "hint": "Select provider and model for the chat",
     "selectInSettings": "Select models in settings",
     "searchPlaceholder": "Search model...",
     "cancel": "Cancel",
-    "create": "Create"
+    "create": "Create",
+    "tabTemplates": "📋 Templates",
+    "tabProviders": "🔌 Providers",
+    "noTemplates": "No templates yet. Create one in settings.",
+    "tempLabel": "temp"
   },
   "variablesModal": {
     "title": "Fill in variables",
@@ -270,6 +307,9 @@
     "folderCreated": "Folder created",
     "folderUpdated": "Folder updated",
     "folderDeleted": "Folder deleted",
+    "templateCreated": "Template created",
+    "templateUpdated": "Template updated",
+    "templateDeleted": "Template deleted",
     "providerAdded": "Provider added",
     "providerUpdated": "Provider updated",
     "providerDeleted": "Provider deleted",

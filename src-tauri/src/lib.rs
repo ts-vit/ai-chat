@@ -11,7 +11,8 @@ use commands::attachments::save_attachment;
 use commands::chat::{send_message, stop_generation, StreamState};
 use commands::database::{
     create_chat, delete_chat, delete_messages_after, get_all_chats, get_messages, save_message,
-    update_chat_model, update_chat_title, update_message_content, update_message_usage,
+    update_chat_model, update_chat_params, update_chat_title, update_message_content,
+    update_message_usage,
 };
 use commands::folders::{
     create_folder, delete_folder, get_all_folders, move_chat_to_folder, reorder_folders,
@@ -38,6 +39,9 @@ use commands::search::{
 use commands::snippets::{
     create_category, create_snippet, delete_category, delete_snippet, get_all_categories,
     get_all_snippets, get_snippets_by_category, update_category, update_snippet,
+};
+use commands::templates::{
+    create_template, delete_template, get_all_templates, reorder_templates, update_template,
 };
 use commands::export_import::{
     export_chat_json, export_chat_markdown, export_all_chats, import_chats,
@@ -97,10 +101,33 @@ const DB_MIGRATIONS: &[&str] = &[
         sort_order INTEGER DEFAULT 0,
         created_at INTEGER NOT NULL
     )",
+    "CREATE TABLE IF NOT EXISTS chat_templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        icon TEXT NOT NULL DEFAULT '💬',
+        provider_id TEXT NOT NULL DEFAULT 'openrouter',
+        model TEXT NOT NULL DEFAULT '',
+        system_prompt TEXT NOT NULL DEFAULT '',
+        temperature REAL,
+        max_tokens INTEGER,
+        top_p REAL,
+        top_k INTEGER,
+        frequency_penalty REAL,
+        presence_penalty REAL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+    )",
 ];
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("warn"),
+    )
+    .format_timestamp_millis()
+    .init();
+    log::info!("AI Chat backend started");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -139,6 +166,12 @@ pub fn run() {
                 "ALTER TABLE messages ADD COLUMN fts_indexed INTEGER DEFAULT 0",
                 "ALTER TABLE chats ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL",
                 "ALTER TABLE chats ADD COLUMN is_image_model INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE chats ADD COLUMN temperature REAL",
+                "ALTER TABLE chats ADD COLUMN max_tokens INTEGER",
+                "ALTER TABLE chats ADD COLUMN top_p REAL",
+                "ALTER TABLE chats ADD COLUMN top_k INTEGER",
+                "ALTER TABLE chats ADD COLUMN frequency_penalty REAL",
+                "ALTER TABLE chats ADD COLUMN presence_penalty REAL",
             ];
             for sql in alter_queries {
                 let _ = tauri::async_runtime::block_on(sqlx::query(sql).execute(&pool));
@@ -317,6 +350,7 @@ pub fn run() {
             get_messages,
             update_chat_title,
             update_chat_model,
+            update_chat_params,
             delete_messages_after,
             create_preset,
             update_preset,
@@ -342,6 +376,11 @@ pub fn run() {
             export_chat_json,
             export_chat_markdown,
             export_all_chats,
+            get_all_templates,
+            create_template,
+            update_template,
+            delete_template,
+            reorder_templates,
             import_chats,
         ])
         .run(tauri::generate_context!())

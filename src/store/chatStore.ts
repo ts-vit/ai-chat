@@ -6,6 +6,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
     Attachment,
     Chat,
+    ChatTemplate,
     Folder,
     Message,
     Preset,
@@ -35,6 +36,12 @@ interface DbChatResponse {
     model?: string;
     folderId?: string | null;
     isImageModel?: boolean;
+    temperature?: number | null;
+    maxTokens?: number | null;
+    topP?: number | null;
+    topK?: number | null;
+    frequencyPenalty?: number | null;
+    presencePenalty?: number | null;
 }
 
 function resolveProvider(
@@ -113,6 +120,7 @@ interface ChatState {
     folders: Folder[];
     categories: Category[];
     snippets: Snippet[];
+    templates: ChatTemplate[];
     customProviders: CustomProvider[];
     insertSnippetText: string | null;
     isStreaming: boolean;
@@ -149,6 +157,17 @@ interface ChatState {
     deletePreset: (id: string) => Promise<void>;
     setChatSystemPrompt: (chatId: string, systemPrompt: string) => Promise<void>;
     updateChatModel: (chatId: string, model: string, isImageModel?: boolean) => Promise<void>;
+    updateChatParams: (
+        chatId: string,
+        params: {
+            temperature?: number | null;
+            maxTokens?: number | null;
+            topP?: number | null;
+            topK?: number | null;
+            frequencyPenalty?: number | null;
+            presencePenalty?: number | null;
+        }
+    ) => Promise<void>;
 
     loadCategories: () => Promise<void>;
     createCategory: (name: string) => Promise<void>;
@@ -160,7 +179,19 @@ interface ChatState {
     deleteSnippet: (id: string) => Promise<void>;
     setInsertSnippetText: (text: string | null) => void;
 
-    createChat: (providerId?: string, model?: string, isImageModel?: boolean) => Promise<void>;
+    createChat: (
+        providerId?: string,
+        model?: string,
+        isImageModel?: boolean,
+        params?: {
+            temperature?: number | null;
+            maxTokens?: number | null;
+            topP?: number | null;
+            topK?: number | null;
+            frequencyPenalty?: number | null;
+            presencePenalty?: number | null;
+        }
+    ) => Promise<void>;
     deleteChat: (id: string) => Promise<void>;
     setActiveChat: (id: string) => Promise<void>;
     loadChats: () => Promise<void>;
@@ -170,6 +201,16 @@ interface ChatState {
     deleteFolder: (id: string) => Promise<void>;
     reorderFolders: (ids: string[]) => Promise<void>;
     moveChatToFolder: (chatId: string, folderId: string | null) => Promise<void>;
+
+    loadTemplates: () => Promise<void>;
+    createTemplate: (params: Omit<ChatTemplate, "id" | "sortOrder" | "createdAt">) => Promise<void>;
+    updateTemplate: (
+        id: string,
+        params: Omit<ChatTemplate, "id" | "sortOrder" | "createdAt">
+    ) => Promise<void>;
+    deleteTemplate: (id: string) => Promise<void>;
+    reorderTemplates: (ids: string[]) => Promise<void>;
+    createChatFromTemplate: (template: ChatTemplate) => Promise<void>;
 
     sendMessage: (content: string) => Promise<void>;
     editAndResend: (messageId: string, newContent: string) => Promise<void>;
@@ -186,6 +227,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     folders: [],
     categories: [],
     snippets: [],
+    templates: [],
     customProviders: [],
     insertSnippetText: null,
     settings: {
@@ -558,19 +600,33 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
-    createChat: async (providerId = "openrouter", model = "", isImageModel = false) => {
+    createChat: async (
+        providerId = "openrouter",
+        model = "",
+        isImageModel = false,
+        params
+    ) => {
         try {
             const { presets } = get();
             const defaultPreset = presets.find((p) => p.isDefault);
             const systemPrompt = defaultPreset?.content ?? "";
 
-            const created = await invoke<DbChatResponse>("create_chat", {
+            const payload: Record<string, unknown> = {
                 title: i18n.t("chat.newChatTitle"),
                 systemPrompt,
                 providerId,
                 model,
                 isImageModel,
-            });
+            };
+            // Omit optional number keys when null so backend deserializes missing key as Option::None (not Some(0))
+            if (params != null && typeof params.temperature === "number") payload.temperature = params.temperature;
+            if (params != null && typeof params.maxTokens === "number") payload.maxTokens = params.maxTokens;
+            if (params != null && typeof params.topP === "number") payload.topP = params.topP;
+            if (params != null && typeof params.topK === "number") payload.topK = params.topK;
+            if (params != null && typeof params.frequencyPenalty === "number") payload.frequencyPenalty = params.frequencyPenalty;
+            if (params != null && typeof params.presencePenalty === "number") payload.presencePenalty = params.presencePenalty;
+
+            const created = await invoke<DbChatResponse>("create_chat", payload);
             const newChat: Chat = {
                 id: created.id,
                 title: created.title,
@@ -581,6 +637,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 providerId: created.providerId ?? "openrouter",
                 model: created.model ?? "",
                 folderId: null,
+                temperature: created.temperature ?? undefined,
+                maxTokens: created.maxTokens ?? undefined,
+                topP: created.topP ?? undefined,
+                topK: created.topK ?? undefined,
+                frequencyPenalty: created.frequencyPenalty ?? undefined,
+                presencePenalty: created.presencePenalty ?? undefined,
             };
             set((state) => ({
                 chats: [newChat, ...state.chats],
@@ -645,6 +707,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 providerId: c.providerId ?? "openrouter",
                 model: c.model ?? "",
                 folderId: c.folderId ?? null,
+                temperature: c.temperature ?? undefined,
+                maxTokens: c.maxTokens ?? undefined,
+                topP: c.topP ?? undefined,
+                topK: c.topK ?? undefined,
+                frequencyPenalty: c.frequencyPenalty ?? undefined,
+                presencePenalty: c.presencePenalty ?? undefined,
             }));
             set({ chats });
         } catch (e) {
@@ -722,6 +790,142 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     c.id === chatId ? { ...c, folderId } : c
                 ),
             }));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    loadTemplates: async () => {
+        try {
+            const list = await invoke<ChatTemplate[]>("get_all_templates");
+            set({ templates: list ?? [] });
+        } catch (e) {
+            console.error("Failed to load templates:", e);
+        }
+    },
+
+    createTemplate: async (
+        params: Omit<ChatTemplate, "id" | "sortOrder" | "createdAt">
+    ) => {
+        try {
+            const template = await invoke<ChatTemplate>("create_template", {
+                name: params.name,
+                icon: params.icon ?? null,
+                providerId: params.providerId,
+                model: params.model,
+                systemPrompt: params.systemPrompt ?? "",
+                temperature: params.temperature ?? null,
+                maxTokens: params.maxTokens ?? null,
+                topP: params.topP ?? null,
+                topK: params.topK ?? null,
+                frequencyPenalty: params.frequencyPenalty ?? null,
+                presencePenalty: params.presencePenalty ?? null,
+            });
+            set((state) => ({ templates: [...state.templates, template] }));
+            notify.success(i18n.t("notifications.templateCreated"));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    updateTemplate: async (
+        id: string,
+        params: Omit<ChatTemplate, "id" | "sortOrder" | "createdAt">
+    ) => {
+        try {
+            await invoke("update_template", {
+                id,
+                name: params.name,
+                icon: params.icon ?? null,
+                providerId: params.providerId,
+                model: params.model,
+                systemPrompt: params.systemPrompt ?? "",
+                temperature: params.temperature ?? null,
+                maxTokens: params.maxTokens ?? null,
+                topP: params.topP ?? null,
+                topK: params.topK ?? null,
+                frequencyPenalty: params.frequencyPenalty ?? null,
+                presencePenalty: params.presencePenalty ?? null,
+            });
+            set((state) => ({
+                templates: state.templates.map((t) =>
+                    t.id === id
+                        ? {
+                              ...t,
+                              name: params.name,
+                              icon: params.icon ?? t.icon,
+                              providerId: params.providerId,
+                              model: params.model,
+                              systemPrompt: params.systemPrompt ?? "",
+                              temperature: params.temperature ?? undefined,
+                              maxTokens: params.maxTokens ?? undefined,
+                              topP: params.topP ?? undefined,
+                              topK: params.topK ?? undefined,
+                              frequencyPenalty: params.frequencyPenalty ?? undefined,
+                              presencePenalty: params.presencePenalty ?? undefined,
+                          }
+                        : t
+                ),
+            }));
+            notify.success(i18n.t("notifications.templateUpdated"));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    deleteTemplate: async (id: string) => {
+        try {
+            await invoke("delete_template", { id });
+            set((state) => ({
+                templates: state.templates.filter((t) => t.id !== id),
+            }));
+            notify.success(i18n.t("notifications.templateDeleted"));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    reorderTemplates: async (ids: string[]) => {
+        try {
+            await invoke("reorder_templates", { templateIds: ids });
+            set((state) => {
+                const byId = new Map(state.templates.map((t) => [t.id, t]));
+                const reordered = ids
+                    .map((id, index) => {
+                        const t = byId.get(id);
+                        return t ? { ...t, sortOrder: index } : null;
+                    })
+                    .filter((t): t is ChatTemplate => t !== null);
+                const remaining = state.templates.filter((t) => !byId.has(t.id));
+                return { templates: [...reordered, ...remaining] };
+            });
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    createChatFromTemplate: async (template: ChatTemplate) => {
+        try {
+            const isImageModel =
+                get().models.find((m) => m.id === template.model)
+                    ?.supportsImageGeneration ?? false;
+            await get().createChat(
+                template.providerId,
+                template.model,
+                isImageModel,
+                {
+                    temperature: template.temperature ?? undefined,
+                    maxTokens: template.maxTokens ?? undefined,
+                    topP: template.topP ?? undefined,
+                    topK: template.topK ?? undefined,
+                    frequencyPenalty: template.frequencyPenalty ?? undefined,
+                    presencePenalty: template.presencePenalty ?? undefined,
+                }
+            );
+            const { activeChatId } = get();
+            if (activeChatId && template.systemPrompt?.trim()) {
+                await get().setChatSystemPrompt(activeChatId, template.systemPrompt);
+            }
         } catch (e) {
             notify.error(String(e));
         }
@@ -1019,12 +1223,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 apiKey: resolved.apiKey,
                 model: chat.model ?? "",
                 messages: apiMessages,
-                temperature: settings.temperature,
-                maxTokens: settings.max_tokens,
-                topP: settings.topP ?? null,
-                topK: settings.topK ?? null,
-                frequencyPenalty: settings.frequencyPenalty ?? null,
-                presencePenalty: settings.presencePenalty ?? null,
+                temperature: chat.temperature ?? settings.temperature,
+                maxTokens: chat.maxTokens ?? settings.max_tokens,
+                topP: chat.topP ?? settings.topP ?? null,
+                topK: chat.topK ?? settings.topK ?? null,
+                frequencyPenalty: chat.frequencyPenalty ?? settings.frequencyPenalty ?? null,
+                presencePenalty: chat.presencePenalty ?? settings.presencePenalty ?? null,
                 assistantMessageId: assistantMsg.id,
             };
             if (draftAttachments.length > 0) {
@@ -1356,16 +1560,29 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 apiKey: resolved.apiKey,
                 model: chat.model ?? "",
                 messages: apiMessages,
-                temperature: settings.temperature,
-                maxTokens: settings.max_tokens,
-                topP: settings.topP ?? null,
-                topK: settings.topK ?? null,
-                frequencyPenalty: settings.frequencyPenalty ?? null,
-                presencePenalty: settings.presencePenalty ?? null,
+                temperature: chat.temperature ?? settings.temperature,
+                maxTokens: chat.maxTokens ?? settings.max_tokens,
+                topP: chat.topP ?? settings.topP ?? null,
+                topK: chat.topK ?? settings.topK ?? null,
+                frequencyPenalty: chat.frequencyPenalty ?? settings.frequencyPenalty ?? null,
+                presencePenalty: chat.presencePenalty ?? settings.presencePenalty ?? null,
                 assistantMessageId: assistantMsg.id,
             });
         } catch (e) {
             set({ isStreaming: false });
+            notify.error(String(e));
+        }
+    },
+
+    updateChatParams: async (chatId, params) => {
+        try {
+            await invoke("update_chat_params", { chatId, ...params });
+            set((state) => ({
+                chats: state.chats.map((c) =>
+                    c.id === chatId ? { ...c, ...params } : c
+                ),
+            }));
+        } catch (e) {
             notify.error(String(e));
         }
     },

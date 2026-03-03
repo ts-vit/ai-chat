@@ -39,7 +39,7 @@ pub async fn search_messages(
                 .fetch_optional(pool.inner())
                 .await
                 .map_err(|e| {
-                    eprintln!("[search_messages] SQL error (fetch chat title): {}", e);
+                    log::error!("[search_messages] SQL error (fetch chat title): {}", e);
                     e.to_string()
                 })?
                 .unwrap_or_default();
@@ -77,14 +77,14 @@ pub async fn get_indexing_status(
     .fetch_one(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[get_indexing_status] SQL error (total): {}", e);
+        log::error!("[get_indexing_status] SQL error (total): {}", e);
         e.to_string()
     })?;
     let indexed: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM messages WHERE fts_indexed = 1")
         .fetch_one(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[get_indexing_status] SQL error (indexed): {}", e);
+            log::error!("[get_indexing_status] SQL error (indexed): {}", e);
             e.to_string()
         })?;
     Ok(IndexingStatus {

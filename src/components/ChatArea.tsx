@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActionIcon, Box, Button, Group, Menu, Modal, Popover, Select, Stack, Text, Textarea, Title, Tooltip } from "@mantine/core";
 import {
+    IconAdjustments,
     IconDownload,
     IconLayoutSidebarLeftCollapse,
     IconLayoutSidebarLeftExpand,
@@ -15,6 +16,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { MessageList } from "./MessageList";
 import { MessageInput } from "./MessageInput";
 import { ChatStats } from "./ChatStats";
+import { ChatParamsPopoverContent } from "./ChatParamsPopover";
 import { useChatStore } from "../store/chatStore";
 import { notify } from "../utils/notify";
 
@@ -54,6 +56,7 @@ export function ChatArea({
         stopGeneration,
         setChatSystemPrompt,
         updateChatModel,
+        updateChatParams,
         settings,
         customProviders,
         localOllamaModels,
@@ -64,6 +67,7 @@ export function ChatArea({
     const [customModalOpen, setCustomModalOpen] = useState(false);
     const [customPromptDraft, setCustomPromptDraft] = useState("");
     const [presetPopoverOpen, setPresetPopoverOpen] = useState(false);
+    const [paramsPopoverOpen, setParamsPopoverOpen] = useState(false);
     const [customProviderModelsCache, setCustomProviderModelsCache] = useState<Record<string, string[]>>({});
     const [customModelsLoading, setCustomModelsLoading] = useState(false);
 
@@ -291,6 +295,36 @@ export function ChatArea({
                             </Menu.Item>
                         </Menu.Dropdown>
                     </Menu>
+                )}
+                {activeChat && (
+                    <Popover
+                        width={320}
+                        position="bottom-end"
+                        withArrow
+                        shadow="md"
+                        opened={paramsPopoverOpen}
+                        onChange={setParamsPopoverOpen}
+                    >
+                        <Popover.Target>
+                            <Tooltip label={t("chatParams.title")}>
+                                <ActionIcon
+                                    variant="subtle"
+                                    size="xs"
+                                    onClick={() => setParamsPopoverOpen((o) => !o)}
+                                    aria-label={t("chatParams.title")}
+                                >
+                                    <IconAdjustments size={16} stroke={1.5} />
+                                </ActionIcon>
+                            </Tooltip>
+                        </Popover.Target>
+                        <Popover.Dropdown>
+                            <ChatParamsPopoverContent
+                                chat={activeChat}
+                                settings={settings}
+                                onParamsChange={updateChatParams}
+                            />
+                        </Popover.Dropdown>
+                    </Popover>
                 )}
                 <Tooltip label={rightSidebarOpen ? t("chat.hideRightPanel") : t("chat.showRightPanel")}>
                     <ActionIcon

@@ -89,12 +89,12 @@ pub async fn index_message(
     .fetch_optional(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[index_message] SQL error (fetch message): {}", e);
+        log::error!("[index_message] SQL error (fetch message): {}", e);
         e.to_string()
     })?;
 
     let (id, chat_id, content, timestamp) = row.ok_or_else(|| {
-        eprintln!("[index_message] message not found: message_id={}", message_id);
+        log::debug!("[index_message] message not found: message_id={}", message_id);
         "message not found".to_string()
     })?;
     let role: String = sqlx::query_scalar("SELECT role FROM messages WHERE id = ?")
@@ -102,7 +102,7 @@ pub async fn index_message(
         .fetch_optional(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[index_message] SQL error (fetch role): {}", e);
+            log::error!("[index_message] SQL error (fetch role): {}", e);
             e.to_string()
         })?
         .unwrap_or_else(|| "user".to_string());
@@ -125,7 +125,7 @@ pub async fn index_message(
             .execute(pool.inner())
             .await
             .map_err(|e| {
-                eprintln!("[index_message] SQL error (update fts_indexed): {}", e);
+                log::error!("[index_message] SQL error (update fts_indexed): {}", e);
                 e.to_string()
             })?;
         return Ok(());
@@ -170,7 +170,7 @@ pub async fn index_message(
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[index_message] SQL error (update fts_indexed final): {}", e);
+            log::error!("[index_message] SQL error (update fts_indexed final): {}", e);
             e.to_string()
         })?;
     Ok(())
@@ -197,7 +197,7 @@ pub async fn reindex_all(
         {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("reindex_all fetch ids: {}", e);
+                log::error!("reindex_all fetch ids: {}", e);
                 INDEXING_IN_PROGRESS.store(false, Ordering::Relaxed);
                 let _ = app.emit("indexing-done", ());
                 return;
@@ -240,12 +240,12 @@ pub(crate) async fn index_message_impl(
     .fetch_optional(pool)
     .await
     .map_err(|e| {
-        eprintln!("[index_message_impl] SQL error (fetch message): {}", e);
+        log::error!("[index_message_impl] SQL error (fetch message): {}", e);
         e.to_string()
     })?;
 
     let (id, chat_id, content, timestamp) = row.ok_or_else(|| {
-        eprintln!("[index_message_impl] message not found: message_id={}", message_id);
+        log::debug!("[index_message_impl] message not found: message_id={}", message_id);
         "message not found".to_string()
     })?;
     let role: String = sqlx::query_scalar("SELECT role FROM messages WHERE id = ?")
@@ -253,7 +253,7 @@ pub(crate) async fn index_message_impl(
         .fetch_optional(pool)
         .await
         .map_err(|e| {
-            eprintln!("[index_message_impl] SQL error (fetch role): {}", e);
+            log::error!("[index_message_impl] SQL error (fetch role): {}", e);
             e.to_string()
         })?
         .unwrap_or_else(|| "user".to_string());
@@ -273,7 +273,7 @@ pub(crate) async fn index_message_impl(
                     .execute(pool)
                     .await
                     .map_err(|e| {
-                        eprintln!("[index_message_impl] SQL error (update fts_indexed): {}", e);
+                        log::error!("[index_message_impl] SQL error (update fts_indexed): {}", e);
                         e.to_string()
                     })
             })
@@ -291,7 +291,7 @@ pub(crate) async fn index_message_impl(
                 .execute(pool)
                 .await
                 .map_err(|e| {
-                    eprintln!("[index_message_impl] SQL error (update fts_indexed empty chunks): {}", e);
+                    log::error!("[index_message_impl] SQL error (update fts_indexed empty chunks): {}", e);
                     e.to_string()
                 })
         })
@@ -339,7 +339,7 @@ pub(crate) async fn index_message_impl(
             .execute(pool)
             .await
             .map_err(|e| {
-                eprintln!("[index_message_impl] SQL error (update fts_indexed final): {}", e);
+                log::error!("[index_message_impl] SQL error (update fts_indexed final): {}", e);
                 e.to_string()
             })
     })

@@ -1,6 +1,5 @@
 // Команды для работы с SQLite (чаты и сообщения)
 use std::sync::Arc;
-use serde::Deserialize;
 use sqlx::Row;
 use tauri::{AppHandle, State};
 use uuid::Uuid;
@@ -20,12 +19,25 @@ pub async fn create_chat(
     provider_id: Option<String>,
     model: Option<String>,
     is_image_model: Option<bool>,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    top_p: Option<f32>,
+    top_k: Option<u32>,
+    frequency_penalty: Option<f32>,
+    presence_penalty: Option<f32>,
 ) -> Result<DbChat, String> {
     let id = Uuid::new_v4().to_string();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_secs() as i64;
+
+    log::debug!(
+        "create_chat: provider={:?}, model={:?}, temperature={:?}",
+        provider_id,
+        model,
+        temperature
+    );
 
     let system_prompt_str = system_prompt.unwrap_or_default();
     let provider = provider_id
@@ -35,7 +47,7 @@ pub async fn create_chat(
     let is_image = is_image_model.unwrap_or(false) as i64;
 
     sqlx::query(
-        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model, is_image_model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&title)
@@ -45,10 +57,16 @@ pub async fn create_chat(
     .bind(&provider)
     .bind(&model_str)
     .bind(is_image)
+    .bind(temperature)
+    .bind(max_tokens.map(|v| v as i64))
+    .bind(top_p)
+    .bind(top_k.map(|v| v as i64))
+    .bind(frequency_penalty)
+    .bind(presence_penalty)
     .execute(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[create_chat] SQL error: {}", e);
+        log::error!("[create_chat] SQL error: {}", e);
         e.to_string()
     })?;
 
@@ -62,6 +80,12 @@ pub async fn create_chat(
         model: model_str,
         folder_id: None,
         is_image_model: is_image_model.unwrap_or(false),
+        temperature,
+        max_tokens,
+        top_p,
+        top_k,
+        frequency_penalty,
+        presence_penalty,
     })
 }
 
@@ -72,7 +96,7 @@ pub async fn delete_chat(app: AppHandle, pool: State<'_, Pool>, id: String) -> R
         .fetch_all(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[delete_chat] SQL error (fetch): {}", e);
+            log::error!("[delete_chat] SQL error (fetch): {}", e);
             e.to_string()
         })?;
     for row in rows {
@@ -84,7 +108,7 @@ pub async fn delete_chat(app: AppHandle, pool: State<'_, Pool>, id: String) -> R
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[delete_chat] SQL error (delete): {}", e);
+            log::error!("[delete_chat] SQL error (delete): {}", e);
             e.to_string()
         })?;
     Ok(())
@@ -93,16 +117,16 @@ pub async fn delete_chat(app: AppHandle, pool: State<'_, Pool>, id: String) -> R
 #[tauri::command]
 pub async fn get_all_chats(pool: State<'_, Pool>) -> Result<Vec<DbChat>, String> {
     let rows = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model FROM chats ORDER BY updated_at DESC",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty FROM chats ORDER BY updated_at DESC",
     )
     .fetch_all(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[get_all_chats] SQL error: {}", e);
+        log::error!("[get_all_chats] SQL error: {}", e);
         e.to_string()
     })?;
 
-    let chats = rows
+    let chats: Vec<DbChat> = rows
         .into_iter()
         .map(|row| DbChat {
             id: row.get("id"),
@@ -114,8 +138,15 @@ pub async fn get_all_chats(pool: State<'_, Pool>) -> Result<Vec<DbChat>, String>
             model: row.try_get::<String, _>("model").unwrap_or_default(),
             folder_id: row.try_get::<String, _>("folder_id").ok(),
             is_image_model: row.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0,
+            temperature: row.try_get::<Option<f32>, _>("temperature").ok().flatten(),
+            max_tokens: row.try_get::<Option<i64>, _>("max_tokens").ok().flatten().map(|v| v as u32),
+            top_p: row.try_get::<Option<f32>, _>("top_p").ok().flatten(),
+            top_k: row.try_get::<Option<i64>, _>("top_k").ok().flatten().map(|v| v as u32),
+            frequency_penalty: row.try_get::<Option<f32>, _>("frequency_penalty").ok().flatten(),
+            presence_penalty: row.try_get::<Option<f32>, _>("presence_penalty").ok().flatten(),
         })
         .collect();
+    log::debug!("get_all_chats: loaded {} chats", chats.len());
     Ok(chats)
 }
 
@@ -152,7 +183,7 @@ pub async fn save_message(
     .execute(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[save_message] SQL error: {}", e);
+        log::error!("[save_message] SQL error: {}", e);
         e.to_string()
     })?;
 
@@ -189,7 +220,7 @@ pub async fn update_message_usage(
     .execute(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[update_message_usage] SQL error: {}", e);
+        log::error!("[update_message_usage] SQL error: {}", e);
         e.to_string()
     })?;
     Ok(())
@@ -219,7 +250,7 @@ pub async fn update_message_content(
             .await
             .map_err(|e| {
                 let msg = e.to_string();
-                eprintln!("[update_message_content] SQL error (has_attachments): {}", msg);
+                log::error!("[update_message_content] SQL error (has_attachments): {}", msg);
                 msg
             })?;
     } else {
@@ -230,7 +261,7 @@ pub async fn update_message_content(
             .await
             .map_err(|e| {
                 let msg = e.to_string();
-                eprintln!("[update_message_content] SQL error: {}", msg);
+                log::error!("[update_message_content] SQL error: {}", msg);
                 msg
             })?;
     }
@@ -250,7 +281,7 @@ pub async fn update_message_content_with_attachments(
         .await
         .map_err(|e| {
             let msg = e.to_string();
-            eprintln!("[update_message_content_with_attachments] SQL error: {}", msg);
+            log::error!("[update_message_content_with_attachments] SQL error: {}", msg);
             msg
         })?;
     Ok(())
@@ -265,7 +296,7 @@ pub async fn get_messages(pool: State<'_, Pool>, chat_id: String) -> Result<Vec<
     .fetch_all(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[get_messages] SQL error: {}", e);
+        log::error!("[get_messages] SQL error: {}", e);
         e.to_string()
     })?;
 
@@ -302,7 +333,7 @@ pub async fn delete_messages_after(
         .fetch_all(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[delete_messages_after] SQL error (fetch ids): {}", e);
+            log::error!("[delete_messages_after] SQL error (fetch ids): {}", e);
             e.to_string()
         })?;
     for id in &ids_to_delete {
@@ -323,7 +354,7 @@ pub async fn delete_messages_after(
     .fetch_all(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[delete_messages_after] SQL error (fetch attachments): {}", e);
+        log::error!("[delete_messages_after] SQL error (fetch attachments): {}", e);
         e.to_string()
     })?;
     for row in rows {
@@ -336,23 +367,17 @@ pub async fn delete_messages_after(
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[delete_messages_after] SQL error (delete): {}", e);
+            log::error!("[delete_messages_after] SQL error (delete): {}", e);
             e.to_string()
         })?;
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub struct UpdateChatTitleArgs {
-    #[serde(rename = "chatId")]
-    chat_id: String,
-    title: String,
-}
-
 #[tauri::command]
 pub async fn update_chat_title(
     pool: State<'_, Pool>,
-    args: UpdateChatTitleArgs,
+    chat_id: String,
+    title: String,
 ) -> Result<(), String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -360,13 +385,13 @@ pub async fn update_chat_title(
         .as_secs() as i64;
 
     sqlx::query("UPDATE chats SET title = ?, updated_at = ? WHERE id = ?")
-        .bind(&args.title)
+        .bind(&title)
         .bind(now)
-        .bind(&args.chat_id)
+        .bind(&chat_id)
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[update_chat_title] SQL error: {}", e);
+            log::error!("[update_chat_title] SQL error: {}", e);
             e.to_string()
         })?;
     Ok(())
@@ -387,8 +412,38 @@ pub async fn update_chat_model(
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[update_chat_model] SQL error: {}", e);
+            log::error!("[update_chat_model] SQL error: {}", e);
             e.to_string()
         })?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_chat_params(
+    pool: State<'_, Pool>,
+    chat_id: String,
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    top_p: Option<f32>,
+    top_k: Option<u32>,
+    frequency_penalty: Option<f32>,
+    presence_penalty: Option<f32>,
+) -> Result<(), String> {
+    sqlx::query(
+        "UPDATE chats SET temperature = ?, max_tokens = ?, top_p = ?, top_k = ?, frequency_penalty = ?, presence_penalty = ?, updated_at = strftime('%s', 'now') WHERE id = ?",
+    )
+    .bind(temperature)
+    .bind(max_tokens.map(|v| v as i64))
+    .bind(top_p)
+    .bind(top_k.map(|v| v as i64))
+    .bind(frequency_penalty)
+    .bind(presence_penalty)
+    .bind(&chat_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| {
+        log::error!("[update_chat_params] SQL error: {}", e);
+        e.to_string()
+    })?;
     Ok(())
 }

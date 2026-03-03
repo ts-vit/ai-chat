@@ -11,3 +11,4 @@ pub mod settings;
 pub mod ollama;
 pub mod search;
 pub mod snippets;
+pub mod templates;

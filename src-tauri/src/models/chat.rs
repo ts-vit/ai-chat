@@ -127,6 +127,18 @@ pub struct DbChat {
     pub folder_id: Option<String>,
     #[serde(rename = "isImageModel", default)]
     pub is_image_model: bool,
+    #[serde(rename = "temperature", skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(rename = "maxTokens", skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(rename = "topP", skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(rename = "topK", skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    #[serde(rename = "frequencyPenalty", skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f32>,
+    #[serde(rename = "presencePenalty", skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -274,5 +286,30 @@ pub struct DbSnippet {
     pub name: String,
     pub content: String,
     pub category_id: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbChatTemplate {
+    pub id: String,
+    pub name: String,
+    pub icon: String,
+    pub provider_id: String,
+    pub model: String,
+    pub system_prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f32>,
+    pub sort_order: i64,
     pub created_at: i64,
 }

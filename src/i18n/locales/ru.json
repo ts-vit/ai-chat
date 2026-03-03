@@ -53,6 +53,17 @@
     "modelTyping": "Модель печатает",
     "startConversation": "Начните диалог — напишите сообщение"
   },
+  "chatParams": {
+    "title": "Параметры генерации",
+    "temperature": "Температура",
+    "maxTokens": "Макс. токенов",
+    "topP": "Top-P",
+    "topK": "Top-K",
+    "frequencyPenalty": "Штраф за частоту",
+    "presencePenalty": "Штраф за присутствие",
+    "useCustom": "Задать значение",
+    "globalValue": "Глобальное: {{value}}"
+  },
   "messageList": {
     "startDialog": "Начните диалог — напишите сообщение",
     "copyCode": "Копировать код",
@@ -131,6 +142,7 @@
       "generation": "Генерация",
       "interface": "Интерфейс",
       "presets": "Пресеты",
+      "templates": "Шаблоны",
       "data": "Данные",
       "about": "О программе"
     },
@@ -226,13 +238,38 @@
       "github": "GitHub"
     }
   },
+  "templates": {
+    "title": "Шаблоны чатов",
+    "description": "Шаблоны для быстрого создания чатов с предустановленными параметрами",
+    "create": "Создать шаблон",
+    "edit": "Редактировать шаблон",
+    "noTemplates": "Шаблонов пока нет",
+    "noTemplatesHint": "Создайте шаблон для быстрого запуска чатов с нужным провайдером, моделью и промптом.",
+    "name": "Название",
+    "namePlaceholder": "Например: Кодинг",
+    "icon": "Иконка (emoji)",
+    "iconPlaceholder": "💬",
+    "provider": "Провайдер",
+    "model": "Модель",
+    "systemPrompt": "Системный промпт",
+    "systemPromptPlaceholder": "Инструкции для модели...",
+    "generationParams": "Параметры генерации",
+    "generationParamsHint": "Если не заданы — используются глобальные настройки",
+    "setParam": "Задать значение",
+    "deleteConfirm": "Удалить шаблон «{{name}}»?",
+    "providerModel": "{{provider}} → {{model}}"
+  },
   "providerModal": {
     "title": "Новый чат",
     "hint": "Выберите провайдер и модель для чата",
     "selectInSettings": "Выберите модели в настройках",
     "searchPlaceholder": "Поиск модели...",
     "cancel": "Отмена",
-    "create": "Создать"
+    "create": "Создать",
+    "tabTemplates": "📋 Шаблоны",
+    "tabProviders": "🔌 Провайдеры",
+    "noTemplates": "Шаблонов пока нет. Создайте первый в настройках.",
+    "tempLabel": "temp"
   },
   "variablesModal": {
     "title": "Заполните переменные",
@@ -270,6 +307,9 @@
     "folderCreated": "Папка создана",
     "folderUpdated": "Папка обновлена",
     "folderDeleted": "Папка удалена",
+    "templateCreated": "Шаблон чата создан",
+    "templateUpdated": "Шаблон чата обновлён",
+    "templateDeleted": "Шаблон чата удалён",
     "providerAdded": "Провайдер добавлен",
     "providerUpdated": "Провайдер обновлён",
     "providerDeleted": "Провайдер удалён",

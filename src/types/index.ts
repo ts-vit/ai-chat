@@ -51,6 +51,12 @@ export interface Chat {
     providerId?: string;
     model?: string;
     folderId?: string | null;
+    temperature?: number | null;
+    maxTokens?: number | null;
+    topP?: number | null;
+    topK?: number | null;
+    frequencyPenalty?: number | null;
+    presencePenalty?: number | null;
 }
 
 // Локальная модель Ollama (вывод ollama list)
@@ -192,4 +198,21 @@ export interface ImportResult {
     chatsImported: number;
     messagesImported: number;
     attachmentsImported: number;
+}
+
+export interface ChatTemplate {
+    id: string;
+    name: string;
+    icon: string;
+    providerId: string;
+    model: string;
+    systemPrompt: string;
+    temperature?: number | null;
+    maxTokens?: number | null;
+    topP?: number | null;
+    topK?: number | null;
+    frequencyPenalty?: number | null;
+    presencePenalty?: number | null;
+    sortOrder: number;
+    createdAt: number;
 }

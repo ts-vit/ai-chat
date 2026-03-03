@@ -15,7 +15,7 @@ pub async fn get_all_folders(pool: State<'_, Pool>) -> Result<Vec<DbFolder>, Str
     .fetch_all(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[get_all_folders] SQL error: {}", e);
+        log::error!("[get_all_folders] SQL error: {}", e);
         e.to_string()
     })?;
 
@@ -48,7 +48,7 @@ pub async fn create_folder(
         .fetch_one(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[create_folder] SQL error (max sort_order): {}", e);
+            log::error!("[create_folder] SQL error (max sort_order): {}", e);
             e.to_string()
         })?;
 
@@ -63,7 +63,7 @@ pub async fn create_folder(
     .execute(pool.inner())
     .await
     .map_err(|e| {
-        eprintln!("[create_folder] SQL error: {}", e);
+        log::error!("[create_folder] SQL error: {}", e);
         e.to_string()
     })?;
 
@@ -90,7 +90,7 @@ pub async fn update_folder(
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[update_folder] SQL error: {}", e);
+            log::error!("[update_folder] SQL error: {}", e);
             e.to_string()
         })?;
     Ok(())
@@ -103,7 +103,7 @@ pub async fn delete_folder(pool: State<'_, Pool>, id: String) -> Result<(), Stri
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[delete_folder] SQL error (nullify chats): {}", e);
+            log::error!("[delete_folder] SQL error (nullify chats): {}", e);
             e.to_string()
         })?;
     sqlx::query("DELETE FROM folders WHERE id = ?")
@@ -111,7 +111,7 @@ pub async fn delete_folder(pool: State<'_, Pool>, id: String) -> Result<(), Stri
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[delete_folder] SQL error: {}", e);
+            log::error!("[delete_folder] SQL error: {}", e);
             e.to_string()
         })?;
     Ok(())
@@ -136,7 +136,7 @@ pub async fn reorder_folders(
             .execute(pool.inner())
             .await
             .map_err(|e| {
-                eprintln!("[reorder_folders] SQL error: {}", e);
+                log::error!("[reorder_folders] SQL error: {}", e);
                 e.to_string()
             })?;
     }
@@ -155,7 +155,7 @@ pub async fn move_chat_to_folder(
         .execute(pool.inner())
         .await
         .map_err(|e| {
-            eprintln!("[move_chat_to_folder] SQL error: {}", e);
+            log::error!("[move_chat_to_folder] SQL error: {}", e);
             e.to_string()
         })?;
     Ok(())

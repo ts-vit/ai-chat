@@ -16,6 +16,7 @@ import {
     IconFileText,
     IconInfoCircle,
     IconKey,
+    IconLayoutGrid,
     IconPalette,
     IconSettings,
 } from "@tabler/icons-react";
@@ -29,6 +30,7 @@ import {
     OllamaModelsSection,
     OpenRouterSection,
     PresetsSection,
+    TemplatesSection,
 } from "./settings";
 
 export type SettingsSection =
@@ -38,6 +40,7 @@ export type SettingsSection =
     | "generation"
     | "interface"
     | "presets"
+    | "templates"
     | "data"
     | "about";
 
@@ -48,6 +51,7 @@ const getNavItems = (t: (key: string) => string): { section: SettingsSection; la
     { section: "generation", label: t("settings.nav.generation"), icon: <IconSettings size={18} stroke={1.5} /> },
     { section: "interface", label: t("settings.nav.interface"), icon: <IconPalette size={18} stroke={1.5} /> },
     { section: "presets", label: t("settings.nav.presets"), icon: <IconFileText size={18} stroke={1.5} /> },
+    { section: "templates", label: t("settings.nav.templates"), icon: <IconLayoutGrid size={18} stroke={1.5} /> },
     { section: "data", label: t("settings.nav.data"), icon: <IconDatabase size={18} stroke={1.5} /> },
     { section: "about", label: t("settings.nav.about"), icon: <IconInfoCircle size={18} stroke={1.5} /> },
 ];
@@ -206,6 +210,8 @@ export function SettingsPage() {
                 );
             case "presets":
                 return <PresetsSection />;
+            case "templates":
+                return <TemplatesSection />;
             case "data":
                 return <DataSection />;
             case "about":

@@ -38,6 +38,12 @@ struct ExportChat {
     system_prompt: Option<String>,
     provider_id: String,
     model: String,
+    temperature: Option<f32>,
+    max_tokens: Option<i64>,
+    top_p: Option<f32>,
+    top_k: Option<i64>,
+    frequency_penalty: Option<f32>,
+    presence_penalty: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,6 +90,12 @@ fn db_chat_to_export(c: &DbChat) -> ExportChat {
         system_prompt: c.system_prompt.clone(),
         provider_id: c.provider_id.clone(),
         model: c.model.clone(),
+        temperature: c.temperature,
+        max_tokens: c.max_tokens.map(|v| v as i64),
+        top_p: c.top_p,
+        top_k: c.top_k.map(|v| v as i64),
+        frequency_penalty: c.frequency_penalty,
+        presence_penalty: c.presence_penalty,
     }
 }
 
@@ -136,13 +148,13 @@ fn iso8601_now() -> String {
 
 async fn get_chat_by_id(pool: &Pool, chat_id: &str) -> Result<Option<DbChat>, String> {
     let row = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model FROM chats WHERE id = ?",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty FROM chats WHERE id = ?",
     )
     .bind(chat_id)
     .fetch_optional(pool)
     .await
     .map_err(|e| {
-        eprintln!("[get_chat_by_id] SQL error: {}", e);
+        log::error!("[get_chat_by_id] SQL error: {}", e);
         e.to_string()
     })?;
     let row = match row {
@@ -159,17 +171,23 @@ async fn get_chat_by_id(pool: &Pool, chat_id: &str) -> Result<Option<DbChat>, St
         model: row.try_get("model").unwrap_or_default(),
         folder_id: row.try_get("folder_id").ok(),
         is_image_model: row.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0,
+        temperature: row.try_get::<f64, _>("temperature").ok().map(|v| v as f32),
+        max_tokens: row.try_get::<i64, _>("max_tokens").ok().map(|v| v as u32),
+        top_p: row.try_get::<f64, _>("top_p").ok().map(|v| v as f32),
+        top_k: row.try_get::<i64, _>("top_k").ok().map(|v| v as u32),
+        frequency_penalty: row.try_get::<f64, _>("frequency_penalty").ok().map(|v| v as f32),
+        presence_penalty: row.try_get::<f64, _>("presence_penalty").ok().map(|v| v as f32),
     }))
 }
 
 async fn get_all_chats_internal(pool: &Pool) -> Result<Vec<DbChat>, String> {
     let rows = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model FROM chats ORDER BY updated_at DESC",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty FROM chats ORDER BY updated_at DESC",
     )
     .fetch_all(pool)
     .await
     .map_err(|e| {
-        eprintln!("[get_all_chats_internal] SQL error: {}", e);
+        log::error!("[get_all_chats_internal] SQL error: {}", e);
         e.to_string()
     })?;
     Ok(rows
@@ -184,6 +202,12 @@ async fn get_all_chats_internal(pool: &Pool) -> Result<Vec<DbChat>, String> {
             model: row.try_get("model").unwrap_or_default(),
             folder_id: row.try_get("folder_id").ok(),
             is_image_model: row.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0,
+            temperature: row.try_get::<f64, _>("temperature").ok().map(|v| v as f32),
+            max_tokens: row.try_get::<i64, _>("max_tokens").ok().map(|v| v as u32),
+            top_p: row.try_get::<f64, _>("top_p").ok().map(|v| v as f32),
+            top_k: row.try_get::<i64, _>("top_k").ok().map(|v| v as u32),
+            frequency_penalty: row.try_get::<f64, _>("frequency_penalty").ok().map(|v| v as f32),
+            presence_penalty: row.try_get::<f64, _>("presence_penalty").ok().map(|v| v as f32),
         })
         .collect())
 }
@@ -196,7 +220,7 @@ async fn get_messages_internal(pool: &Pool, chat_id: &str) -> Result<Vec<DbMessa
     .fetch_all(pool)
     .await
     .map_err(|e| {
-        eprintln!("[get_messages_internal] SQL error: {}", e);
+        log::error!("[get_messages_internal] SQL error: {}", e);
         e.to_string()
     })?;
     Ok(rows
@@ -622,7 +646,7 @@ pub async fn import_chats(app: AppHandle, pool: State<'_, Pool>) -> Result<Impor
             zip_entry_names.push(entry.name().to_string());
         }
     }
-    eprintln!(
+    log::debug!(
         "[import_chats] ZIP entries ({}): {:?}",
         zip_entry_names.len(),
         zip_entry_names
@@ -683,7 +707,7 @@ async fn import_single_chat(
     let mut old_to_new_msg: HashMap<String, String> = HashMap::new();
 
     sqlx::query(
-        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&new_chat_id)
     .bind(&chat.title)
@@ -692,10 +716,16 @@ async fn import_single_chat(
     .bind(&chat.system_prompt)
     .bind(&chat.provider_id)
     .bind(&chat.model)
+    .bind(chat.temperature)
+    .bind(chat.max_tokens)
+    .bind(chat.top_p)
+    .bind(chat.top_k)
+    .bind(chat.frequency_penalty)
+    .bind(chat.presence_penalty)
     .execute(pool)
     .await
     .map_err(|e| {
-        eprintln!("[import_chats] INSERT chat: {}", e);
+        log::error!("[import_chats] INSERT chat: {}", e);
         e.to_string()
     })?;
 
@@ -711,7 +741,7 @@ async fn import_single_chat(
             .and_then(|old| old_to_new_msg.get(old).cloned());
 
         let content = if msg.has_attachments.unwrap_or(0) != 0 {
-            eprintln!(
+            log::debug!(
                 "[import_chats] message {} content (before rewrite): {}",
                 msg.id,
                 if msg.content.len() > 200 {
@@ -721,7 +751,7 @@ async fn import_single_chat(
                 }
             );
             let rewritten = rewrite_content_paths(&msg.content, &old_to_new_msg);
-            eprintln!(
+            log::debug!(
                 "[import_chats] message {} content (after rewrite): {}",
                 new_msg_id,
                 if rewritten.len() > 200 {
@@ -752,20 +782,20 @@ async fn import_single_chat(
         .execute(pool)
         .await
         .map_err(|e| {
-            eprintln!("[import_chats] INSERT message: {}", e);
+            log::error!("[import_chats] INSERT message: {}", e);
             e.to_string()
         })?;
 
         if msg.has_attachments.unwrap_or(0) != 0 {
             let base_dir = get_attachments_dir(app)?;
             let paths_for_zip = attachment_paths_from_content(&msg.content, &msg.id);
-            eprintln!(
+            log::debug!(
                 "[import_chats] message {} attachment path pairs (path_str, zip_name): {:?}",
                 new_msg_id, paths_for_zip
             );
             for (path_str, zip_name) in paths_for_zip {
                 let entry_name = format!("attachments/{}", zip_name);
-                eprintln!("[import_chats] looking up ZIP entry: {:?}", entry_name);
+                log::debug!("[import_chats] looking up ZIP entry: {:?}", entry_name);
                 let data = get_zip_entry_data(archive, &entry_name)
                     .or_else(|| get_zip_entry_data(archive, &path_str));
                 if let Some(data) = data {
@@ -781,17 +811,17 @@ async fn import_single_chat(
                         let target_name = format!("{}_{}", new_msg_id, file_name);
                         base_dir.join(&target_name)
                     };
-                    eprintln!(
+                    log::debug!(
                         "[import_chats] writing attachment to: {}",
                         target_path.display()
                     );
                     match std::fs::write(&target_path, &data) {
                         Ok(()) => {
                             attachments_count += 1;
-                            eprintln!("[import_chats] attachment written OK");
+                            log::debug!("[import_chats] attachment written OK");
                         }
                         Err(e) => {
-                            eprintln!(
+                            log::error!(
                                 "[import_chats] attachment write FAILED path={} err={}",
                                 target_path.display(),
                                 e
@@ -799,7 +829,7 @@ async fn import_single_chat(
                         }
                     }
                 } else {
-                    eprintln!(
+                    log::error!(
                         "[import_chats] attachment NOT FOUND in ZIP: {:?} (tried path {:?})",
                         entry_name, path_str
                     );

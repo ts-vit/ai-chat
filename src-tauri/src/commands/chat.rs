@@ -26,6 +26,32 @@ fn is_image_generation_model(model: &str) -> bool {
         || m.contains("playground")
 }
 
+/// Models that do not support system/developer instruction (e.g. gemma-3n). Returns false for such models.
+fn model_supports_system(model: &str) -> bool {
+    const NO_SYSTEM_PATTERNS: &[&str] = &["gemma-3n", "gemma3n"];
+    let m = model.to_lowercase();
+    !NO_SYSTEM_PATTERNS.iter().any(|p| m.contains(p))
+}
+
+/// If the model does not support system role, flatten system message into the first user message.
+fn maybe_flatten_system(mut messages: Vec<Message>, model: &str) -> Vec<Message> {
+    if model_supports_system(model) {
+        return messages;
+    }
+    if messages.is_empty() || messages[0].role != "system" {
+        return messages;
+    }
+    let system_content = messages.remove(0).content;
+    if let Some(first_user) = messages.iter_mut().find(|m| m.role == "user") {
+        first_user.content = format!(
+            "[System instruction]\n{}\n[/System instruction]\n\n{}",
+            system_content, first_user.content
+        );
+    }
+    log::info!("[send_message] System prompt flattened for model: {}", model);
+    messages
+}
+
 /// Состояние для отмены текущего стрима.
 pub struct StreamState {
     pub cancel_token: Arc<Mutex<Option<CancellationToken>>>,
@@ -83,13 +109,15 @@ pub async fn send_message(
     supports_image_generation: Option<bool>,
     assistant_message_id: Option<String>,
 ) -> Result<(), String> {
-    // Модель и флаг image берём из чата в БД (per-чат), fallback на переданные параметры
-    let (model, db_is_image_model) = if !chat_id.is_empty() {
-        let row = sqlx::query("SELECT model, is_image_model FROM chats WHERE id = ?")
-            .bind(&chat_id)
-            .fetch_optional(pool.inner())
-            .await
-            .map_err(|e| e.to_string())?;
+    // Модель, флаг image и per-чат параметры берём из чата в БД, fallback на переданные
+    let (model, db_is_image_model, db_temperature, db_max_tokens, db_top_p, db_top_k, db_frequency_penalty, db_presence_penalty) = if !chat_id.is_empty() {
+        let row = sqlx::query(
+            "SELECT model, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty FROM chats WHERE id = ?",
+        )
+        .bind(&chat_id)
+        .fetch_optional(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
         match row {
             Some(r) => {
                 let db_model = r.try_get::<String, _>("model").ok();
@@ -97,13 +125,21 @@ pub async fn send_message(
                 let resolved_model = db_model
                     .filter(|s: &String| !s.is_empty())
                     .unwrap_or_else(|| model.clone());
-                (resolved_model, db_image)
+                let db_t = r.try_get::<f64, _>("temperature").ok().map(|v| v as f32);
+                let db_m = r.try_get::<i64, _>("max_tokens").ok().map(|v| v as u32);
+                let db_p = r.try_get::<f64, _>("top_p").ok().map(|v| v as f32);
+                let db_k = r.try_get::<i64, _>("top_k").ok().map(|v| v as u32);
+                let db_fp = r.try_get::<f64, _>("frequency_penalty").ok().map(|v| v as f32);
+                let db_pp = r.try_get::<f64, _>("presence_penalty").ok().map(|v| v as f32);
+                (resolved_model, db_image, db_t, db_m, db_p, db_k, db_fp, db_pp)
             }
-            None => (model.clone(), false),
+            None => (model.clone(), false, None, None, None, None, None, None),
         }
     } else {
-        (model.clone(), false)
+        (model.clone(), false, None, None, None, None, None, None)
     };
+
+    let messages = maybe_flatten_system(messages, &model);
 
     let is_image = db_is_image_model
         || is_image_generation_model(&model)
@@ -117,13 +153,22 @@ pub async fn send_message(
     };
 
     // Для моделей генерации изображений не передаём параметры текстовой генерации (API возвращает 400).
+    // Иначе: per-чат значение из БД приоритетнее, fallback — переданный с фронта (глобальные settings).
     let no_text_params = is_image;
-    let temperature = if no_text_params { None } else { temperature };
-    let max_tokens = if no_text_params { None } else { max_tokens };
-    let top_p = if no_text_params { None } else { top_p };
-    let top_k = if no_text_params { None } else { top_k };
-    let frequency_penalty = if no_text_params { None } else { frequency_penalty };
-    let presence_penalty = if no_text_params { None } else { presence_penalty };
+    let temperature = if no_text_params { None } else { db_temperature.or(temperature) };
+    let max_tokens = if no_text_params { None } else { db_max_tokens.or(max_tokens) };
+    let top_p = if no_text_params { None } else { db_top_p.or(top_p) };
+    let top_k = if no_text_params { None } else { db_top_k.or(top_k) };
+    let frequency_penalty = if no_text_params { None } else { db_frequency_penalty.or(frequency_penalty) };
+    let presence_penalty = if no_text_params { None } else { db_presence_penalty.or(presence_penalty) };
+
+    log::debug!(
+        "send_message: model={}, messages={}, temperature={:?}, max_tokens={:?}",
+        model,
+        messages.len(),
+        temperature,
+        max_tokens
+    );
 
     let (request_body, _) = if let (Some(ref msg_id), Some(ref atts)) = (&user_message_id, &attachments) {
         if atts.is_empty() {
@@ -279,6 +324,7 @@ pub async fn send_message(
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         let error = format!("API error {}: {}", status, body);
+        log::error!("send_message: API error: {}", error);
         let _ = app.emit("chat-stream-error", StreamErrorPayload {
             error: error.clone(),
         });
@@ -297,6 +343,7 @@ pub async fn send_message(
     let token_check = token.clone();
     let assistant_msg_id = assistant_message_id.clone();
     let image_index = Arc::new(Mutex::new(0u32));
+    let chat_id_stream = chat_id.clone();
 
     let stream_result = tokio::select! {
         _ = token.cancelled() => {
@@ -304,6 +351,7 @@ pub async fn send_message(
             let _ = app.emit("chat-stream-done", StreamDonePayload {
                 full_content: fc,
             });
+            log::debug!("send_message: stream completed for chat_id={}", chat_id);
             *stream_state.cancel_token.lock().await = None;
             return Ok(());
         }
@@ -328,6 +376,7 @@ pub async fn send_message(
                             let _ = app_stream.emit("chat-stream-done", StreamDonePayload {
                                 full_content: fc,
                             });
+                            log::debug!("send_message: stream completed for chat_id={}", chat_id_stream);
                             return Ok(());
                         }
 
@@ -373,7 +422,7 @@ pub async fn send_message(
                                                         }
                                                     }
                                                     Err(e) => {
-                                                        eprintln!("[chat] image base64 decode error: {}", e);
+                                                        log::error!("[chat] image base64 decode error: {}", e);
                                                     }
                                                 }
                                             }
@@ -394,6 +443,7 @@ pub async fn send_message(
             let _ = app_stream.emit("chat-stream-done", StreamDonePayload {
                 full_content: fc,
             });
+            log::debug!("send_message: stream completed for chat_id={}", chat_id_stream);
             Ok(())
         } => r
     };

@@ -18,6 +18,7 @@ export function DataSection() {
                 <Button
                     variant="light"
                     size="sm"
+                    style={{ alignSelf: "flex-start", maxWidth: 250 }}
                     onClick={async () => {
                         try {
                             await invoke("export_all_chats");
@@ -41,6 +42,7 @@ export function DataSection() {
                 <Button
                     variant="light"
                     size="sm"
+                    style={{ alignSelf: "flex-start", maxWidth: 250 }}
                     onClick={async () => {
                         try {
                             const result = await invoke<ImportResult>("import_chats");

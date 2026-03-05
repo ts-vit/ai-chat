@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActionIcon, Box, Button, Group, Modal, Paper, Text, Textarea, Tooltip } from "@mantine/core";
-import { IconCheck, IconCopy, IconEdit, IconFile, IconFileText } from "@tabler/icons-react";
+import { IconCheck, IconCopy, IconEdit, IconFile, IconFileText, IconPlayerStop, IconVolume } from "@tabler/icons-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -10,7 +10,8 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { appDataDir, join } from "@tauri-apps/api/path";
 import { useChatStore } from "../store/chatStore";
 import { notify } from "../utils/notify";
-import type { ContentBlock, Message } from "../types";
+import { ToolCallBlock } from "./ToolCallBlock";
+import type { ContentBlock, ContentBlockText, Message } from "../types";
 
 function tryParseContentBlocks(content: string): ContentBlock[] | null {
     const trimmed = content.trimStart();
@@ -84,9 +85,17 @@ interface Props {
     compact?: boolean;
 }
 
+const DENSITY_PADDING = { compact: "xs", standard: "sm", spacious: "md" } as const;
+const DENSITY_MB = { compact: "xs", standard: "sm", spacious: "lg" } as const;
+
 export function MessageList({ messages, isStreaming, onEditResend, compact = false }: Props) {
     const { t } = useTranslation();
-    const { settings, scrollTargetId, setScrollTargetId } = useChatStore();
+    const { settings, scrollTargetId, setScrollTargetId, activeToolCalls, playingMessageId, speakMessage, stopTts } = useChatStore();
+    const density = (settings.messageDensity === "compact" || settings.messageDensity === "spacious"
+        ? settings.messageDensity
+        : "standard") as keyof typeof DENSITY_PADDING;
+    const listPadding = DENSITY_PADDING[density];
+    const messageMb = DENSITY_MB[density];
     const bottomRef = useRef<HTMLDivElement>(null);
     const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -243,26 +252,18 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
     );
 
     if (messages.length === 0) {
-        return (
-            <Box
-                style={{
-                    flex: 1,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                }}
-            >
-                <Text c="dimmed" size="lg">
-                    {t("messageList.startDialog")}
-                </Text>
-            </Box>
-        );
+        return <Box style={{ flex: 1 }} />;
     }
 
     return (
-        <Box style={{ flex: 1, overflowY: "auto" }} p={compact ? "xs" : "md"}>
+        <Box style={{ flex: 1, overflowY: "auto" }} p={listPadding}>
             {messages.map((msg, index) => (
-                <Box key={msg.id} id={msg.id} mb={compact ? "xs" : "md"}>
+                <Box
+                    key={msg.id}
+                    id={msg.id}
+                    className={isStreaming && index === messages.length - 1 ? "message-row streaming" : "message-row"}
+                    mb={messageMb}
+                >
                     <Box
                         style={{
                             display: "flex",
@@ -270,7 +271,7 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                         }}
                     >
                         {msg.role === "user" && editingMessageId === msg.id ? (
-                            <Box style={{ maxWidth: "75%", width: "100%" }}>
+                            <Box style={{ maxWidth: "70%", width: "100%" }}>
                                 <Textarea
                                     value={editContent}
                                     onChange={(e) => setEditContent(e.currentTarget.value)}
@@ -319,8 +320,9 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                             <Paper
                                 p="sm"
                                 radius="md"
+                                className={msg.role === "user" ? "user-message-bubble" : msg.role === "assistant" ? "assistant-message" : undefined}
                                 style={{
-                                    maxWidth: msg.role === "user" ? "75%" : compact ? "98%" : "95%",
+                                    maxWidth: msg.role === "user" ? "70%" : compact ? "98%" : "95%",
                                     backgroundColor:
                                         msg.role === "user"
                                             ? "var(--mantine-color-blue-filled)"
@@ -334,7 +336,8 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                     renderUserMessageBody(msg.content)
                                 ) : isStreaming &&
                                   index === messages.length - 1 &&
-                                  !msg.content.trim() ? (
+                                  !msg.content.trim() &&
+                                  activeToolCalls.length === 0 ? (
                                     <Box
                                         className="typing-indicator"
                                         role="status"
@@ -365,10 +368,14 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                         </ReactMarkdown>
                                     </Box>
                                 )}
+                                {isStreaming && index === messages.length - 1 && activeToolCalls.length > 0 && (
+                                    <ToolCallBlock toolCalls={activeToolCalls} />
+                                )}
                             </Paper>
                         )}
                     </Box>
                     <Box
+                        className="message-actions"
                         style={{
                             display: "flex",
                             justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
@@ -379,7 +386,6 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                         {msg.role === "user" && !isStreaming && editingMessageId !== msg.id && (
                             <Tooltip label={t("messageList.edit")}>
                                 <ActionIcon
-                                    className="message-copy-btn"
                                     size="xs"
                                     variant="subtle"
                                     onClick={() => {
@@ -394,7 +400,6 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                         )}
                         <Tooltip label={copiedMessageId === msg.id ? t("messageList.copied") : t("common.copy")}>
                             <ActionIcon
-                                className="message-copy-btn"
                                 size="xs"
                                 variant="subtle"
                                 onClick={() =>
@@ -412,6 +417,41 @@ export function MessageList({ messages, isStreaming, onEditResend, compact = fal
                                 )}
                             </ActionIcon>
                         </Tooltip>
+                        {msg.role === "assistant" && (msg.content.trim() || tryParseContentBlocks(msg.content)) && (
+                            <Tooltip label={playingMessageId === msg.id ? t("chat.stopSpeaking") : t("chat.speak")}>
+                                <ActionIcon
+                                    size="xs"
+                                    variant="subtle"
+                                    onClick={() => {
+                                        if (playingMessageId === msg.id) {
+                                            stopTts();
+                                        } else {
+                                            const content = tryParseContentBlocks(msg.content)
+                                                ? (() => {
+                                                      try {
+                                                          const blocks = JSON.parse(msg.content) as ContentBlock[];
+                                                          return blocks
+                                                              .filter((b): b is ContentBlockText => b.type === "text")
+                                                              .map((b) => b.text)
+                                                              .join("\n");
+                                                      } catch {
+                                                          return msg.content;
+                                                      }
+                                                  })()
+                                                : msg.content;
+                                            speakMessage(msg.id, content);
+                                        }
+                                    }}
+                                    aria-label={playingMessageId === msg.id ? t("chat.stopSpeaking") : t("chat.speak")}
+                                >
+                                    {playingMessageId === msg.id ? (
+                                        <IconPlayerStop size={14} stroke={1.5} />
+                                    ) : (
+                                        <IconVolume size={14} stroke={1.5} />
+                                    )}
+                                </ActionIcon>
+                            </Tooltip>
+                        )}
                     </Box>
                 </Box>
             ))}

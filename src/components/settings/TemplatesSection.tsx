@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
     Accordion,
     ActionIcon,
+    Box,
     Button,
     Card,
     Checkbox,
@@ -15,12 +16,19 @@ import {
     Text,
     Textarea,
     TextInput,
+    ColorSwatch,
     Tooltip,
 } from "@mantine/core";
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
+import { FOLDER_COLORS } from "../../constants/folderColors";
 import { useChatStore } from "../../store/chatStore";
 import type { ChatTemplate } from "../../types";
 import { ConfirmModal } from "../ConfirmModal";
+
+function getTemplateColor(tmpl: ChatTemplate): string {
+    const c = tmpl.color;
+    return c && FOLDER_COLORS.includes(c as (typeof FOLDER_COLORS)[number]) ? c : "blue";
+}
 
 function getOpenRouterDisplayName(modelId: string): string {
     const lastSlash = modelId.lastIndexOf("/");
@@ -57,7 +65,11 @@ export function TemplatesSection() {
 
     // Form state
     const [name, setName] = useState("");
+    const [nameError, setNameError] = useState<string | null>(null);
+    const [providerError, setProviderError] = useState<string | null>(null);
+    const [modelError, setModelError] = useState<string | null>(null);
     const [icon, setIcon] = useState("");
+    const [color, setColor] = useState<string>("blue");
     const [selectedProvider, setSelectedProvider] = useState<string>("");
     const [selectedModel, setSelectedModel] = useState("");
     const [systemPrompt, setSystemPrompt] = useState("");
@@ -121,7 +133,11 @@ export function TemplatesSection() {
         setIsCreating(true);
         setEditingTemplate(null);
         setName("");
+        setNameError(null);
+        setProviderError(null);
+        setModelError(null);
         setIcon("💬");
+        setColor("blue");
         setSelectedProvider(providerOptions[0]?.value ?? "openrouter");
         setSelectedModel("");
         setSystemPrompt("");
@@ -143,7 +159,11 @@ export function TemplatesSection() {
         setEditingTemplate(tmpl);
         setIsCreating(false);
         setName(tmpl.name);
+        setNameError(null);
+        setProviderError(null);
+        setModelError(null);
         setIcon(tmpl.icon || "💬");
+        setColor(getTemplateColor(tmpl));
         setSelectedProvider(tmpl.providerId);
         setSelectedModel(tmpl.model);
         setSystemPrompt(tmpl.systemPrompt ?? "");
@@ -175,8 +195,26 @@ export function TemplatesSection() {
 
     const handleSave = async () => {
         const trimmedName = name.trim();
-        if (!trimmedName) return;
-        if (!selectedProvider || !selectedModel) return;
+        let hasError = false;
+        if (!trimmedName) {
+            setNameError(t("common.fieldRequired"));
+            hasError = true;
+        } else {
+            setNameError(null);
+        }
+        if (!selectedProvider) {
+            setProviderError(t("common.fieldRequired"));
+            hasError = true;
+        } else {
+            setProviderError(null);
+        }
+        if (!selectedModel) {
+            setModelError(t("common.fieldRequired"));
+            hasError = true;
+        } else {
+            setModelError(null);
+        }
+        if (hasError) return;
 
         const params = {
             name: trimmedName,
@@ -253,9 +291,22 @@ export function TemplatesSection() {
                             <Group justify="space-between" wrap="nowrap" align="flex-start">
                                 <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
                                     <Group gap="xs" wrap="nowrap">
-                                        <Text span size="sm">
-                                            {tmpl.icon || "💬"}
-                                        </Text>
+                                        <Box
+                                            style={{
+                                                width: 28,
+                                                height: 28,
+                                                borderRadius: "50%",
+                                                backgroundColor: `var(--mantine-color-${getTemplateColor(tmpl)}-5)`,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                flexShrink: 0,
+                                            }}
+                                        >
+                                            <Text span size="sm">
+                                                {tmpl.icon || "💬"}
+                                            </Text>
+                                        </Box>
                                         <Text size="sm" fw={600}>
                                             {tmpl.name}
                                         </Text>
@@ -315,7 +366,11 @@ export function TemplatesSection() {
                         label={t("templates.name")}
                         placeholder={t("templates.namePlaceholder")}
                         value={name}
-                        onChange={(e) => setName(e.currentTarget.value)}
+                        onChange={(e) => {
+                            setName(e.currentTarget.value);
+                            setNameError(null);
+                        }}
+                        error={nameError}
                         required
                     />
                     <TextInput
@@ -325,20 +380,50 @@ export function TemplatesSection() {
                         onChange={(e) => setIcon(e.currentTarget.value)}
                         maxLength={4}
                     />
+                    <Box>
+                        <Text size="sm" fw={500} mb="xs" component="label">
+                            {t("sidebar.folderColor")}
+                        </Text>
+                        <Group gap={4}>
+                            {FOLDER_COLORS.map((c) => (
+                                <ColorSwatch
+                                    key={c}
+                                    color={`var(--mantine-color-${c}-5)`}
+                                    size={16}
+                                    onClick={() => setColor(c)}
+                                    style={{
+                                        cursor: "pointer",
+                                        border:
+                                            color === c
+                                                ? "2px solid var(--mantine-color-default-border)"
+                                                : undefined,
+                                    }}
+                                />
+                            ))}
+                        </Group>
+                    </Box>
                     <Select
                         label={t("templates.provider")}
                         data={providerOptions}
                         value={selectedProvider}
-                        onChange={handleProviderChange}
+                        onChange={(v) => {
+                            handleProviderChange(v);
+                            setProviderError(null);
+                        }}
                         allowDeselect={false}
+                        error={providerError}
                     />
                     <Select
                         label={t("templates.model")}
                         data={modelOptions}
                         value={selectedModel}
-                        onChange={(v) => setSelectedModel(v ?? "")}
+                        onChange={(v) => {
+                            setSelectedModel(v ?? "");
+                            setModelError(null);
+                        }}
                         allowDeselect={false}
                         disabled={modelOptions.length === 0}
+                        error={modelError}
                     />
                     <Textarea
                         label={t("templates.systemPrompt")}
@@ -362,7 +447,7 @@ export function TemplatesSection() {
                                 <Stack gap="md">
                                     <Stack gap="xs">
                                         <Checkbox
-                                            label={t("settings.generation.temperature", {
+                                            label={t("settings.generation.temperatureWithValue", {
                                                 value: temperature,
                                             })}
                                             checked={temperatureEnabled}
@@ -539,14 +624,7 @@ export function TemplatesSection() {
                         <Button variant="subtle" onClick={closeForm}>
                             {t("common.cancel")}
                         </Button>
-                        <Button
-                            onClick={handleSave}
-                            disabled={
-                                !name.trim() ||
-                                !selectedProvider ||
-                                !selectedModel
-                            }
-                        >
+                        <Button onClick={handleSave}>
                             {t("common.save")}
                         </Button>
                     </Group>

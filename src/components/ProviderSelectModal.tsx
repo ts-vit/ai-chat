@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
     Accordion,
     Badge,
+    Box,
     Button,
     Group,
     Modal,
@@ -21,8 +22,14 @@ import {
     IconSearch,
     IconServer,
 } from "@tabler/icons-react";
+import { FOLDER_COLORS } from "../constants/folderColors";
 import { useChatStore } from "../store/chatStore";
 import type { ChatTemplate, ModelInfo } from "../types";
+
+function getTemplateColor(tmpl: ChatTemplate): string {
+    const c = tmpl.color;
+    return c && FOLDER_COLORS.includes(c as (typeof FOLDER_COLORS)[number]) ? c : "blue";
+}
 
 interface ProviderSelectModalProps {
     opened: boolean;
@@ -269,7 +276,19 @@ export function ProviderSelectModal({
                                             }
                                         >
                                             <Stack gap={4}>
-                                                <Text size="xl">{tmpl.icon}</Text>
+                                                <Box
+                                                    style={{
+                                                        width: 36,
+                                                        height: 36,
+                                                        borderRadius: "50%",
+                                                        backgroundColor: `var(--mantine-color-${getTemplateColor(tmpl)}-5)`,
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
+                                                    }}
+                                                >
+                                                    <Text size="xl">{tmpl.icon || "💬"}</Text>
+                                                </Box>
                                                 <Text size="sm" fw={600}>
                                                     {tmpl.name}
                                                 </Text>

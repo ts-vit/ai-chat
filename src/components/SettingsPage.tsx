@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { AppSettings } from "../types";
 import {
     Box,
     Button,
@@ -17,16 +18,20 @@ import {
     IconInfoCircle,
     IconKey,
     IconLayoutGrid,
+    IconMicrophone,
     IconPalette,
+    IconPlug,
     IconSettings,
 } from "@tabler/icons-react";
 import { useChatStore } from "../store/chatStore";
 import {
     AboutSection,
+    AudioSection,
     CustomProvidersSection,
     DataSection,
     GenerationSection,
     InterfaceSection,
+    McpSection,
     OllamaModelsSection,
     OpenRouterSection,
     PresetsSection,
@@ -41,6 +46,8 @@ export type SettingsSection =
     | "interface"
     | "presets"
     | "templates"
+    | "mcp"
+    | "audio"
     | "data"
     | "about";
 
@@ -52,9 +59,90 @@ const getNavItems = (t: (key: string) => string): { section: SettingsSection; la
     { section: "interface", label: t("settings.nav.interface"), icon: <IconPalette size={18} stroke={1.5} /> },
     { section: "presets", label: t("settings.nav.presets"), icon: <IconFileText size={18} stroke={1.5} /> },
     { section: "templates", label: t("settings.nav.templates"), icon: <IconLayoutGrid size={18} stroke={1.5} /> },
+    { section: "mcp", label: t("settings.nav.mcp"), icon: <IconPlug size={18} stroke={1.5} /> },
+    { section: "audio", label: t("settings.nav.audio"), icon: <IconMicrophone size={18} stroke={1.5} /> },
     { section: "data", label: t("settings.nav.data"), icon: <IconDatabase size={18} stroke={1.5} /> },
     { section: "about", label: t("settings.nav.about"), icon: <IconInfoCircle size={18} stroke={1.5} /> },
 ];
+
+/** Snapshot of form fields that are saved via the main Save button (excludes model, stt*, openaiApiKey). */
+interface FormSnapshot {
+    api_key: string;
+    management_key: string;
+    temperature: number;
+    max_tokens: number;
+    font_size: number;
+    ollamaUrl: string;
+    openrouterEnabledModels: string[];
+    ollamaEnabledModels: string[];
+    customProviderEnabledModels: Record<string, string[]>;
+    topP: number | null;
+    topK: number | null;
+    frequencyPenalty: number | null;
+    presencePenalty: number | null;
+    language: string;
+    sendByEnter: boolean;
+    messageDensity: string;
+    chatWidth: string;
+    showStatusBar: boolean;
+    statusBarMetrics: string[];
+}
+
+function normalizedCustomProviders(obj: Record<string, string[]>): Record<string, string[]> {
+    return Object.fromEntries(
+        Object.entries(obj).map(([k, v]) => [k, (v ?? []).slice(0, 5)])
+    );
+}
+
+function isSameSnapshot(a: FormSnapshot, b: FormSnapshot | null): boolean {
+    if (b === null) return false;
+    if (
+        a.api_key !== b.api_key ||
+        a.management_key !== b.management_key ||
+        a.temperature !== b.temperature ||
+        a.max_tokens !== b.max_tokens ||
+        a.font_size !== b.font_size ||
+        a.ollamaUrl !== b.ollamaUrl ||
+        a.language !== b.language ||
+        a.sendByEnter !== b.sendByEnter ||
+        a.messageDensity !== b.messageDensity ||
+        a.chatWidth !== b.chatWidth ||
+        a.showStatusBar !== b.showStatusBar ||
+        a.topP !== b.topP ||
+        a.topK !== b.topK ||
+        a.frequencyPenalty !== b.frequencyPenalty ||
+        a.presencePenalty !== b.presencePenalty
+    ) {
+        return false;
+    }
+    if (
+        a.openrouterEnabledModels.length !== b.openrouterEnabledModels.length ||
+        a.openrouterEnabledModels.some((v, i) => v !== b.openrouterEnabledModels[i])
+    ) {
+        return false;
+    }
+    if (
+        a.ollamaEnabledModels.length !== b.ollamaEnabledModels.length ||
+        a.ollamaEnabledModels.some((v, i) => v !== b.ollamaEnabledModels[i])
+    ) {
+        return false;
+    }
+    const aKeys = Object.keys(a.customProviderEnabledModels).sort();
+    const bKeys = Object.keys(b.customProviderEnabledModels).sort();
+    if (aKeys.length !== bKeys.length || aKeys.some((k, i) => k !== bKeys[i])) return false;
+    for (const k of aKeys) {
+        const av = a.customProviderEnabledModels[k] ?? [];
+        const bv = b.customProviderEnabledModels[k] ?? [];
+        if (av.length !== bv.length || av.some((v, i) => v !== bv[i])) return false;
+    }
+    if (
+        a.statusBarMetrics.length !== b.statusBarMetrics.length ||
+        a.statusBarMetrics.some((v, i) => v !== b.statusBarMetrics[i])
+    ) {
+        return false;
+    }
+    return true;
+}
 
 export function SettingsPage() {
     const { t } = useTranslation();
@@ -96,6 +184,67 @@ export function SettingsPage() {
     );
     const [language, setLanguage] = useState(settings.language ?? "");
     const [sendByEnter, setSendByEnter] = useState(settings.sendByEnter ?? true);
+    const [messageDensity, setMessageDensity] = useState(settings.messageDensity ?? "standard");
+    const [chatWidth, setChatWidth] = useState(settings.chatWidth ?? "standard");
+    const [showStatusBar, setShowStatusBar] = useState(settings.showStatusBar ?? true);
+    const [statusBarMetrics, setStatusBarMetrics] = useState<string[]>(
+        settings.statusBarMetrics ?? ["balance", "context", "tokens", "cost"]
+    );
+
+    const initialSnapshotRef = useRef<FormSnapshot | null>(null);
+
+    function getFormSnapshot(): FormSnapshot {
+        return {
+            api_key: apiKey,
+            management_key: managementKey,
+            temperature,
+            max_tokens: maxTokens,
+            font_size: fontSize,
+            ollamaUrl,
+            openrouterEnabledModels: openrouterEnabledModels.slice(0, 5),
+            ollamaEnabledModels: ollamaEnabledModels.slice(0, 5),
+            customProviderEnabledModels: normalizedCustomProviders(customProviderEnabledModels),
+            topP: topPEnabled ? topP : null,
+            topK: topKEnabled ? topK : null,
+            frequencyPenalty: frequencyPenaltyEnabled ? frequencyPenalty : null,
+            presencePenalty: presencePenaltyEnabled ? presencePenalty : null,
+            language: language ?? "",
+            sendByEnter,
+            messageDensity,
+            chatWidth,
+            showStatusBar,
+            statusBarMetrics: statusBarMetrics.slice(),
+        };
+    }
+
+    function formSnapshotFromSettings(s: AppSettings): FormSnapshot {
+        return {
+            api_key: s.api_key,
+            management_key: s.management_key,
+            temperature: s.temperature,
+            max_tokens: s.max_tokens,
+            font_size: s.font_size,
+            ollamaUrl: s.ollamaUrl,
+            openrouterEnabledModels: (s.openrouterEnabledModels ?? []).slice(0, 5),
+            ollamaEnabledModels: (s.ollamaEnabledModels ?? []).slice(0, 5),
+            customProviderEnabledModels: normalizedCustomProviders(s.customProviderEnabledModels ?? {}),
+            topP: s.topP != null ? s.topP : null,
+            topK: s.topK != null ? s.topK : null,
+            frequencyPenalty: s.frequencyPenalty != null ? s.frequencyPenalty : null,
+            presencePenalty: s.presencePenalty != null ? s.presencePenalty : null,
+            language: s.language ?? "",
+            sendByEnter: s.sendByEnter ?? true,
+            messageDensity: s.messageDensity ?? "standard",
+            chatWidth: s.chatWidth ?? "standard",
+            showStatusBar: s.showStatusBar ?? true,
+            statusBarMetrics: (s.statusBarMetrics ?? ["balance", "context", "tokens", "cost"]).slice(),
+        };
+    }
+
+    const currentSnapshot = getFormSnapshot();
+    const isDirty =
+        initialSnapshotRef.current !== null &&
+        !isSameSnapshot(currentSnapshot, initialSnapshotRef.current);
 
     useEffect(() => {
         setApiKey(settings.api_key);
@@ -117,6 +266,13 @@ export function SettingsPage() {
         setPresencePenaltyEnabled(settings.presencePenalty != null);
         setLanguage(settings.language ?? "");
         setSendByEnter(settings.sendByEnter ?? true);
+        setMessageDensity(settings.messageDensity ?? "standard");
+        setChatWidth(settings.chatWidth ?? "standard");
+        setShowStatusBar(settings.showStatusBar ?? true);
+        setStatusBarMetrics(settings.statusBarMetrics ?? ["balance", "context", "tokens", "cost"]);
+        if (initialSnapshotRef.current === null) {
+            initialSnapshotRef.current = formSnapshotFromSettings(settings);
+        }
     }, [settings]);
 
     const handleSave = async () => {
@@ -139,7 +295,15 @@ export function SettingsPage() {
             presencePenalty: presencePenaltyEnabled ? presencePenalty : null,
             language: language ?? "",
             sendByEnter,
+            messageDensity,
+            chatWidth,
+            showStatusBar,
+            statusBarMetrics: statusBarMetrics.slice(),
+            sttProvider: settings.sttProvider,
+            sttLanguage: settings.sttLanguage,
+            openaiApiKey: settings.openaiApiKey,
         });
+        initialSnapshotRef.current = getFormSnapshot();
         setView("chat");
     };
 
@@ -206,12 +370,24 @@ export function SettingsPage() {
                         onLanguageChange={setLanguage}
                         sendByEnter={sendByEnter}
                         onSendByEnterChange={setSendByEnter}
+                        messageDensity={messageDensity}
+                        onMessageDensityChange={(value) => setMessageDensity(value as "compact" | "standard" | "spacious")}
+                        chatWidth={chatWidth}
+                        onChatWidthChange={(value) => setChatWidth(value as "standard" | "narrow" | "wide")}
+                        showStatusBar={showStatusBar}
+                        onShowStatusBarChange={setShowStatusBar}
+                        statusBarMetrics={statusBarMetrics}
+                        onStatusBarMetricsChange={setStatusBarMetrics}
                     />
                 );
             case "presets":
                 return <PresetsSection />;
             case "templates":
                 return <TemplatesSection />;
+            case "mcp":
+                return <McpSection />;
+            case "audio":
+                return <AudioSection />;
             case "data":
                 return <DataSection />;
             case "about":
@@ -270,9 +446,11 @@ export function SettingsPage() {
                 >
                     <Stack p="lg" gap="lg">
                         {renderSection()}
-                        <Group justify="flex-end">
-                            <Button onClick={handleSave}>{t("common.save")}</Button>
-                        </Group>
+                        {isDirty && (
+                            <Group justify="flex-end">
+                                <Button onClick={handleSave}>{t("common.save")}</Button>
+                            </Group>
+                        )}
                     </Stack>
                 </ScrollArea>
             </Box>

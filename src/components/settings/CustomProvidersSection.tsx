@@ -43,6 +43,8 @@ export function CustomProvidersSection({
     const [providerName, setProviderName] = useState("");
     const [providerBaseUrl, setProviderBaseUrl] = useState("");
     const [providerApiKey, setProviderApiKey] = useState("");
+    const [providerNameError, setProviderNameError] = useState<string | null>(null);
+    const [providerBaseUrlError, setProviderBaseUrlError] = useState<string | null>(null);
     const [deletingProviderId, setDeletingProviderId] = useState<string | null>(null);
     const [customProviderModelsList, setCustomProviderModelsList] = useState<Array<{ id: string; name: string }>>([]);
     const [customProviderModelsLoading, setCustomProviderModelsLoading] = useState(false);
@@ -68,6 +70,8 @@ export function CustomProvidersSection({
         setProviderName("");
         setProviderBaseUrl("");
         setProviderApiKey("");
+        setProviderNameError(null);
+        setProviderBaseUrlError(null);
         setCustomProviderModelsList([]);
     };
 
@@ -99,7 +103,20 @@ export function CustomProvidersSection({
     const saveProviderFromModal = async () => {
         const name = providerName.trim();
         const baseUrl = providerBaseUrl.trim();
-        if (!name || !baseUrl) return;
+        let hasError = false;
+        if (!name) {
+            setProviderNameError(t("common.fieldRequired"));
+            hasError = true;
+        } else {
+            setProviderNameError(null);
+        }
+        if (!baseUrl) {
+            setProviderBaseUrlError(t("common.fieldRequired"));
+            hasError = true;
+        } else {
+            setProviderBaseUrlError(null);
+        }
+        if (hasError) return;
         if (providerEditId) {
             await updateCustomProvider(providerEditId, name, baseUrl, providerApiKey);
         } else {
@@ -180,14 +197,22 @@ export function CustomProvidersSection({
                         label={t("common.name")}
                         placeholder={t("settings.customProviders.namePlaceholder")}
                         value={providerName}
-                        onChange={(e) => setProviderName(e.currentTarget.value)}
+                        onChange={(e) => {
+                            setProviderName(e.currentTarget.value);
+                            setProviderNameError(null);
+                        }}
+                        error={providerNameError}
                         withAsterisk
                     />
                     <TextInput
                         label={t("settings.customProviders.baseUrl")}
                         placeholder="https://api.anthropic.com/v1"
                         value={providerBaseUrl}
-                        onChange={(e) => setProviderBaseUrl(e.currentTarget.value)}
+                        onChange={(e) => {
+                            setProviderBaseUrl(e.currentTarget.value);
+                            setProviderBaseUrlError(null);
+                        }}
+                        error={providerBaseUrlError}
                         withAsterisk
                     />
                     <Text size="xs" c="dimmed">
@@ -244,10 +269,7 @@ export function CustomProvidersSection({
                         <Button variant="subtle" onClick={closeProviderModal}>
                             {t("common.cancel")}
                         </Button>
-                        <Button
-                            onClick={saveProviderFromModal}
-                            disabled={!providerName.trim() || !providerBaseUrl.trim()}
-                        >
+                        <Button onClick={saveProviderFromModal}>
                             {t("common.save")}
                         </Button>
                     </Group>

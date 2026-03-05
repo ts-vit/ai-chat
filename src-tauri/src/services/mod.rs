@@ -1,5 +1,12 @@
+pub mod audio_recorder;
 pub mod chunker;
+pub mod openai_tts;
+pub mod system_tts;
 pub mod embedding_engine;
 pub mod fts;
 pub mod hybrid_search;
+pub mod mcp_client;
+pub mod mcp_manager;
 pub mod vector_store;
+pub mod vosk_stt;
+pub mod whisper_stt;

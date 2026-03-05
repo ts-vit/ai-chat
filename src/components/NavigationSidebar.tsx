@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Box, NavLink, ScrollArea, Text } from "@mantine/core";
+import { Box, NavLink, ScrollArea, Text, Tooltip } from "@mantine/core";
 import { useChatStore } from "../store/chatStore";
 
 const TRUNCATE_LEN = 50;
@@ -90,7 +90,7 @@ export function NavigationSidebar({ width = 240, style }: NavigationSidebarProps
                 width: width,
                 flexShrink: 0,
                 minWidth: width,
-                height: "100vh",
+                height: "100%",
                 display: "flex",
                 flexDirection: "column",
                 borderLeft: "1px solid var(--mantine-color-default-border)",
@@ -109,14 +109,24 @@ export function NavigationSidebar({ width = 240, style }: NavigationSidebarProps
                             msg.content.length > TRUNCATE_LEN
                                 ? msg.content.slice(0, TRUNCATE_LEN) + "…"
                                 : msg.content;
+                        const tooltipLabel =
+                            msg.content.length > 200
+                                ? msg.content.slice(0, 200) + "…"
+                                : msg.content;
                         return (
-                            <NavLink
-                                key={msg.id}
-                                active={activeUserMessageId === msg.id}
-                                label={label}
-                                onClick={() => handleClick(msg.id)}
-                                style={{ marginBottom: 4 }}
-                            />
+                            <Tooltip
+                                label={tooltipLabel}
+                                multiline
+                                maw={300}
+                            >
+                                <NavLink
+                                    key={msg.id}
+                                    active={activeUserMessageId === msg.id}
+                                    label={label}
+                                    onClick={() => handleClick(msg.id)}
+                                    style={{ marginBottom: 4 }}
+                                />
+                            </Tooltip>
                         );
                     })}
                 </Box>

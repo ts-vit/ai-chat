@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
@@ -10,16 +10,12 @@ import {
     Select,
     Stack,
     Text,
-    TextInput,
     ThemeIcon,
     Tooltip,
 } from "@mantine/core";
 import { IconCircleCheck, IconCircleX, IconTrash } from "@tabler/icons-react";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-shell";
 import { useChatStore } from "../store/chatStore";
-import { notify } from "../utils/notify";
 import { ConfirmModal } from "./ConfirmModal";
 
 const PULL_MODEL_KEYS = [
@@ -39,22 +35,21 @@ interface OllamaSectionProps {
     onOllamaEnabledModelsChange: (ids: string[]) => void;
 }
 
-export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModels, onOllamaEnabledModelsChange }: OllamaSectionProps) {
+export function OllamaSection({ ollamaUrl: _ollamaUrl, onOllamaUrlChange: _onOllamaUrlChange, ollamaEnabledModels, onOllamaEnabledModelsChange }: OllamaSectionProps) {
     const { t } = useTranslation();
     const {
         ollamaStatus,
         localOllamaModels,
+        ollamaPullProgress,
         checkOllamaStatus,
         loadLocalOllamaModels,
         deleteOllamaModel,
+        pullOllamaModel,
+        clearOllamaPullProgress,
     } = useChatStore();
 
     const [deletingModelName, setDeletingModelName] = useState<string | null>(null);
     const [selectedModel, setSelectedModel] = useState<string>("llama3.2");
-    const [isPulling, setIsPulling] = useState(false);
-    const [pullProgress, setPullProgress] = useState(0);
-    const [pullStatus, setPullStatus] = useState("");
-    const unlistenRef = useRef<Array<() => void>>([]);
 
     useEffect(() => {
         checkOllamaStatus();
@@ -66,65 +61,15 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
         }
     }, [ollamaStatus, loadLocalOllamaModels]);
 
-    useEffect(() => {
-        return () => {
-            unlistenRef.current.forEach((fn) => fn());
-            unlistenRef.current = [];
-        };
-    }, []);
-
     const handleInstallOllama = () => {
         open("https://ollama.com");
     };
 
-    const handlePull = async () => {
-        setIsPulling(true);
-        setPullProgress(0);
-        setPullStatus("");
-
-        const cleanup = () => {
-            unlistenRef.current.forEach((fn) => fn());
-            unlistenRef.current = [];
-        };
-
-        try {
-            const unprogress = await listen<{
-                status?: string;
-                completed?: number;
-                total?: number;
-            }>("ollama-pull-progress", (event) => {
-                const { status, completed, total } = event.payload;
-                if (status) setPullStatus(status);
-                if (typeof total === "number" && total > 0 && typeof completed === "number") {
-                    setPullProgress(Math.round((completed / total) * 100));
-                }
-            });
-            const undone = await listen<{ model: string }>("ollama-pull-done", () => {
-                setIsPulling(false);
-                loadLocalOllamaModels();
-                notify.success(t("notifications.modelDownloaded"));
-                cleanup();
-            });
-            const unerror = await listen<{ message: string }>("ollama-pull-error", (event) => {
-                setIsPulling(false);
-                notify.error((event.payload.message ?? "") ? `${t("notifications.error")}: ${event.payload.message}` : t("notifications.error"));
-                cleanup();
-            });
-
-            unlistenRef.current = [unprogress, undone, unerror];
-            await invoke("pull_ollama_model", { modelName: selectedModel });
-        } catch (e) {
-            setIsPulling(false);
-            notify.error(String(e));
-            cleanup();
-        }
+    const handlePull = () => {
+        pullOllamaModel(selectedModel);
     };
 
-    const handleCancelPull = () => {
-        setIsPulling(false);
-        unlistenRef.current.forEach((fn) => fn());
-        unlistenRef.current = [];
-    };
+    const isPulling = ollamaPullProgress !== null;
 
     const handleConfirmDelete = () => {
         if (deletingModelName) {
@@ -240,7 +185,8 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                             value={selectedModel}
                             onChange={(v) => v && setSelectedModel(v)}
                             allowDeselect={false}
-                            style={{ minWidth: 280 }}
+                            style={{ minWidth: 350 }}
+                            styles={{ dropdown: { minWidth: 350 } }}
                         />
                         <Button
                             variant="filled"
@@ -251,29 +197,18 @@ export function OllamaSection({ ollamaUrl, onOllamaUrlChange, ollamaEnabledModel
                         </Button>
                     </Group>
 
-                    {isPulling && (
+                    {ollamaPullProgress && (
                         <Stack gap="xs">
-                            <Progress value={pullProgress} size="sm" animated />
+                            <Progress value={ollamaPullProgress.progress} size="sm" animated />
                             <Text size="xs" c="dimmed">
-                                {pullStatus || t("common.loading")}
+                                {ollamaPullProgress.status || t("common.loading")}
                             </Text>
-                            <Button variant="subtle" size="xs" onClick={handleCancelPull}>
+                            <Button variant="subtle" size="xs" onClick={clearOllamaPullProgress}>
                                 {t("ollama.cancel")}
                             </Button>
                         </Stack>
                     )}
 
-                    {/* URL сервера */}
-                    <TextInput
-                        label={t("ollama.serverUrl")}
-                        placeholder={t("ollama.serverUrlPlaceholder")}
-                        value={ollamaUrl}
-                        onChange={(e) => onOllamaUrlChange(e.currentTarget.value)}
-                        mt="xs"
-                    />
-                    <Text size="xs" c="dimmed">
-                        {t("ollama.serverUrlHint")}
-                    </Text>
                 </>
             )}
 

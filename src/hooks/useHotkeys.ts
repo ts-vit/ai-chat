@@ -3,7 +3,7 @@ import type { RefObject } from "react";
 
 export interface UseAppHotkeysOptions {
     messageInputRef: RefObject<HTMLTextAreaElement | null> | null;
-    currentView: "chat" | "settings" | "snippets" | "search";
+    currentView: "chat" | "settings" | "snippets" | "search" | "compare";
     chats: { id: string }[];
     activeChatId: string | null;
     onNewChat: () => void;

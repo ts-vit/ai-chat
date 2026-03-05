@@ -7,6 +7,13 @@ import type {
     Attachment,
     Chat,
     ChatTemplate,
+    Comparison,
+    ComparisonMessage,
+    ComparisonStreamPayload,
+    ComparisonStreamDonePayload,
+    ComparisonStreamUsagePayload,
+    ComparisonStreamErrorPayload,
+    ComparisonStreamImagePayload,
     Folder,
     Message,
     Preset,
@@ -23,6 +30,12 @@ import type {
     StreamUsagePayload,
     StreamImagePayload,
     ContentBlock,
+    ContentBlockText,
+    McpServer,
+    McpConnectionInfo,
+    ToolCallEvent,
+    ToolResultEvent,
+    ToolCallInfo,
 } from "../types";
 import { toUnixSeconds } from "../utils/formatDate";
 
@@ -75,12 +88,31 @@ function extractTextContent(content: string): string {
         const blocks = JSON.parse(content) as ContentBlock[];
         if (!Array.isArray(blocks)) return content;
         const textParts = blocks
-            .filter((b) => b.type === "text" && b.text)
-            .map((b) => b.text!);
+            .filter((b): b is ContentBlockText => b.type === "text")
+            .map((b) => b.text);
         return textParts.join("\n") || "";
     } catch {
         return content;
     }
+}
+
+/** Strip markdown/code for TTS: remove code blocks, links, html, keep plain text. */
+function stripMarkdownForTts(content: string): string {
+    let text = extractTextContent(content);
+    // Remove code blocks (```...```)
+    text = text.replace(/```[\s\S]*?```/g, " ");
+    // Remove inline code `...`
+    text = text.replace(/`[^`]+`/g, " ");
+    // Remove links [text](url) and images ![alt](url)
+    text = text.replace(/!?\[([^\]]*)\]\([^)]+\)/g, "$1");
+    // Remove html tags
+    text = text.replace(/<[^>]+>/g, " ");
+    // Remove emphasis * ** __ _
+    text = text.replace(/\*{1,2}([^*]+)\*{1,2}/g, "$1");
+    text = text.replace(/_{1,2}([^_]+)_{1,2}/g, "$1");
+    // Headers # ## ### -> keep text
+    text = text.replace(/^#{1,6}\s+/gm, " ");
+    return text.replace(/\s+/g, " ").trim();
 }
 
 interface DbMessageResponse {
@@ -127,17 +159,23 @@ interface ChatState {
     isStopping: boolean;
     balance: BalanceInfo | null;
     draftAttachments: Attachment[];
+    activeToolCalls: ToolCallInfo[];
+    playingMessageId: string | null;
 
-    currentView: "chat" | "settings" | "snippets" | "search";
-    setView: (view: "chat" | "settings" | "snippets" | "search") => void;
+    currentView: "chat" | "settings" | "snippets" | "search" | "compare";
+    setView: (view: "chat" | "settings" | "snippets" | "search" | "compare") => void;
     scrollTargetId: string | null;
     setScrollTargetId: (id: string | null) => void;
     models: ModelInfo[];
     ollamaStatus: "unknown" | "available" | "unavailable";
     localOllamaModels: OllamaLocalModel[];
+    ollamaPullProgress: { model: string; progress: number; status: string } | null;
     checkOllamaStatus: () => Promise<void>;
     loadLocalOllamaModels: () => Promise<void>;
     deleteOllamaModel: (modelName: string) => Promise<void>;
+    pullOllamaModel: (modelName: string) => Promise<void>;
+    clearOllamaPullProgress: () => void;
+    initOllamaPullListeners: () => Promise<void>;
     modelsLoading: boolean;
     modelsError: string | null;
 
@@ -212,9 +250,43 @@ interface ChatState {
     reorderTemplates: (ids: string[]) => Promise<void>;
     createChatFromTemplate: (template: ChatTemplate) => Promise<void>;
 
+    mcpServers: McpServer[];
+    mcpConnections: McpConnectionInfo[];
+    loadMcpServers: () => Promise<void>;
+    loadMcpConnections: () => Promise<void>;
+    addMcpServer: (name: string, command: string, args: string[], env: Record<string, string>) => Promise<void>;
+    updateMcpServer: (id: string, name: string, command: string, args: string[], env: Record<string, string>, enabled: boolean) => Promise<void>;
+    removeMcpServer: (id: string) => Promise<void>;
+    toggleMcpServer: (id: string, enabled: boolean) => Promise<void>;
+    connectMcpServer: (id: string) => Promise<void>;
+
     sendMessage: (content: string) => Promise<void>;
     editAndResend: (messageId: string, newContent: string) => Promise<void>;
     stopGeneration: () => Promise<void>;
+    setTtsPlayingMessageId: (id: string | null) => void;
+    speakMessage: (messageId: string, content: string) => Promise<void>;
+    stopTts: () => Promise<void>;
+
+    comparisons: Comparison[];
+    activeComparisonId: string | null;
+    comparisonMessages: ComparisonMessage[];
+    compareStreamingLeft: boolean;
+    compareStreamingRight: boolean;
+
+    loadComparisons: () => Promise<void>;
+    setActiveComparison: (id: string) => Promise<void>;
+    createComparison: (
+        leftProviderId: string,
+        leftModel: string,
+        rightProviderId: string,
+        rightModel: string,
+        leftSystemPrompt?: string,
+        rightSystemPrompt?: string,
+    ) => Promise<void>;
+    deleteComparison: (id: string) => Promise<void>;
+    updateComparisonTitle: (id: string, title: string) => Promise<void>;
+    sendComparisonMessage: (content: string) => Promise<void>;
+    stopComparisonGeneration: () => Promise<void>;
 
     loadSettings: () => Promise<void>;
     saveSettings: (settings: AppSettings) => Promise<void>;
@@ -229,6 +301,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     snippets: [],
     templates: [],
     customProviders: [],
+    mcpServers: [],
+    mcpConnections: [],
     insertSnippetText: null,
     settings: {
         api_key: "",
@@ -243,11 +317,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
         customProviderEnabledModels: {},
         language: "",
         sendByEnter: true,
+        messageDensity: "standard",
+        chatWidth: "standard",
+        showStatusBar: true,
+        statusBarMetrics: ["balance", "context", "tokens", "cost"],
     },
     isStreaming: false,
     isStopping: false,
     balance: null,
     draftAttachments: [],
+    activeToolCalls: [],
+    playingMessageId: null,
+    comparisons: [],
+    activeComparisonId: null,
+    comparisonMessages: [],
+    compareStreamingLeft: false,
+    compareStreamingRight: false,
 
     addAttachment: (attachment) =>
         set((state) => ({ draftAttachments: [...state.draftAttachments, attachment] })),
@@ -264,6 +349,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     modelsError: null,
     ollamaStatus: "unknown",
     localOllamaModels: [],
+    ollamaPullProgress: null,
     checkOllamaStatus: async () => {
         set({ ollamaStatus: "unknown" });
         try {
@@ -289,6 +375,55 @@ export const useChatStore = create<ChatState>((set, get) => ({
         } catch (e) {
             notify.error(String(e));
         }
+    },
+    pullOllamaModel: async (modelName) => {
+        set({
+            ollamaPullProgress: {
+                model: modelName,
+                progress: 0,
+                status: "",
+            },
+        });
+        try {
+            await invoke("pull_ollama_model", { modelName });
+        } catch (e) {
+            set({ ollamaPullProgress: null });
+            notify.error(String(e));
+        }
+    },
+    clearOllamaPullProgress: () => set({ ollamaPullProgress: null }),
+    initOllamaPullListeners: async () => {
+        await listen<{
+            status?: string;
+            completed?: number;
+            total?: number;
+        }>("ollama-pull-progress", (event) => {
+            const { status, completed, total } = event.payload;
+            set((state) => {
+                if (!state.ollamaPullProgress) return state;
+                const progress =
+                    typeof total === "number" && total > 0 && typeof completed === "number"
+                        ? Math.round((completed / total) * 100)
+                        : state.ollamaPullProgress.progress;
+                return {
+                    ollamaPullProgress: {
+                        ...state.ollamaPullProgress,
+                        status: status ?? state.ollamaPullProgress.status,
+                        progress,
+                    },
+                };
+            });
+        });
+        await listen<{ model: string }>("ollama-pull-done", () => {
+            set({ ollamaPullProgress: null });
+            get().loadLocalOllamaModels();
+            notify.success(i18n.t("notifications.modelDownloaded"));
+        });
+        await listen<{ message: string }>("ollama-pull-error", (event) => {
+            set({ ollamaPullProgress: null });
+            const msg = event.payload?.message?.trim();
+            notify.error(msg ? `${i18n.t("notifications.error")}: ${msg}` : i18n.t("notifications.error"));
+        });
     },
     loadModels: async (force) => {
         const { models } = get();
@@ -931,6 +1066,76 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
+    loadMcpServers: async () => {
+        try {
+            const list = await invoke<McpServer[]>("mcp_get_servers");
+            set({ mcpServers: list ?? [] });
+        } catch (e) {
+            console.error("Failed to load MCP servers:", e);
+        }
+    },
+
+    loadMcpConnections: async () => {
+        try {
+            const list = await invoke<McpConnectionInfo[]>("mcp_list_connections");
+            set({ mcpConnections: list ?? [] });
+        } catch (e) {
+            console.error("Failed to load MCP connections:", e);
+        }
+    },
+
+    addMcpServer: async (name, command, args, env) => {
+        try {
+            await invoke("mcp_add_server", { name, command, args, env, enabled: true });
+            await get().loadMcpServers();
+            await get().loadMcpConnections();
+            notify.success(i18n.t("notifications.mcpServerAdded"));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    updateMcpServer: async (id, name, command, args, env, enabled) => {
+        try {
+            await invoke("mcp_update_server", { id, name, command, args, env, enabled });
+            await get().loadMcpServers();
+            await get().loadMcpConnections();
+            notify.success(i18n.t("notifications.mcpServerUpdated"));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    removeMcpServer: async (id) => {
+        try {
+            await invoke("mcp_remove_server", { id });
+            await get().loadMcpServers();
+            await get().loadMcpConnections();
+            notify.success(i18n.t("notifications.mcpServerRemoved"));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    toggleMcpServer: async (id, enabled) => {
+        try {
+            await invoke("mcp_toggle_server", { id, enabled });
+            await get().loadMcpServers();
+            await get().loadMcpConnections();
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    connectMcpServer: async (id) => {
+        try {
+            await invoke("mcp_connect_by_id", { serverId: id });
+            await get().loadMcpConnections();
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
     sendMessage: async (content: string) => {
         const { settings, activeChatId, chats, customProviders } = get();
 
@@ -1154,6 +1359,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
             );
 
             unlisteners.push(
+                await listen<ToolCallEvent>("chat-stream-tool-call", (event) => {
+                    const p = event.payload;
+                    set((state) => ({
+                        activeToolCalls: [
+                            ...state.activeToolCalls,
+                            {
+                                toolCallId: p.toolCallId,
+                                serverId: p.serverId,
+                                toolName: p.toolName,
+                                arguments: p.arguments,
+                                status: "calling",
+                            },
+                        ],
+                    }));
+                })
+            );
+
+            unlisteners.push(
+                await listen<ToolResultEvent>("chat-stream-tool-result", (event) => {
+                    const p = event.payload;
+                    set((state) => ({
+                        activeToolCalls: state.activeToolCalls.map((tc) =>
+                            tc.toolCallId === p.toolCallId
+                                ? {
+                                      ...tc,
+                                      result: p.result,
+                                      isError: p.isError,
+                                      status: p.isError ? "error" as const : "done" as const,
+                                  }
+                                : tc
+                        ),
+                    }));
+                })
+            );
+
+            unlisteners.push(
                 await listen<StreamDonePayload>("chat-stream-done", (event) => {
                     const fullContent = event.payload.full_content;
                     let contentToSave: string;
@@ -1178,6 +1419,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     set((state) => ({
                         isStreaming: false,
                         isStopping: false,
+                        activeToolCalls: [],
                         chats: state.chats.map((c) =>
                             c.id === activeChatId
                                 ? {
@@ -1201,7 +1443,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             unlisteners.push(
                 await listen<StreamErrorPayload>("chat-stream-error", (event) => {
                     notify.error(event.payload.error);
-                    set({ isStreaming: false, isStopping: false });
+                    set({ isStreaming: false, isStopping: false, activeToolCalls: [] });
                     unlisteners.forEach((fn) => fn());
                 })
             );
@@ -1502,6 +1744,42 @@ export const useChatStore = create<ChatState>((set, get) => ({
             );
 
             unlisteners.push(
+                await listen<ToolCallEvent>("chat-stream-tool-call", (event) => {
+                    const p = event.payload;
+                    set((state) => ({
+                        activeToolCalls: [
+                            ...state.activeToolCalls,
+                            {
+                                toolCallId: p.toolCallId,
+                                serverId: p.serverId,
+                                toolName: p.toolName,
+                                arguments: p.arguments,
+                                status: "calling",
+                            },
+                        ],
+                    }));
+                })
+            );
+
+            unlisteners.push(
+                await listen<ToolResultEvent>("chat-stream-tool-result", (event) => {
+                    const p = event.payload;
+                    set((state) => ({
+                        activeToolCalls: state.activeToolCalls.map((tc) =>
+                            tc.toolCallId === p.toolCallId
+                                ? {
+                                      ...tc,
+                                      result: p.result,
+                                      isError: p.isError,
+                                      status: p.isError ? "error" as const : "done" as const,
+                                  }
+                                : tc
+                        ),
+                    }));
+                })
+            );
+
+            unlisteners.push(
                 await listen<StreamDonePayload>("chat-stream-done", (event) => {
                     const fullContentEdit = event.payload.full_content;
                     let contentToSaveEdit: string;
@@ -1526,6 +1804,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     set((state) => ({
                         isStreaming: false,
                         isStopping: false,
+                        activeToolCalls: [],
                         chats: state.chats.map((c) =>
                             c.id === activeChatId
                                 ? {
@@ -1549,7 +1828,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             unlisteners.push(
                 await listen<StreamErrorPayload>("chat-stream-error", (event) => {
                     notify.error(event.payload.error);
-                    set({ isStreaming: false, isStopping: false });
+                    set({ isStreaming: false, isStopping: false, activeToolCalls: [] });
                     unlisteners.forEach((fn) => fn());
                 })
             );
@@ -1597,6 +1876,367 @@ export const useChatStore = create<ChatState>((set, get) => ({
         }
     },
 
+    setTtsPlayingMessageId: (id) => set({ playingMessageId: id }),
+
+    speakMessage: async (messageId, content) => {
+        const { settings, playingMessageId } = get();
+        if (playingMessageId === messageId) return;
+        const plainText = stripMarkdownForTts(content);
+        if (!plainText.trim()) return;
+        const provider = settings.ttsProvider ?? "system";
+        const voice = settings.ttsVoice || undefined;
+        try {
+            await invoke("tts_speak", {
+                text: plainText,
+                provider,
+                voice: voice || null,
+            });
+            set({ playingMessageId: messageId });
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    stopTts: async () => {
+        try {
+            await invoke("tts_stop");
+            set({ playingMessageId: null });
+        } catch (e) {
+            console.error("Failed to stop TTS:", e);
+            set({ playingMessageId: null });
+        }
+    },
+
+    loadComparisons: async () => {
+        try {
+            const list = await invoke<Comparison[]>("get_all_comparisons");
+            set({ comparisons: list ?? [] });
+        } catch (e) {
+            console.error("Failed to load comparisons:", e);
+        }
+    },
+
+    setActiveComparison: async (id: string) => {
+        set({ activeComparisonId: id });
+        try {
+            const msgs = await invoke<ComparisonMessage[]>("get_comparison_messages", {
+                comparisonId: id,
+            });
+            set({ comparisonMessages: msgs ?? [] });
+        } catch (e) {
+            console.error("Failed to load comparison messages:", e);
+        }
+    },
+
+    createComparison: async (
+        leftProviderId,
+        leftModel,
+        rightProviderId,
+        rightModel,
+        leftSystemPrompt,
+        rightSystemPrompt,
+    ) => {
+        try {
+            const comparison = await invoke<Comparison>("create_comparison", {
+                leftProviderId,
+                leftModel,
+                rightProviderId,
+                rightModel,
+                leftSystemPrompt: leftSystemPrompt ?? null,
+                rightSystemPrompt: rightSystemPrompt ?? null,
+            });
+            set((state) => ({
+                comparisons: [comparison, ...state.comparisons],
+                activeComparisonId: comparison.id,
+                comparisonMessages: [],
+            }));
+            notify.success(i18n.t("compare.comparisonCreated"));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    deleteComparison: async (id: string) => {
+        try {
+            await invoke("delete_comparison", { comparisonId: id });
+            set((state) => {
+                const comparisons = state.comparisons.filter((c) => c.id !== id);
+                const activeComparisonId =
+                    state.activeComparisonId === id ? null : state.activeComparisonId;
+                return {
+                    comparisons,
+                    activeComparisonId,
+                    comparisonMessages: activeComparisonId === null ? [] : state.comparisonMessages,
+                };
+            });
+            notify.info(i18n.t("compare.comparisonDeleted"));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    updateComparisonTitle: async (id: string, title: string) => {
+        try {
+            await invoke("update_comparison_title", { comparisonId: id, title });
+            set((state) => ({
+                comparisons: state.comparisons.map((c) =>
+                    c.id === id ? { ...c, title } : c
+                ),
+            }));
+        } catch (e) {
+            notify.error(String(e));
+        }
+    },
+
+    sendComparisonMessage: async (content: string) => {
+        const { activeComparisonId, comparisons, settings, customProviders } = get();
+        if (!activeComparisonId) return;
+
+        const comparison = comparisons.find((c) => c.id === activeComparisonId);
+        if (!comparison) return;
+
+        const resolveP = (providerId: string) => resolveProvider(providerId, settings, customProviders);
+        const leftResolved = resolveP(comparison.leftProviderId);
+        const rightResolved = resolveP(comparison.rightProviderId);
+        if (!leftResolved || !rightResolved) {
+            notify.error(i18n.t("notifications.providerNotFound"));
+            return;
+        }
+        if (comparison.leftProviderId === "openrouter" && !leftResolved.apiKey?.trim()) {
+            notify.warning(i18n.t("notifications.apiKeyNotSet"));
+            return;
+        }
+        if (comparison.rightProviderId === "openrouter" && !rightResolved.apiKey?.trim()) {
+            notify.warning(i18n.t("notifications.apiKeyNotSet"));
+            return;
+        }
+
+        await get().loadModels();
+
+        set({ compareStreamingLeft: true, compareStreamingRight: true });
+
+        const unlisteners: UnlistenFn[] = [];
+
+        try {
+            unlisteners.push(
+                await listen<{ userMessageId: string; leftAssistantId: string; rightAssistantId: string; content: string; timestamp: number; comparisonId: string; leftModel: string; rightModel: string }>(
+                    "comparison-messages-saved",
+                    (event) => {
+                        const p = event.payload;
+                        if (p.comparisonId !== activeComparisonId) return;
+                        const userMsg: ComparisonMessage = {
+                            id: p.userMessageId,
+                            comparisonId: p.comparisonId,
+                            role: "user",
+                            side: null,
+                            content: p.content,
+                            timestamp: p.timestamp,
+                            promptTokens: 0,
+                            completionTokens: 0,
+                            cost: 0,
+                        };
+                        const leftMsg: ComparisonMessage = {
+                            id: p.leftAssistantId,
+                            comparisonId: p.comparisonId,
+                            role: "assistant",
+                            side: "left",
+                            content: "",
+                            timestamp: p.timestamp + 1,
+                            model: p.leftModel,
+                            promptTokens: 0,
+                            completionTokens: 0,
+                            cost: 0,
+                        };
+                        const rightMsg: ComparisonMessage = {
+                            id: p.rightAssistantId,
+                            comparisonId: p.comparisonId,
+                            role: "assistant",
+                            side: "right",
+                            content: "",
+                            timestamp: p.timestamp + 1,
+                            model: p.rightModel,
+                            promptTokens: 0,
+                            completionTokens: 0,
+                            cost: 0,
+                        };
+                        set((state) => ({
+                            comparisonMessages: [...state.comparisonMessages, userMsg, leftMsg, rightMsg],
+                        }));
+                    }
+                )
+            );
+
+            unlisteners.push(
+                await listen<ComparisonStreamPayload>("comparison-stream", (event) => {
+                    const { side, content: chunk } = event.payload;
+                    set((state) => ({
+                        comparisonMessages: state.comparisonMessages.map((m) =>
+                            m.role === "assistant" && m.side === side &&
+                            m === [...state.comparisonMessages].reverse().find(
+                                (msg) => msg.role === "assistant" && msg.side === side
+                            )
+                                ? { ...m, content: m.content + chunk }
+                                : m
+                        ),
+                    }));
+                })
+            );
+
+            unlisteners.push(
+                await listen<ComparisonStreamImagePayload>("comparison-stream-image", (event) => {
+                    const { side, path, index } = event.payload;
+                    const imageBlock: ContentBlock = {
+                        type: "image",
+                        path,
+                        name: `image_${index}.png`,
+                    };
+                    set((state) => {
+                        const msgs = [...state.comparisonMessages];
+                        for (let i = msgs.length - 1; i >= 0; i--) {
+                            if (msgs[i].role === "assistant" && msgs[i].side === side) {
+                                const msg = msgs[i];
+                                let blocks: ContentBlock[];
+                                const trimmed = msg.content.trimStart();
+                                if (trimmed.startsWith("[")) {
+                                    try {
+                                        blocks = JSON.parse(msg.content) as ContentBlock[];
+                                    } catch {
+                                        blocks = [{ type: "text", text: msg.content }];
+                                    }
+                                    blocks = [...blocks, imageBlock];
+                                } else {
+                                    blocks = [{ type: "text", text: msg.content }, imageBlock];
+                                }
+                                msgs[i] = { ...msg, content: JSON.stringify(blocks) };
+                                break;
+                            }
+                        }
+                        return { comparisonMessages: msgs };
+                    });
+                })
+            );
+
+            unlisteners.push(
+                await listen<ComparisonStreamDonePayload>("comparison-stream-done", (event) => {
+                    const { side, full_content } = event.payload;
+                    set((state) => {
+                        const msgs = [...state.comparisonMessages];
+                        for (let i = msgs.length - 1; i >= 0; i--) {
+                            if (msgs[i].role === "assistant" && msgs[i].side === side) {
+                                msgs[i] = { ...msgs[i], content: full_content };
+                                break;
+                            }
+                        }
+                        const update: Partial<{ compareStreamingLeft: boolean; compareStreamingRight: boolean; comparisonMessages: ComparisonMessage[] }> = {
+                            comparisonMessages: msgs,
+                        };
+                        if (side === "left") update.compareStreamingLeft = false;
+                        if (side === "right") update.compareStreamingRight = false;
+                        return update;
+                    });
+
+                    const st = get();
+                    if (!st.compareStreamingLeft && !st.compareStreamingRight) {
+                        unlisteners.forEach((fn) => fn());
+                        get().loadBalance();
+                    }
+                })
+            );
+
+            unlisteners.push(
+                await listen<ComparisonStreamUsagePayload>("comparison-stream-usage", (event) => {
+                    const { side, prompt_tokens, completion_tokens } = event.payload;
+                    const { models } = get();
+                    const comp = get().comparisons.find((c) => c.id === activeComparisonId);
+                    const modelId = side === "left" ? comp?.leftModel : comp?.rightModel;
+                    const modelInfo = modelId ? models.find((m) => m.id === modelId) : null;
+                    let cost = 0;
+                    if (modelInfo?.pricing) {
+                        cost =
+                            prompt_tokens * parseFloat(modelInfo.pricing.prompt) +
+                            completion_tokens * parseFloat(modelInfo.pricing.completion);
+                    }
+                    set((state) => {
+                        const msgs = [...state.comparisonMessages];
+                        for (let i = msgs.length - 1; i >= 0; i--) {
+                            if (msgs[i].role === "assistant" && msgs[i].side === side) {
+                                msgs[i] = { ...msgs[i], promptTokens: prompt_tokens, completionTokens: completion_tokens, cost };
+                                break;
+                            }
+                        }
+                        return { comparisonMessages: msgs };
+                    });
+
+                    const lastMsg = [...get().comparisonMessages].reverse().find(
+                        (m) => m.role === "assistant" && m.side === side
+                    );
+                    if (lastMsg) {
+                        invoke("update_comparison_message_usage", {
+                            messageId: lastMsg.id,
+                            promptTokens: prompt_tokens,
+                            completionTokens: completion_tokens,
+                            cost,
+                        }).catch(console.error);
+                    }
+                })
+            );
+
+            unlisteners.push(
+                await listen<ComparisonStreamErrorPayload>("comparison-stream-error", (event) => {
+                    const { side, error } = event.payload;
+                    notify.error(`[${side}] ${error}`);
+                    set(() => {
+                        const update: Record<string, unknown> = {};
+                        if (side === "left") update.compareStreamingLeft = false;
+                        if (side === "right") update.compareStreamingRight = false;
+                        return update;
+                    });
+
+                    const st = get();
+                    if (!st.compareStreamingLeft && !st.compareStreamingRight) {
+                        unlisteners.forEach((fn) => fn());
+                    }
+                })
+            );
+
+            unlisteners.push(
+                await listen<{ comparisonId: string; title: string }>("comparison-title-updated", (event) => {
+                    const { comparisonId, title } = event.payload;
+                    set((state) => ({
+                        comparisons: state.comparisons.map((c) =>
+                            c.id === comparisonId ? { ...c, title } : c
+                        ),
+                    }));
+                })
+            );
+
+            await invoke("stream_comparison_responses", {
+                comparisonId: activeComparisonId,
+                content,
+                leftBaseUrl: leftResolved.baseUrl,
+                leftApiKey: leftResolved.apiKey,
+                rightBaseUrl: rightResolved.baseUrl,
+                rightApiKey: rightResolved.apiKey,
+                leftTemperature: settings.temperature,
+                leftMaxTokens: settings.max_tokens,
+                rightTemperature: settings.temperature,
+                rightMaxTokens: settings.max_tokens,
+            });
+        } catch (e) {
+            set({ compareStreamingLeft: false, compareStreamingRight: false });
+            notify.error(String(e));
+            unlisteners.forEach((fn) => fn());
+        }
+    },
+
+    stopComparisonGeneration: async () => {
+        try {
+            await invoke("stop_generation");
+        } catch (e) {
+            console.error("Failed to stop comparison generation:", e);
+        }
+    },
+
     loadSettings: async () => {
         try {
             const loaded = await invoke<AppSettings>("load_settings");
@@ -1610,6 +2250,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     : {},
                 language: loaded.language ?? "",
                 sendByEnter: loaded.sendByEnter ?? true,
+                messageDensity: loaded.messageDensity ?? "standard",
+                chatWidth: loaded.chatWidth ?? "standard",
+                showStatusBar: loaded.showStatusBar ?? true,
+                statusBarMetrics: Array.isArray(loaded.statusBarMetrics) && loaded.statusBarMetrics.length > 0
+                    ? loaded.statusBarMetrics
+                    : ["balance", "context", "tokens", "cost"],
             };
             set({ settings });
             const lang = settings.language?.trim() || (navigator.language.startsWith("ru") ? "ru" : "en");

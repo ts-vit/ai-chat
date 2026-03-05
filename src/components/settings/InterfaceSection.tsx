@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
 import i18n from "../../i18n";
-import { Select, SegmentedControl, Slider, Stack, Text } from "@mantine/core";
+import { Checkbox, Paper, Select, SegmentedControl, Slider, Stack, Switch, Text, useMantineColorScheme } from "@mantine/core";
+
+const STATUS_BAR_METRIC_IDS = ["balance", "context", "tokens", "cost"] as const;
 
 export interface InterfaceSectionProps {
     fontSize: number;
@@ -9,6 +11,14 @@ export interface InterfaceSectionProps {
     onLanguageChange: (value: string) => void;
     sendByEnter: boolean;
     onSendByEnterChange: (value: boolean) => void;
+    messageDensity: string;
+    onMessageDensityChange: (value: string) => void;
+    chatWidth: string;
+    onChatWidthChange: (value: string) => void;
+    showStatusBar: boolean;
+    onShowStatusBarChange: (value: boolean) => void;
+    statusBarMetrics: string[];
+    onStatusBarMetricsChange: (value: string[]) => void;
 }
 
 const LANGUAGE_OPTIONS = [
@@ -28,15 +38,66 @@ export function InterfaceSection({
     onLanguageChange,
     sendByEnter,
     onSendByEnterChange,
+    messageDensity,
+    onMessageDensityChange,
+    chatWidth,
+    onChatWidthChange,
+    showStatusBar,
+    onShowStatusBarChange,
+    statusBarMetrics,
+    onStatusBarMetricsChange,
 }: InterfaceSectionProps) {
     const { t } = useTranslation();
+    const { colorScheme, setColorScheme } = useMantineColorScheme();
     const handleLanguageChange = (value: string | null) => {
         const next = value ?? "";
         onLanguageChange(next);
         i18n.changeLanguage(next || getSystemLanguage());
     };
+    const themeValue = colorScheme === "auto" ? "dark" : colorScheme;
     return (
         <Stack gap="lg">
+            <Stack gap="xs">
+                <Text size="sm" fw={500}>
+                    {t("settings.interface.theme")}
+                </Text>
+                <SegmentedControl
+                    value={themeValue}
+                    onChange={(v) => setColorScheme(v as "light" | "dark")}
+                    data={[
+                        { label: t("settings.interface.themeDark"), value: "dark" },
+                        { label: t("settings.interface.themeLight"), value: "light" },
+                    ]}
+                />
+            </Stack>
+            <Stack gap="xs">
+                <Text size="sm" fw={500}>
+                    {t("settings.interface.messageDensity")}
+                </Text>
+                <SegmentedControl
+                    value={messageDensity}
+                    onChange={onMessageDensityChange}
+                    data={[
+                        { label: t("settings.interface.densityCompact"), value: "compact" },
+                        { label: t("settings.interface.densityStandard"), value: "standard" },
+                        { label: t("settings.interface.densitySpacious"), value: "spacious" },
+                    ]}
+                />
+            </Stack>
+            <Stack gap="xs">
+                <Text size="sm" fw={500}>
+                    {t("settings.interface.chatWidth")}
+                </Text>
+                <SegmentedControl
+                    value={chatWidth}
+                    onChange={onChatWidthChange}
+                    data={[
+                        { label: t("settings.interface.chatWidthNarrow"), value: "narrow" },
+                        { label: t("settings.interface.chatWidthStandard"), value: "standard" },
+                        { label: t("settings.interface.chatWidthWide"), value: "wide" },
+                    ]}
+                />
+            </Stack>
             <Stack gap="xs">
                 <Text size="sm" fw={500}>
                     {t("settings.interface.sendMethod")}
@@ -49,11 +110,6 @@ export function InterfaceSection({
                         { label: t("settings.interface.sendByCtrlEnter"), value: "false" },
                     ]}
                 />
-                <Text size="xs" c="dimmed">
-                    {sendByEnter
-                        ? t("settings.interface.sendByEnter")
-                        : t("settings.interface.sendByCtrlEnter")}
-                </Text>
             </Stack>
             <Stack gap="xs">
                 <Text size="sm" fw={500}>
@@ -88,6 +144,35 @@ export function InterfaceSection({
                         { value: 24, label: "24" },
                     ]}
                 />
+                <Paper p="sm" withBorder>
+                    <Text style={{ fontSize: `${fontSize}px` }}>
+                        {t("settings.interface.fontPreview")}
+                    </Text>
+                </Paper>
+            </Stack>
+            <Stack gap="xs">
+                <Switch
+                    label={t("settings.interface.showStatusBar")}
+                    checked={showStatusBar}
+                    onChange={(e) => onShowStatusBarChange(e.currentTarget.checked)}
+                />
+                {showStatusBar && (
+                    <Checkbox.Group
+                        label={t("settings.interface.statusBarMetrics")}
+                        value={statusBarMetrics}
+                        onChange={onStatusBarMetricsChange}
+                    >
+                        <Stack gap="xs" mt="xs">
+                            {STATUS_BAR_METRIC_IDS.map((id) => (
+                                <Checkbox
+                                    key={id}
+                                    value={id}
+                                    label={t(`settings.interface.metric${id.charAt(0).toUpperCase() + id.slice(1)}`)}
+                                />
+                            ))}
+                        </Stack>
+                    </Checkbox.Group>
+                )}
             </Stack>
         </Stack>
     );

@@ -1,6 +1,8 @@
 // реэкспорт команд
 pub mod attachments;
+pub mod audio;
 pub mod chat;
+pub mod comparisons;
 pub mod database;
 pub mod folders;
 pub mod embeddings;
@@ -11,4 +13,6 @@ pub mod settings;
 pub mod ollama;
 pub mod search;
 pub mod snippets;
+pub mod mcp;
 pub mod templates;
+pub mod tokens;

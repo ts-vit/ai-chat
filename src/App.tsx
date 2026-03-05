@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Box } from "@mantine/core";
+import { AppHeader } from "./components/AppHeader";
 import { Sidebar } from "./components/Sidebar";
 import { ChatArea } from "./components/ChatArea";
+import { CompareView } from "./components/CompareView";
 import { ConfirmModal } from "./components/ConfirmModal";
 import { NavigationSidebar } from "./components/NavigationSidebar";
 import { ProviderSelectModal } from "./components/ProviderSelectModal";
@@ -28,6 +30,7 @@ function App() {
     const deleteChat = useChatStore((s) => s.deleteChat);
     const loadSettings = useChatStore((s) => s.loadSettings);
     const loadChats = useChatStore((s) => s.loadChats);
+    const loadComparisons = useChatStore((s) => s.loadComparisons);
     const loadFolders = useChatStore((s) => s.loadFolders);
     const loadPresets = useChatStore((s) => s.loadPresets);
     const loadCategories = useChatStore((s) => s.loadCategories);
@@ -38,7 +41,7 @@ function App() {
 
     const { isCompact, isNarrow, isVeryNarrow } = useWindowSize();
     const [leftSidebarWidth, setLeftSidebarWidth] = useState(260);
-    const [rightSidebarWidth, setRightSidebarWidth] = useState(240);
+    const [rightSidebarWidth, setRightSidebarWidth] = useState(270);
     const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
     const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
     const [providerModalOpened, setProviderModalOpened] = useState(false);
@@ -64,12 +67,17 @@ function App() {
     useEffect(() => {
         loadSettings().then(() => loadBalance());
         loadChats();
+        loadComparisons();
         loadFolders();
         loadPresets();
         loadCategories();
         loadSnippets();
         loadCustomProviders();
-    }, [loadSettings, loadChats, loadFolders, loadPresets, loadCategories, loadSnippets, loadCustomProviders, loadBalance]);
+    }, [loadSettings, loadChats, loadComparisons, loadFolders, loadPresets, loadCategories, loadSnippets, loadCustomProviders, loadBalance]);
+
+    useEffect(() => {
+        useChatStore.getState().initOllamaPullListeners();
+    }, []);
 
     useAppHotkeys({
         messageInputRef,
@@ -93,6 +101,12 @@ function App() {
         setHotkeyDeleteConfirmOpen(false);
     }, [activeChatId, deleteChat]);
 
+    const effectiveLeftWidth = isNarrow ? 60 : leftSidebarWidth;
+    const activeChat = chats.find((c) => c.id === activeChatId) ?? undefined;
+    const comparisons = useChatStore((s) => s.comparisons);
+    const activeComparisonId = useChatStore((s) => s.activeComparisonId);
+    const activeComparison = comparisons.find((c) => c.id === activeComparisonId) ?? null;
+
     if (currentView === "settings") {
         return <SettingsPage />;
     }
@@ -102,11 +116,73 @@ function App() {
     if (currentView === "search") {
         return <SearchPage />;
     }
-
-    const effectiveLeftWidth = isNarrow ? 60 : leftSidebarWidth;
+    if (currentView === "compare") {
+        return (
+            <Box
+                style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    height: "100vh",
+                    overflow: "hidden",
+                }}
+            >
+                <AppHeader
+                    leftSidebarOpen={leftSidebarOpen}
+                    rightSidebarOpen={rightSidebarOpen}
+                    onToggleLeftSidebar={() => setLeftSidebarOpen((o) => !o)}
+                    onToggleRightSidebar={() => setRightSidebarOpen((o) => !o)}
+                    activeChat={undefined}
+                    activeComparison={activeComparison}
+                    effectiveLeftWidth={effectiveLeftWidth}
+                    isNarrow={isNarrow}
+                    isVeryNarrow={isVeryNarrow}
+                />
+                <Box
+                    style={{
+                        display: "flex",
+                        flex: 1,
+                        minHeight: 0,
+                        overflow: "hidden",
+                    }}
+                >
+                    {leftSidebarOpen && (
+                        <>
+                            <Sidebar
+                                style={{ width: effectiveLeftWidth }}
+                                compact={isNarrow}
+                                onNewChat={handleNewChat}
+                            />
+                            {!isNarrow && (
+                                <ResizeHandle
+                                    onResize={(delta) =>
+                                        setLeftSidebarWidth((w) =>
+                                            clamp(w + delta, 200, 400)
+                                        )
+                                    }
+                                />
+                            )}
+                        </>
+                    )}
+                    <CompareView />
+                </Box>
+                <ProviderSelectModal
+                    opened={providerModalOpened}
+                    onClose={() => setProviderModalOpened(false)}
+                    onConfirm={handleProviderConfirm}
+                />
+            </Box>
+        );
+    }
 
     return (
-        <Box style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+        <Box
+            style={{
+                display: "flex",
+                flexDirection: "column",
+                height: "100vh",
+                overflow: "hidden",
+            }}
+        >
             <ProviderSelectModal
                 opened={providerModalOpened}
                 onClose={() => setProviderModalOpened(false)}
@@ -118,52 +194,73 @@ function App() {
                 onConfirm={handleHotkeyDeleteConfirm}
                 message={t("confirm.deleteChatMessage")}
             />
-            {leftSidebarOpen && (
-                <>
-                    <Sidebar
-                        style={{ width: effectiveLeftWidth }}
-                        compact={isNarrow}
-                        onNewChat={handleNewChat}
-                    />
-                    {!isNarrow && (
-                        <ResizeHandle
-                            onResize={(delta) =>
-                                setLeftSidebarWidth((w) => clamp(w + delta, 200, 400))
-                            }
-                        />
-                    )}
-                </>
-            )}
-            <ChatArea
-                onToggleLeftSidebar={() => setLeftSidebarOpen((o) => !o)}
-                onToggleRightSidebar={() => setRightSidebarOpen((o) => !o)}
+            <AppHeader
                 leftSidebarOpen={leftSidebarOpen}
                 rightSidebarOpen={rightSidebarOpen}
-                compact={isCompact}
-                hideStats={isVeryNarrow}
-                onNewChat={handleNewChat}
-                messageInputRef={messageInputRef}
+                onToggleLeftSidebar={() => setLeftSidebarOpen((o) => !o)}
+                onToggleRightSidebar={() => setRightSidebarOpen((o) => !o)}
+                activeChat={activeChat}
+                effectiveLeftWidth={effectiveLeftWidth}
+                isNarrow={isNarrow}
+                isVeryNarrow={isVeryNarrow}
             />
-            {rightSidebarOpen && (
-                <>
-                    <ResizeHandle
-                        onResize={(delta) =>
-                            setRightSidebarWidth((w) => clamp(w - delta, 180, 400))
-                        }
-                    />
-                    <Box
-                        style={{
-                            width: rightSidebarWidth,
-                            flexShrink: 0,
-                            display: "flex",
-                            flexDirection: "column",
-                            minWidth: 0,
-                        }}
-                    >
-                        <NavigationSidebar style={{ width: "100%", minWidth: 0 }} />
-                    </Box>
-                </>
-            )}
+            <Box
+                style={{
+                    display: "flex",
+                    flex: 1,
+                    minHeight: 0,
+                    overflow: "hidden",
+                }}
+            >
+                {leftSidebarOpen && (
+                    <>
+                        <Sidebar
+                            style={{ width: effectiveLeftWidth }}
+                            compact={isNarrow}
+                            onNewChat={handleNewChat}
+                        />
+                        {!isNarrow && (
+                            <ResizeHandle
+                                onResize={(delta) =>
+                                    setLeftSidebarWidth((w) =>
+                                        clamp(w + delta, 200, 400)
+                                    )
+                                }
+                            />
+                        )}
+                    </>
+                )}
+                <ChatArea
+                    compact={isCompact}
+                    hideStats={isVeryNarrow}
+                    onNewChat={handleNewChat}
+                    messageInputRef={messageInputRef}
+                />
+                {rightSidebarOpen && (
+                    <>
+                        <ResizeHandle
+                            onResize={(delta) =>
+                                setRightSidebarWidth((w) =>
+                                    clamp(w - delta, 240, 400)
+                                )
+                            }
+                        />
+                        <Box
+                            style={{
+                                width: rightSidebarWidth,
+                                flexShrink: 0,
+                                display: "flex",
+                                flexDirection: "column",
+                                minWidth: 0,
+                            }}
+                        >
+                            <NavigationSidebar
+                                style={{ width: "100%", minWidth: 0 }}
+                            />
+                        </Box>
+                    </>
+                )}
+            </Box>
         </Box>
     );
 }

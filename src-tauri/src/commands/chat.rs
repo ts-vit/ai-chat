@@ -1,4 +1,5 @@
 // команда отправки сообщения в OpenRouter (со стримингом)
+use std::collections::HashMap;
 use std::sync::Arc;
 use base64::Engine;
 use sqlx::Row;
@@ -11,9 +12,54 @@ use tokio_util::sync::CancellationToken;
 use crate::commands::attachments::save_attachment_file;
 use crate::commands::database::update_message_content_with_attachments;
 use crate::models::chat::{AttachmentInput, ChatRequest, ContentBlock, Message, StreamResponse};
+use crate::models::mcp::McpTool;
+use crate::services::mcp_manager::McpManager;
+
+const MAX_TOOL_ITERATIONS: usize = 10;
+
+fn mcp_tools_to_openai(
+    tools: &[(String, McpTool)],
+) -> (Vec<serde_json::Value>, HashMap<String, (String, String)>) {
+    let mut openai_tools = Vec::with_capacity(tools.len());
+    let mut name_map: HashMap<String, (String, String)> = HashMap::new();
+
+    for (server_id, tool) in tools {
+        let mut safe_name = format!(
+            "mcp__{}__{}",
+            server_id.replace('-', "_"),
+            tool.name.replace('-', "_")
+        );
+        if safe_name.len() > 64 {
+            safe_name.truncate(64);
+        }
+
+        name_map.insert(safe_name.clone(), (server_id.clone(), tool.name.clone()));
+
+        openai_tools.push(serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": safe_name,
+                "description": tool.description.clone().unwrap_or_default(),
+                "parameters": tool.input_schema.clone()
+            }
+        }));
+    }
+
+    (openai_tools, name_map)
+}
+
+fn parse_tool_call_name(name: &str, name_map: &HashMap<String, (String, String)>) -> (String, String) {
+    if let Some(pair) = name_map.get(name) {
+        return pair.clone();
+    }
+    match name.splitn(2, "__").collect::<Vec<_>>().as_slice() {
+        [server_id, tool_name] => (server_id.to_string(), tool_name.to_string()),
+        _ => (String::new(), name.to_string()),
+    }
+}
 
 /// Определяет по ID модели, что это модель генерации изображений (fallback при отсутствии флага в БД).
-fn is_image_generation_model(model: &str) -> bool {
+pub fn is_image_generation_model(model: &str) -> bool {
     let m = model.to_lowercase();
     m.contains("dall-e")
         || m.contains("gpt-image")
@@ -24,6 +70,43 @@ fn is_image_generation_model(model: &str) -> bool {
         || m.contains("stabilityai")
         || m.contains("imagen")
         || m.contains("playground")
+}
+
+fn format_api_error(status: reqwest::StatusCode, body: &str, model: &str) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+    let error_message = parsed
+        .as_ref()
+        .and_then(|v| v.get("error"))
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str());
+
+    if let Some(msg) = error_message {
+        let lower = msg.to_lowercase();
+
+        if lower.contains("tool use") || lower.contains("tool_use") || lower.contains("function calling") {
+            return format!(
+                "Модель {} не поддерживает вызов инструментов (MCP). \
+                 Попробуйте использовать другую модель, например Claude, GPT-4o или Gemini.",
+                model
+            );
+        }
+        if lower.contains("context length") || lower.contains("token limit") {
+            return "Сообщение слишком длинное для этой модели. Попробуйте сократить историю или начать новый чат.".to_string();
+        }
+        if lower.contains("rate limit") || lower.contains("429") {
+            return "Слишком много запросов. Подождите немного и попробуйте снова.".to_string();
+        }
+        if lower.contains("invalid api key") || lower.contains("unauthorized") || lower.contains("401") {
+            return "Неверный API-ключ. Проверьте ключ в настройках.".to_string();
+        }
+        if lower.contains("insufficient") && (lower.contains("credits") || lower.contains("balance") || lower.contains("quota")) {
+            return "Недостаточно средств на балансе. Пополните баланс OpenRouter.".to_string();
+        }
+
+        return format!("Ошибка API ({}): {}", status.as_u16(), msg);
+    }
+
+    format!("Ошибка API ({})", status.as_u16())
 }
 
 /// Models that do not support system/developer instruction (e.g. gemma-3n). Returns false for such models.
@@ -57,15 +140,14 @@ pub struct StreamState {
     pub cancel_token: Arc<Mutex<Option<CancellationToken>>>,
 }
 
-// Payload для событий стриминга — что получает фронтенд
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StreamPayload {
-    pub content: String,   // кусок текста
+    pub content: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StreamDonePayload {
-    pub full_content: String, // полный ответ целиком
+    pub full_content: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -88,11 +170,35 @@ pub struct StreamUsagePayload {
     pub total_tokens: u32,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamToolCallPayload {
+    pub tool_call_id: String,
+    pub server_id: String,
+    pub tool_name: String,
+    pub arguments: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamToolResultPayload {
+    pub tool_call_id: String,
+    pub result: String,
+    pub is_error: bool,
+}
+
+struct ToolCallBuffer {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
 #[tauri::command]
 pub async fn send_message(
     app: AppHandle,
     stream_state: State<'_, StreamState>,
     pool: State<'_, sqlx::SqlitePool>,
+    mcp_manager: State<'_, Arc<McpManager>>,
     chat_id: String,
     base_url: Option<String>,
     api_key: String,
@@ -109,7 +215,6 @@ pub async fn send_message(
     supports_image_generation: Option<bool>,
     assistant_message_id: Option<String>,
 ) -> Result<(), String> {
-    // Модель, флаг image и per-чат параметры берём из чата в БД, fallback на переданные
     let (model, db_is_image_model, db_temperature, db_max_tokens, db_top_p, db_top_k, db_frequency_penalty, db_presence_penalty) = if !chat_id.is_empty() {
         let row = sqlx::query(
             "SELECT model, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty FROM chats WHERE id = ?",
@@ -152,8 +257,6 @@ pub async fn send_message(
         None
     };
 
-    // Для моделей генерации изображений не передаём параметры текстовой генерации (API возвращает 400).
-    // Иначе: per-чат значение из БД приоритетнее, fallback — переданный с фронта (глобальные settings).
     let no_text_params = is_image;
     let temperature = if no_text_params { None } else { db_temperature.or(temperature) };
     let max_tokens = if no_text_params { None } else { db_max_tokens.or(max_tokens) };
@@ -292,6 +395,21 @@ pub async fn send_message(
         (serde_json::to_value(&request_body).map_err(|e| e.to_string())?, None)
     };
 
+    let mut body = request_body;
+
+    // Inject MCP tools into request (skip for image models)
+    let mcp_mgr = mcp_manager.inner().clone();
+    let mut tool_name_map: HashMap<String, (String, String)> = HashMap::new();
+    if !is_image {
+        let mcp_tools = mcp_mgr.get_all_tools().await;
+        if !mcp_tools.is_empty() {
+            let (openai_tools, name_map) = mcp_tools_to_openai(&mcp_tools);
+            body["tools"] = serde_json::Value::Array(openai_tools);
+            tool_name_map = name_map;
+            log::debug!("send_message: injected {} MCP tool(s)", mcp_tools.len());
+        }
+    }
+
     let base = base_url
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
@@ -306,39 +424,12 @@ pub async fn send_message(
     headers.insert(CONTENT_TYPE, "application/json".parse().unwrap());
 
     let client = reqwest::Client::new();
-    let response = client
-        .post(&url)
-        .headers(headers)
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| {
-            let _ = app.emit("chat-stream-error", StreamErrorPayload {
-                error: e.to_string(),
-            });
-            e.to_string()
-        })?;
 
-    // Проверяем статус ответа
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        let error = format!("API error {}: {}", status, body);
-        log::error!("send_message: API error: {}", error);
-        let _ = app.emit("chat-stream-error", StreamErrorPayload {
-            error: error.clone(),
-        });
-        return Err(error);
-    }
-
-    // Читаем стрим по частям
     let token = CancellationToken::new();
     *stream_state.cancel_token.lock().await = Some(token.clone());
 
-    let mut stream = response.bytes_stream();
     let full_content = Arc::new(Mutex::new(String::new()));
-    let full_content_emit = full_content.clone();
-    let mut buffer = String::new();
+    let full_content_cancel = full_content.clone();
     let app_stream = app.clone();
     let token_check = token.clone();
     let assistant_msg_id = assistant_message_id.clone();
@@ -347,82 +438,176 @@ pub async fn send_message(
 
     let stream_result = tokio::select! {
         _ = token.cancelled() => {
-            let fc = full_content_emit.lock().await.clone();
+            let fc = full_content_cancel.lock().await.clone();
             let _ = app.emit("chat-stream-done", StreamDonePayload {
                 full_content: fc,
             });
-            log::debug!("send_message: stream completed for chat_id={}", chat_id);
+            log::debug!("send_message: cancelled for chat_id={}", chat_id);
             *stream_state.cancel_token.lock().await = None;
             return Ok(());
         }
         r = async move {
-            while let Some(chunk) = stream.next().await {
-                let chunk = chunk.map_err(|e| e.to_string())?;
-                let text = String::from_utf8_lossy(&chunk);
+            let tool_name_map = tool_name_map;
+            let mut done_emitted = false;
 
-                buffer.push_str(&text);
+            'tool_loop: for _iteration in 0..MAX_TOOL_ITERATIONS {
+                if _iteration > 0 {
+                    log::debug!(
+                        "send_message: tool loop iteration {} for chat_id={}",
+                        _iteration,
+                        chat_id_stream
+                    );
+                }
 
-                while let Some(line_end) = buffer.find('\n') {
-                    let line = buffer[..line_end].trim().to_string();
-                    buffer = buffer[line_end + 1..].to_string();
+                let response = client
+                    .post(&url)
+                    .headers(headers.clone())
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        let _ = app_stream.emit(
+                            "chat-stream-error",
+                            StreamErrorPayload { error: e.to_string() },
+                        );
+                        e.to_string()
+                    })?;
 
-                    if line.is_empty() || line.starts_with(':') {
-                        continue;
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let err_body = response.text().await.unwrap_or_default();
+                    log::error!("send_message: API error {}: {}", status, err_body);
+                    let user_error = format_api_error(status, &err_body, &model);
+                    let _ = app_stream.emit(
+                        "chat-stream-error",
+                        StreamErrorPayload { error: user_error.clone() },
+                    );
+                    return Err(user_error);
+                }
+
+                let mut stream = response.bytes_stream();
+                let mut sse_buffer = String::new();
+                let mut tool_call_buffers: HashMap<usize, ToolCallBuffer> = HashMap::new();
+                let mut got_tool_calls_finish = false;
+                let mut iteration_content = String::new();
+                let mut stream_done = false;
+
+                while let Some(chunk) = stream.next().await {
+                    if token_check.is_cancelled() {
+                        break 'tool_loop;
                     }
 
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if data.trim() == "[DONE]" {
-                            let fc = full_content.lock().await.clone();
-                            let _ = app_stream.emit("chat-stream-done", StreamDonePayload {
-                                full_content: fc,
-                            });
-                            log::debug!("send_message: stream completed for chat_id={}", chat_id_stream);
-                            return Ok(());
+                    let chunk = chunk.map_err(|e| e.to_string())?;
+                    let text = String::from_utf8_lossy(&chunk);
+                    sse_buffer.push_str(&text);
+
+                    while let Some(line_end) = sse_buffer.find('\n') {
+                        let line = sse_buffer[..line_end].trim().to_string();
+                        sse_buffer = sse_buffer[line_end + 1..].to_string();
+
+                        if line.is_empty() || line.starts_with(':') {
+                            continue;
                         }
 
-                        if let Ok(response) = serde_json::from_str::<StreamResponse>(data) {
-                            if let Some(usage) = &response.usage {
-                                let _ = app_stream.emit(
-                                    "chat-stream-usage",
-                                    StreamUsagePayload {
-                                        prompt_tokens: usage.prompt_tokens,
-                                        completion_tokens: usage.completion_tokens,
-                                        total_tokens: usage.total_tokens,
-                                    },
-                                );
+                        if let Some(data) = line.strip_prefix("data: ") {
+                            if data.trim() == "[DONE]" {
+                                stream_done = true;
+                                break;
                             }
-                            if let Some(choice) = response.choices.first() {
-                                if let Some(content) = &choice.delta.content {
-                                    full_content.lock().await.push_str(content);
 
-                                    let _ = app_stream.emit("chat-stream", StreamPayload {
-                                        content: content.clone(),
-                                    });
+                            if let Ok(resp) = serde_json::from_str::<StreamResponse>(data) {
+                                if let Some(usage) = &resp.usage {
+                                    let _ = app_stream.emit(
+                                        "chat-stream-usage",
+                                        StreamUsagePayload {
+                                            prompt_tokens: usage.prompt_tokens,
+                                            completion_tokens: usage.completion_tokens,
+                                            total_tokens: usage.total_tokens,
+                                        },
+                                    );
                                 }
-                                if let Some(ref images) = choice.delta.images {
-                                    if let Some(ref msg_id) = assistant_msg_id {
-                                        for img in images.iter() {
-                                            let data_url = img.image_url.url.trim();
-                                            if let Some(base64_str) = data_url.splitn(2, ',').nth(1) {
-                                                match base64::engine::general_purpose::STANDARD.decode(base64_str.trim()) {
-                                                    Ok(decoded) => {
-                                                        let idx = {
-                                                            let mut i = image_index.lock().await;
-                                                            let n = *i;
-                                                            *i += 1;
-                                                            n
-                                                        };
-                                                        let file_name = format!("{}.png", idx);
-                                                        if let Ok(rel_path) = save_attachment_file(&app_stream, msg_id, &file_name, &decoded) {
-                                                            let _ = app_stream.emit("chat-stream-image", StreamImagePayload {
-                                                                message_id: msg_id.clone(),
-                                                                path: rel_path,
-                                                                index: idx,
-                                                            });
+                                if let Some(choice) = resp.choices.first() {
+                                    if let Some(content) = &choice.delta.content {
+                                        iteration_content.push_str(content);
+                                        full_content.lock().await.push_str(content);
+                                        let _ = app_stream.emit(
+                                            "chat-stream",
+                                            StreamPayload { content: content.clone() },
+                                        );
+                                    }
+
+                                    if let Some(ref tcs) = choice.delta.tool_calls {
+                                        for tc in tcs {
+                                            let entry = tool_call_buffers
+                                                .entry(tc.index)
+                                                .or_insert_with(|| ToolCallBuffer {
+                                                    id: String::new(),
+                                                    name: String::new(),
+                                                    arguments: String::new(),
+                                                });
+                                            if let Some(ref id) = tc.id {
+                                                entry.id.clone_from(id);
+                                            }
+                                            if let Some(ref func) = tc.function {
+                                                if let Some(ref name) = func.name {
+                                                    entry.name.clone_from(name);
+                                                }
+                                                if let Some(ref args) = func.arguments {
+                                                    entry.arguments.push_str(args);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if choice.finish_reason.as_deref() == Some("tool_calls") {
+                                        got_tool_calls_finish = true;
+                                    }
+
+                                    if let Some(ref images) = choice.delta.images {
+                                        if let Some(ref msg_id) = assistant_msg_id {
+                                            for img in images.iter() {
+                                                let data_url = img.image_url.url.trim();
+                                                if let Some(base64_str) =
+                                                    data_url.splitn(2, ',').nth(1)
+                                                {
+                                                    match base64::engine::general_purpose::STANDARD
+                                                        .decode(base64_str.trim())
+                                                    {
+                                                        Ok(decoded) => {
+                                                            let idx = {
+                                                                let mut i =
+                                                                    image_index.lock().await;
+                                                                let n = *i;
+                                                                *i += 1;
+                                                                n
+                                                            };
+                                                            let file_name =
+                                                                format!("{}.png", idx);
+                                                            if let Ok(rel_path) =
+                                                                save_attachment_file(
+                                                                    &app_stream,
+                                                                    msg_id,
+                                                                    &file_name,
+                                                                    &decoded,
+                                                                )
+                                                            {
+                                                                let _ = app_stream.emit(
+                                                                    "chat-stream-image",
+                                                                    StreamImagePayload {
+                                                                        message_id: msg_id
+                                                                            .clone(),
+                                                                        path: rel_path,
+                                                                        index: idx,
+                                                                    },
+                                                                );
+                                                            }
                                                         }
-                                                    }
-                                                    Err(e) => {
-                                                        log::error!("[chat] image base64 decode error: {}", e);
+                                                        Err(e) => {
+                                                            log::error!(
+                                                                "[chat] image base64 decode error: {}",
+                                                                e
+                                                            );
+                                                        }
                                                     }
                                                 }
                                             }
@@ -432,18 +617,154 @@ pub async fn send_message(
                             }
                         }
                     }
+
+                    if stream_done {
+                        break;
+                    }
                 }
 
-                if token_check.is_cancelled() {
-                    break;
+                // Tool call handling
+                if (got_tool_calls_finish || !tool_call_buffers.is_empty())
+                    && !token_check.is_cancelled()
+                {
+                    log::debug!(
+                        "send_message: {} tool_call(s) in iteration {}",
+                        tool_call_buffers.len(),
+                        _iteration
+                    );
+
+                    let content_value = if iteration_content.is_empty() {
+                        serde_json::Value::Null
+                    } else {
+                        serde_json::Value::String(iteration_content)
+                    };
+
+                    let mut sorted_indices: Vec<usize> =
+                        tool_call_buffers.keys().copied().collect();
+                    sorted_indices.sort();
+
+                    let tc_array: Vec<serde_json::Value> = sorted_indices
+                        .iter()
+                        .map(|idx| {
+                            let buf = &tool_call_buffers[idx];
+                            serde_json::json!({
+                                "id": buf.id,
+                                "type": "function",
+                                "function": {
+                                    "name": buf.name,
+                                    "arguments": buf.arguments
+                                }
+                            })
+                        })
+                        .collect();
+
+                    if let Some(msgs) = body["messages"].as_array_mut() {
+                        msgs.push(serde_json::json!({
+                            "role": "assistant",
+                            "content": content_value,
+                            "tool_calls": tc_array
+                        }));
+                    }
+
+                    for idx in &sorted_indices {
+                        if token_check.is_cancelled() {
+                            break 'tool_loop;
+                        }
+
+                        let buf = &tool_call_buffers[idx];
+                        let (server_id, tool_name) = parse_tool_call_name(&buf.name, &tool_name_map);
+                        let args: serde_json::Value =
+                            serde_json::from_str(&buf.arguments).unwrap_or(serde_json::json!({}));
+
+                        log::debug!(
+                            "send_message: calling tool {}/{} id={}",
+                            server_id,
+                            tool_name,
+                            buf.id
+                        );
+
+                        let _ = app_stream.emit(
+                            "chat-stream-tool-call",
+                            StreamToolCallPayload {
+                                tool_call_id: buf.id.clone(),
+                                server_id: server_id.clone(),
+                                tool_name: tool_name.clone(),
+                                arguments: buf.arguments.clone(),
+                            },
+                        );
+
+                        let result = mcp_mgr.call_tool(&server_id, &tool_name, args).await;
+
+                        let (result_text, is_error) = match result {
+                            Ok(r) => {
+                                let text = r
+                                    .content
+                                    .iter()
+                                    .map(|c| c.text.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+                                (text, r.is_error)
+                            }
+                            Err(e) => (e.to_string(), true),
+                        };
+
+                        log::debug!(
+                            "send_message: tool {} result: error={}, len={}",
+                            buf.id,
+                            is_error,
+                            result_text.len()
+                        );
+
+                        let _ = app_stream.emit(
+                            "chat-stream-tool-result",
+                            StreamToolResultPayload {
+                                tool_call_id: buf.id.clone(),
+                                result: result_text.clone(),
+                                is_error,
+                            },
+                        );
+
+                        if let Some(msgs) = body["messages"].as_array_mut() {
+                            msgs.push(serde_json::json!({
+                                "role": "tool",
+                                "tool_call_id": buf.id,
+                                "content": result_text
+                            }));
+                        }
+                    }
+
+                    continue 'tool_loop;
+                }
+
+                // Normal completion — no tool_calls
+                let fc = full_content.lock().await.clone();
+                let _ = app_stream.emit(
+                    "chat-stream-done",
+                    StreamDonePayload { full_content: fc },
+                );
+                log::debug!(
+                    "send_message: stream completed for chat_id={}",
+                    chat_id_stream
+                );
+                done_emitted = true;
+                break;
+            }
+
+            if !done_emitted {
+                let fc = full_content.lock().await.clone();
+                let _ = app_stream.emit(
+                    "chat-stream-done",
+                    StreamDonePayload { full_content: fc },
+                );
+                if !token_check.is_cancelled() {
+                    log::warn!(
+                        "send_message: tool loop exhausted {} iterations for chat_id={}",
+                        MAX_TOOL_ITERATIONS,
+                        chat_id_stream
+                    );
                 }
             }
 
-            let fc = full_content.lock().await.clone();
-            let _ = app_stream.emit("chat-stream-done", StreamDonePayload {
-                full_content: fc,
-            });
-            log::debug!("send_message: stream completed for chat_id={}", chat_id_stream);
             Ok(())
         } => r
     };

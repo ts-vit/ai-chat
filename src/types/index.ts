@@ -124,6 +124,17 @@ export interface AppSettings {
     customProviderEnabledModels: Record<string, string[]>;
     language: string;
     sendByEnter?: boolean;
+    sttProvider?: string;
+    sttLanguage?: string;
+    openaiApiKey?: string;
+    groqSttApiKey?: string;
+    ttsProvider?: "system" | "openai";
+    ttsVoice?: string;
+    ttsModel?: string;
+    messageDensity?: "compact" | "standard" | "spacious";
+    chatWidth?: "narrow" | "standard" | "wide";
+    showStatusBar?: boolean;
+    statusBarMetrics?: string[];
 }
 
 // Payload событий стриминга — приходят из Rust через emit
@@ -149,6 +160,29 @@ export interface StreamImagePayload {
     messageId: string;
     path: string;
     index: number;
+}
+
+export interface ToolCallEvent {
+    toolCallId: string;
+    serverId: string;
+    toolName: string;
+    arguments: string;
+}
+
+export interface ToolResultEvent {
+    toolCallId: string;
+    result: string;
+    isError: boolean;
+}
+
+export interface ToolCallInfo {
+    toolCallId: string;
+    serverId: string;
+    toolName: string;
+    arguments: string;
+    result?: string;
+    isError?: boolean;
+    status: "calling" | "done" | "error";
 }
 
 export interface BalanceInfo {
@@ -204,6 +238,7 @@ export interface ChatTemplate {
     id: string;
     name: string;
     icon: string;
+    color?: string;
     providerId: string;
     model: string;
     systemPrompt: string;
@@ -215,4 +250,86 @@ export interface ChatTemplate {
     presencePenalty?: number | null;
     sortOrder: number;
     createdAt: number;
+}
+
+export interface McpServer {
+    id: string;
+    name: string;
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+    enabled: boolean;
+    createdAt: number;
+}
+
+export interface McpConnectionInfo {
+    id: string;
+    name: string;
+    toolCount: number;
+    connected: boolean;
+}
+
+export interface McpToolInfo {
+    serverId: string;
+    serverName: string;
+    tool: {
+        name: string;
+        description: string | null;
+        inputSchema: unknown;
+    };
+}
+
+export interface Comparison {
+    id: string;
+    title: string;
+    leftProviderId: string;
+    leftModel: string;
+    leftSystemPrompt?: string;
+    rightProviderId: string;
+    rightModel: string;
+    rightSystemPrompt?: string;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface ComparisonMessage {
+    id: string;
+    comparisonId: string;
+    role: "user" | "assistant";
+    side: "left" | "right" | null;
+    content: string;
+    timestamp: number;
+    model?: string;
+    promptTokens: number;
+    completionTokens: number;
+    cost: number;
+}
+
+export interface ComparisonStreamPayload {
+    side: "left" | "right";
+    content: string;
+}
+
+export interface ComparisonStreamDonePayload {
+    side: "left" | "right";
+    full_content: string;
+}
+
+export interface ComparisonStreamUsagePayload {
+    side: "left" | "right";
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+}
+
+export interface ComparisonStreamErrorPayload {
+    side: "left" | "right";
+    error: string;
+}
+
+export interface ComparisonStreamImagePayload {
+    side: "left" | "right";
+    messageId: string;
+    path: string;
+    index: number;
 }

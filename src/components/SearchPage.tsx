@@ -19,11 +19,66 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useChatStore } from "../store/chatStore";
 import { formatRelativeDate } from "../utils/formatDate";
-import type { IndexingStatus, SearchResult } from "../types";
+import type { IndexingStatus, Message, SearchResult } from "../types";
 import { notify } from "../utils/notify";
 
 const DEBOUNCE_MS = 500;
 const PREVIEW_MAX = 200;
+const SNIPPET_MAX_LEN = 130;
+
+interface DbMessageResponse {
+    id: string;
+    chatId: string;
+    role: string;
+    content: string;
+    parentId?: string;
+    timestamp: number;
+    model?: string;
+    promptTokens?: number;
+    completionTokens?: number;
+    cost?: number;
+    has_attachments?: number;
+}
+
+function dbMessageToMessage(m: DbMessageResponse): Message {
+    return {
+        id: m.id,
+        role: m.role as Message["role"],
+        content: m.content,
+        parentId: m.parentId,
+        timestamp: m.timestamp,
+        model: m.model,
+        promptTokens: m.promptTokens,
+        completionTokens: m.completionTokens,
+        cost: m.cost,
+        hasAttachments: m.has_attachments ? true : undefined,
+    };
+}
+
+function truncateSnippet(text: string, maxLen: number): string {
+    const plain = text.replace(/\s+/g, " ").trim();
+    if (plain.length <= maxLen) return plain;
+    const cut = plain.slice(0, maxLen);
+    const lastSpace = cut.lastIndexOf(" ");
+    const end = lastSpace > maxLen / 2 ? lastSpace : maxLen;
+    return cut.slice(0, end).trim() + "…";
+}
+
+function extractPlainText(content: string): string {
+    const trimmed = content.trimStart();
+    if (!trimmed.startsWith("[")) return content;
+    try {
+        const parsed = JSON.parse(content) as unknown;
+        if (!Array.isArray(parsed)) return content;
+        const textParts: string[] = [];
+        for (const b of parsed as { type?: string; text?: string }[]) {
+            if (b?.type === "text" && typeof b.text === "string") textParts.push(b.text);
+        }
+        return textParts.length > 0 ? textParts.join(" ") : content;
+    } catch {
+        return content;
+    }
+}
 
 function groupByChat(results: SearchResult[]): { chatId: string; chatTitle: string; results: SearchResult[] }[] {
     const byChat = new Map<string, SearchResult[]>();
@@ -52,6 +107,7 @@ export function SearchPage() {
         total: 0,
         inProgress: false,
     });
+    const [messagesByChatId, setMessagesByChatId] = useState<Record<string, Message[]>>({});
 
     useEffect(() => {
         const t = setTimeout(() => setDebouncedQuery(query.trim()), DEBOUNCE_MS);
@@ -106,7 +162,56 @@ export function SearchPage() {
             .finally(() => setLoading(false));
     }, [debouncedQuery]);
 
+    useEffect(() => {
+        if (results.length === 0) {
+            setMessagesByChatId({});
+            return;
+        }
+        const chatIds = Array.from(new Set(results.map((r) => r.chatId)));
+        let cancelled = false;
+        Promise.all(
+            chatIds.map(async (chatId) => {
+                try {
+                    const rows = await invoke<DbMessageResponse[]>("get_messages", { chatId });
+                    return [chatId, rows.map(dbMessageToMessage)] as const;
+                } catch {
+                    return [chatId, []] as const;
+                }
+            })
+        ).then((pairs) => {
+            if (cancelled) return;
+            setMessagesByChatId((prev) => ({
+                ...prev,
+                ...Object.fromEntries(pairs),
+            }));
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [results]);
+
     const groups = useMemo(() => groupByChat(results), [results]);
+
+    const getContextSnippet = useCallback(
+        (chatId: string, messageId: string, role: string): string | null => {
+            const messages = messagesByChatId[chatId];
+            if (!messages?.length) return null;
+            const idx = messages.findIndex((m) => m.id === messageId);
+            if (idx < 0) return null;
+            if (role === "user") {
+                const next = messages.slice(idx + 1).find((m) => m.role === "assistant");
+                if (!next) return null;
+                return truncateSnippet(extractPlainText(next.content), SNIPPET_MAX_LEN);
+            }
+            if (role === "assistant") {
+                const prev = [...messages.slice(0, idx)].reverse().find((m) => m.role === "user");
+                if (!prev) return null;
+                return truncateSnippet(extractPlainText(prev.content), SNIPPET_MAX_LEN);
+            }
+            return null;
+        },
+        [messagesByChatId]
+    );
 
     const handleMessageClick = useCallback(
         (chatId: string, messageId: string) => {
@@ -140,115 +245,156 @@ export function SearchPage() {
                 <Title order={2}>{t("search.title")}</Title>
             </Group>
 
-            <Stack p="md" gap="md" style={{ flexShrink: 0 }}>
-                <TextInput
-                    placeholder={t("search.placeholder")}
-                    leftSection={<IconSearch size={18} stroke={1.5} />}
-                    value={query}
-                    onChange={(e) => setQuery(e.currentTarget.value)}
-                    autoFocus
-                />
-                <SegmentedControl
-                    value={segment}
-                    onChange={(v) => setSegment(v as "all" | "chats" | "docs")}
-                    data={[
-                        { value: "all", label: t("search.segmentAll") },
-                        { value: "chats", label: t("search.segmentChats") },
-                        { value: "docs", label: t("search.segmentDocs"), disabled: true },
-                    ]}
-                />
-                {indexingStatus.inProgress && (
-                    <Box>
-                        <Text size="sm" c="dimmed" mb={4}>
-                            {t("search.indexing", { indexed: indexingStatus.indexed, total: indexingStatus.total })}
-                        </Text>
-                        <Progress
-                            value={
-                                indexingStatus.total > 0
-                                    ? (indexingStatus.indexed / indexingStatus.total) * 100
-                                    : 0
-                            }
-                            size="sm"
+            <Box
+                style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    minHeight: 0,
+                }}
+            >
+                <Box
+                    style={{
+                        flex: 1,
+                        display: "flex",
+                        flexDirection: "column",
+                        minHeight: 0,
+                        maxWidth: 720,
+                        width: "100%",
+                        margin: "0 auto",
+                    }}
+                >
+                    <Stack p="md" gap="md" style={{ flexShrink: 0 }}>
+                        <TextInput
+                            placeholder={t("search.placeholder")}
+                            leftSection={<IconSearch size={18} stroke={1.5} />}
+                            value={query}
+                            onChange={(e) => setQuery(e.currentTarget.value)}
+                            autoFocus
                         />
-                    </Box>
-                )}
-            </Stack>
+                        <SegmentedControl
+                            value={segment}
+                            onChange={(v) => {
+                                const next = v as "all" | "chats" | "docs";
+                                if (next === "docs") {
+                                    notify.info(t("search.comingSoon"));
+                                    return;
+                                }
+                                setSegment(next);
+                            }}
+                            data={[
+                                { value: "all", label: t("search.segmentAll") },
+                                { value: "chats", label: t("search.segmentChats") },
+                                { value: "docs", label: t("search.segmentDocs") },
+                            ]}
+                        />
+                        {indexingStatus.inProgress && (
+                            <Box>
+                                <Text size="sm" c="dimmed" mb={4}>
+                                    {t("search.indexing", { indexed: indexingStatus.indexed, total: indexingStatus.total })}
+                                </Text>
+                                <Progress
+                                    value={
+                                        indexingStatus.total > 0
+                                            ? (indexingStatus.indexed / indexingStatus.total) * 100
+                                            : 0
+                                    }
+                                    size="sm"
+                                />
+                            </Box>
+                        )}
+                    </Stack>
 
-            <ScrollArea style={{ flex: 1, minHeight: 0 }} type="scroll">
-                <Stack p="md" gap="lg">
-                    {loading && (
-                        <Group justify="center" py="xl">
-                            <Loader size="sm" />
-                        </Group>
-                    )}
-                    {!loading && !debouncedQuery && (
-                        <Stack align="center" gap="sm" py="xl">
-                            <IconSearch size={48} stroke={1.5} style={{ opacity: 0.5 }} />
-                            <Text c="dimmed">{t("search.noQuery")}</Text>
-                        </Stack>
-                    )}
-                    {!loading && debouncedQuery && results.length === 0 && (
-                        <Text c="dimmed" ta="center" py="xl">
-                            {t("search.noResults", { query: debouncedQuery })}
-                        </Text>
-                    )}
-                    {!loading && groups.length > 0 && (
-                        <>
-                            {groups.map((g) => (
-                                <Box key={g.chatId}>
-                                    <Button
-                                        variant="subtle"
-                                        size="compact-sm"
-                                        style={{ fontWeight: 600, marginBottom: 8 }}
-                                        onClick={() => {
-                                            setActiveChat(g.chatId);
-                                            setScrollTargetId(null);
-                                            setView("chat");
-                                        }}
-                                    >
-                                        {g.chatTitle || t("search.noTitle")}
-                                    </Button>
-                                    <Stack gap="xs">
-                                        {g.results.map((r) => (
-                                            <Box
-                                                key={r.messageId}
+                    <ScrollArea style={{ flex: 1, minHeight: 0 }} type="scroll">
+                        <Stack p="md" gap="lg">
+                            {loading && (
+                                <Group justify="center" py="xl">
+                                    <Loader size="sm" />
+                                </Group>
+                            )}
+                            {!loading && !debouncedQuery && (
+                                <Stack align="center" gap="sm" py="xl">
+                                    <IconSearch size={48} stroke={1.5} style={{ opacity: 0.5 }} />
+                                    <Text c="dimmed">{t("search.noQuery")}</Text>
+                                </Stack>
+                            )}
+                            {!loading && debouncedQuery && results.length === 0 && (
+                                <Text c="dimmed" ta="center" py="xl">
+                                    {t("search.noResults", { query: debouncedQuery })}
+                                </Text>
+                            )}
+                            {!loading && groups.length > 0 && (
+                                <>
+                                    {groups.map((g) => (
+                                        <Box key={g.chatId}>
+                                            <Button
+                                                variant="subtle"
+                                                size="compact-sm"
                                                 style={{
-                                                    padding: 12,
-                                                    borderRadius: 8,
-                                                    border: "1px solid var(--mantine-color-default-border)",
-                                                    cursor: "pointer",
+                                                    fontWeight: 500,
+                                                    color: "var(--mantine-color-dimmed)",
+                                                    fontSize: "var(--mantine-font-size-xs)",
+                                                    marginBottom: 8,
                                                 }}
-                                                onClick={() => handleMessageClick(r.chatId, r.messageId)}
+                                                onClick={() => {
+                                                    setActiveChat(g.chatId);
+                                                    setScrollTargetId(null);
+                                                    setView("chat");
+                                                }}
                                             >
-                                                <Group justify="space-between" wrap="nowrap" align="flex-start">
-                                                    <Group wrap="nowrap" gap="sm" style={{ minWidth: 0, flex: 1 }}>
-                                                        {r.role === "user" ? (
-                                                            <IconUser size={18} stroke={1.5} style={{ flexShrink: 0 }} />
-                                                        ) : (
-                                                            <IconRobot size={18} stroke={1.5} style={{ flexShrink: 0 }} />
-                                                        )}
-                                                        <Text size="sm" lineClamp={2} style={{ minWidth: 0 }}>
-                                                            {r.content.length > PREVIEW_MAX
-                                                                ? `${r.content.slice(0, PREVIEW_MAX)}...`
-                                                                : r.content}
-                                                        </Text>
-                                                    </Group>
-                                                    <Badge size="sm" variant="light">
-                                                        {r.score.toFixed(2)}
-                                                    </Badge>
-                                                </Group>
-                                                <Text size="xs" c="dimmed" mt={4}>
-                                                    {formatRelativeDate(r.timestamp)}
-                                                </Text>
-                                            </Box>
-                                        ))}
-                                    </Stack>
-                                </Box>
-                            ))}
-                        </>
-                    )}
-                </Stack>
-            </ScrollArea>
+                                                {g.chatTitle || t("search.noTitle")}
+                                            </Button>
+                                            <Stack gap="xs">
+                                                {g.results.map((r) => {
+                                                    const snippet = getContextSnippet(r.chatId, r.messageId, r.role);
+                                                    return (
+                                                        <Box
+                                                            key={r.messageId}
+                                                            style={{
+                                                                padding: 12,
+                                                                borderRadius: 8,
+                                                                border: "1px solid var(--mantine-color-default-border)",
+                                                                cursor: "pointer",
+                                                            }}
+                                                            onClick={() => handleMessageClick(r.chatId, r.messageId)}
+                                                        >
+                                                            <Group justify="space-between" wrap="nowrap" align="flex-start">
+                                                                <Group wrap="nowrap" gap="sm" style={{ minWidth: 0, flex: 1 }}>
+                                                                    {r.role === "user" ? (
+                                                                        <IconUser size={18} stroke={1.5} style={{ flexShrink: 0 }} />
+                                                                    ) : (
+                                                                        <IconRobot size={18} stroke={1.5} style={{ flexShrink: 0 }} />
+                                                                    )}
+                                                                    <Text size="sm" lineClamp={2} style={{ minWidth: 0 }}>
+                                                                        {r.content.length > PREVIEW_MAX
+                                                                            ? `${r.content.slice(0, PREVIEW_MAX)}...`
+                                                                            : r.content}
+                                                                    </Text>
+                                                                </Group>
+                                                                <Badge size="sm" variant="light">
+                                                                    {r.score.toFixed(2)}
+                                                                </Badge>
+                                                            </Group>
+                                                            <Text size="xs" c="dimmed" mt={4}>
+                                                                {formatRelativeDate(r.timestamp)}
+                                                            </Text>
+                                                            {snippet && (
+                                                                <Text size="xs" c="dimmed" lineClamp={2} mt="xs">
+                                                                    {snippet}
+                                                                </Text>
+                                                            )}
+                                                        </Box>
+                                                    );
+                                                })}
+                                            </Stack>
+                                        </Box>
+                                    ))}
+                                </>
+                            )}
+                        </Stack>
+                    </ScrollArea>
+                </Box>
+            </Box>
         </Box>
     );
 }

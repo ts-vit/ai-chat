@@ -16,6 +16,12 @@ function formatTokens(n: number): string {
 export function ChatStats({ compact = false, providerId = "openrouter" }: ChatStatsProps) {
     const { t } = useTranslation();
     const { chats, activeChatId, balance, models, settings } = useChatStore();
+
+    if (settings.showStatusBar === false) {
+        return null;
+    }
+
+    const metrics = settings.statusBarMetrics ?? ["balance", "context", "tokens", "cost"];
     const activeChat = chats.find((c) => c.id === activeChatId);
     const assistantMessages = activeChat?.messages.filter((m) => m.role === "assistant") ?? [];
 
@@ -42,7 +48,7 @@ export function ChatStats({ compact = false, providerId = "openrouter" }: ChatSt
     const parts: React.ReactNode[] = [];
     const showBalanceAndCost = providerId === "openrouter";
 
-    if (showBalanceAndCost && balance !== null) {
+    if (metrics.includes("balance") && showBalanceAndCost && balance !== null) {
         parts.push(
             <Tooltip key="balance" label={t("chatStats.balance")}>
                 <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
@@ -53,23 +59,27 @@ export function ChatStats({ compact = false, providerId = "openrouter" }: ChatSt
         parts.push(sep("sep1"));
     }
 
-    parts.push(
-        <Tooltip key="context" label={t("chatStats.context")}>
-            <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
-                {contextTokens.toLocaleString()}/{formatTokens(contextMax)}
-            </Text>
-        </Tooltip>
-    );
-    parts.push(sep("sep2"));
-    parts.push(
-        <Tooltip key="tokens" label={t("chatStats.tokensInChat")}>
-            <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
-                {totalTokens.toLocaleString()}
-            </Text>
-        </Tooltip>
-    );
-    if (showBalanceAndCost) {
+    if (metrics.includes("context")) {
+        parts.push(
+            <Tooltip key="context" label={t("chatStats.context")}>
+                <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
+                    {contextTokens.toLocaleString()}/{formatTokens(contextMax)}
+                </Text>
+            </Tooltip>
+        );
+        parts.push(sep("sep2"));
+    }
+    if (metrics.includes("tokens")) {
+        parts.push(
+            <Tooltip key="tokens" label={t("chatStats.tokensInChat")}>
+                <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>
+                    {totalTokens.toLocaleString()}
+                </Text>
+            </Tooltip>
+        );
         parts.push(sep("sep3"));
+    }
+    if (metrics.includes("cost") && showBalanceAndCost) {
         parts.push(
             <Tooltip key="cost" label={t("chatStats.costOfChat")}>
                 <Text component="span" size="xs" style={{ whiteSpace: "nowrap" }}>

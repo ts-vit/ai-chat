@@ -1,3 +1,4 @@
+export { AudioSection } from "./AudioSection";
 export { OpenRouterSection } from "./OpenRouterSection";
 export { OllamaModelsSection } from "./OllamaModelsSection";
 export { CustomProvidersSection } from "./CustomProvidersSection";
@@ -5,5 +6,6 @@ export { GenerationSection } from "./GenerationSection";
 export { InterfaceSection } from "./InterfaceSection";
 export { PresetsSection } from "./PresetsSection";
 export { TemplatesSection } from "./TemplatesSection";
+export { McpSection } from "./McpSection";
 export { DataSection } from "./DataSection";
 export { AboutSection } from "./AboutSection";

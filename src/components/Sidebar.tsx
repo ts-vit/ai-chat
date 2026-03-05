@@ -19,6 +19,7 @@ import { ColorSwatch } from "@mantine/core";
 import {
     IconChevronDown,
     IconChevronRight,
+    IconColumns,
     IconFolderFilled,
     IconFolderPlus,
     IconMessages,
@@ -31,25 +32,13 @@ import {
     IconTemplate,
     IconTrash,
 } from "@tabler/icons-react";
+import { FOLDER_COLORS } from "../constants/folderColors";
 import { useChatStore } from "../store/chatStore";
 import { formatRelativeDate } from "../utils/formatDate";
 import { ConfirmModal } from "./ConfirmModal";
+import { CreateComparisonModal } from "./CreateComparisonModal";
+import { CreateFolderModal } from "./CreateFolderModal";
 import type { Chat, Folder } from "../types";
-
-const FOLDER_COLORS = [
-    "red",
-    "pink",
-    "grape",
-    "violet",
-    "indigo",
-    "blue",
-    "cyan",
-    "teal",
-    "green",
-    "lime",
-    "yellow",
-    "orange",
-] as const;
 
 interface SidebarProps {
     width?: number;
@@ -67,6 +56,7 @@ function ChatRow({
     onMouseDown,
     isDragging,
     isActiveDrag,
+    isContextMenuOpen,
 }: {
     chat: Chat;
     activeChatId: string | null;
@@ -76,11 +66,13 @@ function ChatRow({
     onMouseDown?: (e: React.MouseEvent) => void;
     isDragging?: boolean;
     isActiveDrag?: boolean;
+    isContextMenuOpen?: boolean;
 }) {
     const { t } = useTranslation();
     return (
         <div
             className="chat-item"
+            data-context-menu-open={isContextMenuOpen ? "true" : undefined}
             onContextMenu={onContextMenu ? (e) => onContextMenu(e, chat.id) : undefined}
             onMouseDown={onMouseDown}
             style={{
@@ -162,10 +154,14 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
         chats,
         folders,
         activeChatId,
+        activeComparisonId,
+        comparisons,
         deleteChat,
         setActiveChat,
         setView,
-        createFolder,
+        setActiveComparison,
+        createComparison,
+        deleteComparison,
         updateFolder,
         deleteFolder,
         moveChatToFolder,
@@ -173,6 +169,8 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
 
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
     const [deletingFolderId, setDeletingFolderId] = useState<string | null>(null);
+    const [deletingComparisonId, setDeletingComparisonId] = useState<string | null>(null);
+    const [createComparisonModalOpen, setCreateComparisonModalOpen] = useState(false);
     const [chatsPopoverOpened, setChatsPopoverOpened] = useState(false);
     const [contextMenu, setContextMenu] = useState<{
         chatId: string;
@@ -180,9 +178,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
         y: number;
     } | null>(null);
     const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(new Set());
-    const [showCreateFolder, setShowCreateFolder] = useState(false);
-    const [newFolderName, setNewFolderName] = useState("");
-    const [newFolderColor, setNewFolderColor] = useState<string | null>(null);
+    const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
     const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
     const [editingFolderName, setEditingFolderName] = useState("");
     const [editingFolderColor, setEditingFolderColor] = useState<string | null>(null);
@@ -206,16 +202,6 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
             return next;
         });
     }, []);
-
-    const handleCreateFolder = useCallback(() => {
-        const name = newFolderName.trim();
-        if (name) {
-            createFolder(name, newFolderColor);
-            setNewFolderName("");
-            setNewFolderColor(null);
-            setShowCreateFolder(false);
-        }
-    }, [newFolderName, newFolderColor, createFolder]);
 
     const startEditFolder = useCallback((folder: Folder) => {
         setEditingFolderId(folder.id);
@@ -267,6 +253,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 activeChatId={activeChatId}
                 onSelect={() => {
                     setActiveChat(chat.id);
+                    setView("chat");
                     onSelect();
                 }}
                 onDelete={() => setDeletingChatId(chat.id)}
@@ -290,6 +277,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 }
                 isDragging={dragState?.isDragging === true && dragState.chatId === chat.id}
                 isActiveDrag={dragState !== null && dragState.chatId === chat.id}
+                isContextMenuOpen={contextMenu?.chatId === chat.id}
             />
         ));
 
@@ -305,6 +293,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 return (
                     <Box key={folder.id} mb="xs">
                         <div
+                            className="folder-row"
                             data-folder-id={folder.id}
                             style={{
                                 width: "100%",
@@ -382,50 +371,57 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                                 </Box>
                             ) : (
                                 <>
-                                    <Text
-                                        size="sm"
-                                        style={{
-                                            flex: 1,
-                                            minWidth: 0,
-                                            color: folder.color
-                                                ? folderColorVar(folder.color)
-                                                : undefined,
-                                        }}
-                                        truncate
-                                        onDoubleClick={(e) => {
-                                            e.stopPropagation();
-                                            startEditFolder(folder);
-                                        }}
+                                    <Tooltip
+                                        label={folder.name}
+                                        disabled={folder.name.length < 15}
                                     >
-                                        {folder.name}
-                                    </Text>
-                                    <Text size="xs" c="dimmed">
-                                        {count}
-                                    </Text>
-                                    <Tooltip label={t("sidebar.renameFolder")}>
-                                        <ActionIcon
-                                            size="xs"
-                                            variant="subtle"
-                                            onClick={(e) => {
+                                        <Text
+                                            size="sm"
+                                            style={{
+                                                flex: 1,
+                                                minWidth: 0,
+                                                color: folder.color
+                                                    ? folderColorVar(folder.color)
+                                                    : undefined,
+                                            }}
+                                            truncate
+                                            onDoubleClick={(e) => {
                                                 e.stopPropagation();
                                                 startEditFolder(folder);
                                             }}
                                         >
-                                            <IconPencil size={12} stroke={1.5} />
-                                        </ActionIcon>
+                                            {folder.name}
+                                        </Text>
                                     </Tooltip>
-                                    <Tooltip label={t("sidebar.deleteFolder")}>
-                                        <ActionIcon
-                                            size="xs"
-                                            variant="subtle"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setDeletingFolderId(folder.id);
-                                            }}
-                                        >
-                                            <IconTrash size={12} stroke={1.5} />
-                                        </ActionIcon>
-                                    </Tooltip>
+                                    <Text size="xs" c="dimmed">
+                                        {count}
+                                    </Text>
+                                    <Group className="action-icons" gap={4} wrap="nowrap">
+                                        <Tooltip label={t("sidebar.renameFolder")}>
+                                            <ActionIcon
+                                                size="xs"
+                                                variant="subtle"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    startEditFolder(folder);
+                                                }}
+                                            >
+                                                <IconPencil size={12} stroke={1.5} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label={t("sidebar.deleteFolder")}>
+                                            <ActionIcon
+                                                size="xs"
+                                                variant="subtle"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setDeletingFolderId(folder.id);
+                                                }}
+                                            >
+                                                <IconTrash size={12} stroke={1.5} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                    </Group>
                                 </>
                             )}
                             </Group>
@@ -469,6 +465,70 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
             ) : (
                 renderChatList(chatsWithoutFolder, () => {})
             )}
+            {!compact && (
+                <>
+                    <Box mt="md" mb="xs" px="xs">
+                        <Text size="xs" c="dimmed" fw={500} tt="uppercase" mb={4}>
+                            {t("sidebar.comparisons")}
+                        </Text>
+                        <Button
+                            size="xs"
+                            variant="subtle"
+                            leftSection={<IconColumns size={14} stroke={1.5} />}
+                            onClick={() => setCreateComparisonModalOpen(true)}
+                            style={{ width: "100%", justifyContent: "flex-start" }}
+                        >
+                            + {t("sidebar.newComparison")}
+                        </Button>
+                    </Box>
+                    {comparisons.map((comp) => {
+                        const leftLabel = comp.leftModel.split("/").pop() ?? comp.leftModel;
+                        const rightLabel = comp.rightModel.split("/").pop() ?? comp.rightModel;
+                        const isActive = comp.id === activeComparisonId;
+                        return (
+                            <div key={comp.id} className="chat-item" style={{ width: "100%" }}>
+                                <Group wrap="nowrap" gap={0} justify="flex-start">
+                                    <NavLink
+                                        active={isActive}
+                                        leftSection={<IconColumns size={18} stroke={1.5} />}
+                                        label={comp.title}
+                                        description={
+                                            <Text component="span" size="xs" c="dimmed">
+                                                {leftLabel} {t("compare.vsLabel")} {rightLabel}
+                                            </Text>
+                                        }
+                                        onClick={() => {
+                                            setActiveComparison(comp.id);
+                                            setView("compare");
+                                        }}
+                                        style={{ flex: 1, minWidth: 0 }}
+                                        styles={{
+                                            root: {
+                                                borderLeft: isActive
+                                                    ? "3px solid var(--mantine-color-blue-5)"
+                                                    : "3px solid transparent",
+                                            },
+                                        }}
+                                    />
+                                    <Tooltip label={t("sidebar.deleteChat")}>
+                                        <ActionIcon
+                                            className="chat-delete-btn"
+                                            size="xs"
+                                            variant="subtle"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setDeletingComparisonId(comp.id);
+                                            }}
+                                        >
+                                            ✕
+                                        </ActionIcon>
+                                    </Tooltip>
+                                </Group>
+                            </div>
+                        );
+                    })}
+                </>
+            )}
         </div>
     );
 
@@ -504,18 +564,23 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                                         : undefined,
                                 }}
                             />
-                            <Text
-                                size="sm"
-                                style={{
-                                    flex: 1,
-                                    color: folder.color
-                                        ? folderColorVar(folder.color)
-                                        : undefined,
-                                }}
-                                truncate
+                            <Tooltip
+                                label={folder.name}
+                                disabled={folder.name.length < 15}
                             >
-                                {folder.name}
-                            </Text>
+                                <Text
+                                    size="sm"
+                                    style={{
+                                        flex: 1,
+                                        color: folder.color
+                                            ? folderColorVar(folder.color)
+                                            : undefined,
+                                    }}
+                                    truncate
+                                >
+                                    {folder.name}
+                                </Text>
+                            </Tooltip>
                             <Text size="xs" c="dimmed">
                                 {count}
                             </Text>
@@ -599,7 +664,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 width: compact ? 60 : width,
                 flexShrink: 0,
                 minWidth: compact ? 60 : width,
-                height: "100vh",
+                height: "100%",
                 display: "flex",
                 flexDirection: "column",
                 borderRight:
@@ -639,7 +704,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                             <ActionIcon
                                 size="lg"
                                 variant="subtle"
-                                onClick={() => setShowCreateFolder(true)}
+                                onClick={() => setCreateFolderModalOpen(true)}
                                 aria-label={t("sidebar.newFolder")}
                             >
                                 <IconFolderPlus size={18} stroke={1.5} />
@@ -649,42 +714,19 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 )}
             </Box>
 
-            {!compact && showCreateFolder && (
-                <Box px="md" pb="xs">
-                    <TextInput
-                        size="xs"
-                        placeholder={t("sidebar.folderName")}
-                        value={newFolderName}
-                        onChange={(e) => setNewFolderName(e.currentTarget.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === "Enter") handleCreateFolder();
-                            if (e.key === "Escape") {
-                                setShowCreateFolder(false);
-                                setNewFolderName("");
-                                setNewFolderColor(null);
-                            }
-                        }}
-                        autoFocus
-                    />
-                    <Group gap={4} mt={4}>
-                        {FOLDER_COLORS.map((c) => (
-                            <ColorSwatch
-                                key={c}
-                                color={`var(--mantine-color-${c}-5)`}
-                                size={16}
-                                onClick={() => setNewFolderColor(c)}
-                                style={{
-                                    cursor: "pointer",
-                                    border:
-                                        newFolderColor === c
-                                            ? "2px solid var(--mantine-color-default-border)"
-                                            : undefined,
-                                }}
-                            />
-                        ))}
-                    </Group>
-                </Box>
-            )}
+            <CreateFolderModal
+                opened={createFolderModalOpen}
+                onClose={() => setCreateFolderModalOpen(false)}
+            />
+            <CreateComparisonModal
+                opened={createComparisonModalOpen}
+                onClose={() => setCreateComparisonModalOpen(false)}
+                onConfirm={(a, b, c, d, e, f) => {
+                    createComparison(a, b, c, d, e, f);
+                    setView("compare");
+                    setCreateComparisonModalOpen(false);
+                }}
+            />
 
             {compact ? (
                 <Box
@@ -772,6 +814,15 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                             onClick={() => setView("snippets")}
                         >
                             <IconTemplate size={18} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.compare")}>
+                        <ActionIcon
+                            size="lg"
+                            variant="subtle"
+                            onClick={() => setView("compare")}
+                        >
+                            <IconColumns size={18} stroke={1.5} />
                         </ActionIcon>
                     </Tooltip>
                     <Tooltip label={t("sidebar.settings")}>
@@ -882,6 +933,17 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                     }
                 }}
                 message={t("sidebar.confirmDeleteFolder")}
+            />
+            <ConfirmModal
+                opened={deletingComparisonId !== null}
+                onClose={() => setDeletingComparisonId(null)}
+                onConfirm={() => {
+                    if (deletingComparisonId) {
+                        deleteComparison(deletingComparisonId);
+                        setDeletingComparisonId(null);
+                    }
+                }}
+                message={t("compare.deleteConfirm")}
             />
         </Box>
     );

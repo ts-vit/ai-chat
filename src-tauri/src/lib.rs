@@ -9,6 +9,11 @@ use tokio::sync::Mutex;
 
 use commands::attachments::save_attachment;
 use commands::chat::{send_message, stop_generation, StreamState};
+use commands::comparisons::{
+    create_comparison, delete_comparison, get_all_comparisons, get_comparison,
+    get_comparison_messages, save_comparison_message, stream_comparison_responses,
+    update_comparison_message_content, update_comparison_message_usage, update_comparison_title,
+};
 use commands::database::{
     create_chat, delete_chat, delete_messages_after, get_all_chats, get_messages, save_message,
     update_chat_model, update_chat_params, update_chat_title, update_message_content,
@@ -40,12 +45,25 @@ use commands::snippets::{
     create_category, create_snippet, delete_category, delete_snippet, get_all_categories,
     get_all_snippets, get_snippets_by_category, update_category, update_snippet,
 };
+use commands::mcp::{
+    mcp_add_server, mcp_call_tool, mcp_connect, mcp_connect_by_id, mcp_disconnect,
+    mcp_get_servers, mcp_list_connections, mcp_list_tools, mcp_remove_server, mcp_toggle_server,
+    mcp_update_server,
+};
 use commands::templates::{
     create_template, delete_template, get_all_templates, reorder_templates, update_template,
 };
 use commands::export_import::{
     export_chat_json, export_chat_markdown, export_all_chats, import_chats,
 };
+use commands::audio::{
+    check_vosk_status, download_vosk_library, download_vosk_model, get_available_vosk_models,
+    is_recording, start_recording, stop_recording_and_transcribe, tts_get_voices, tts_speak,
+    tts_stop, uninstall_vosk,
+};
+use commands::tokens::count_tokens;
+use services::audio_recorder::AudioRecorder;
+use services::mcp_manager::McpManager;
 use sqlx::sqlite::SqlitePool;
 use services::embedding_engine::EmbeddingEngine;
 use services::vector_store::VectorStore;
@@ -116,6 +134,39 @@ const DB_MIGRATIONS: &[&str] = &[
         presence_penalty REAL,
         sort_order INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL
+    )",
+    "CREATE TABLE IF NOT EXISTS mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        command TEXT NOT NULL,
+        args TEXT NOT NULL DEFAULT '[]',
+        env TEXT NOT NULL DEFAULT '{}',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL
+    )",
+    "CREATE TABLE IF NOT EXISTS comparisons (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT 'New comparison',
+        left_provider_id TEXT NOT NULL,
+        left_model TEXT NOT NULL,
+        left_system_prompt TEXT,
+        right_provider_id TEXT NOT NULL,
+        right_model TEXT NOT NULL,
+        right_system_prompt TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    )",
+    "CREATE TABLE IF NOT EXISTS comparison_messages (
+        id TEXT PRIMARY KEY,
+        comparison_id TEXT NOT NULL REFERENCES comparisons(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        side TEXT,
+        content TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        model TEXT,
+        prompt_tokens INTEGER DEFAULT 0,
+        completion_tokens INTEGER DEFAULT 0,
+        cost REAL DEFAULT 0.0
     )",
 ];
 
@@ -259,6 +310,10 @@ pub fn run() {
             };
             let store_arc = Arc::new(store);
             app.manage(store_arc.clone());
+            let mcp_manager = Arc::new(McpManager::new());
+            app.manage(mcp_manager.clone());
+            app.manage(Arc::new(AudioRecorder::new()));
+            app.manage(commands::audio::TtsState::new());
 
             // Фоновая индексация при старте: пропускать уже проиндексированные сообщения.
             // Запускается через 5 сек после старта, чтобы UI успел загрузиться.
@@ -311,6 +366,56 @@ pub fn run() {
                     }
                     commands::embeddings::INDEXING_IN_PROGRESS.store(false, Ord::Relaxed);
                     let _ = app_handle.emit("indexing-done", ());
+                });
+            }
+
+            // MCP: auto-connect enabled servers after startup
+            {
+                let pool_mcp = pool.clone();
+                let mcp_mgr = mcp_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    let rows = match sqlx::query(
+                        "SELECT id, name, command, args, env, enabled, created_at FROM mcp_servers WHERE enabled = 1",
+                    )
+                    .fetch_all(&pool_mcp)
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(e) => {
+                            log::error!("[mcp-autoconnect] fetch servers failed: {}", e);
+                            return;
+                        }
+                    };
+                    if rows.is_empty() {
+                        return;
+                    }
+                    log::info!("[mcp-autoconnect] connecting {} server(s)", rows.len());
+                    for row in &rows {
+                        use sqlx::Row;
+                        let id: String = row.get("id");
+                        let name: String = row.get("name");
+                        let command: String = row.get("command");
+                        let args_str: String = row.get("args");
+                        let env_str: String = row.get("env");
+                        let args: Vec<String> = serde_json::from_str(&args_str).unwrap_or_default();
+                        let env: std::collections::HashMap<String, String> =
+                            serde_json::from_str(&env_str).unwrap_or_default();
+                        match mcp_mgr.connect(&id, &name, command, args, env).await {
+                            Ok(tools) => {
+                                log::info!(
+                                    "[mcp-autoconnect] connected '{}' ({}) — {} tool(s)",
+                                    name, id, tools.len()
+                                );
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "[mcp-autoconnect] failed to connect '{}' ({}): {}",
+                                    name, id, e
+                                );
+                            }
+                        }
+                    }
                 });
             }
 
@@ -382,6 +487,39 @@ pub fn run() {
             delete_template,
             reorder_templates,
             import_chats,
+            mcp_connect,
+            mcp_disconnect,
+            mcp_list_connections,
+            mcp_list_tools,
+            mcp_call_tool,
+            mcp_get_servers,
+            mcp_add_server,
+            mcp_update_server,
+            mcp_remove_server,
+            mcp_toggle_server,
+            mcp_connect_by_id,
+            count_tokens,
+            start_recording,
+            stop_recording_and_transcribe,
+            get_available_vosk_models,
+            is_recording,
+            check_vosk_status,
+            download_vosk_library,
+            download_vosk_model,
+            uninstall_vosk,
+            tts_speak,
+            tts_stop,
+            tts_get_voices,
+            create_comparison,
+            get_all_comparisons,
+            get_comparison,
+            delete_comparison,
+            update_comparison_title,
+            get_comparison_messages,
+            save_comparison_message,
+            update_comparison_message_usage,
+            update_comparison_message_content,
+            stream_comparison_responses,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

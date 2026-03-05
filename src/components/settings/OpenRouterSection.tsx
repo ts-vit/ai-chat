@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
     Accordion,
+    Box,
     Button,
     Checkbox,
     Group,
@@ -171,11 +172,16 @@ export function OpenRouterSection({
                 <Accordion.Item value="api-key">
                     <Accordion.Control>{t("settings.openrouter.apiKey")}</Accordion.Control>
                     <Accordion.Panel>
-                        <PasswordInput
-                            placeholder="sk-or-..."
-                            value={apiKey}
-                            onChange={(e) => onApiKeyChange(e.currentTarget.value)}
-                        />
+                        <Stack gap="xs">
+                            <PasswordInput
+                                placeholder="sk-or-..."
+                                value={apiKey}
+                                onChange={(e) => onApiKeyChange(e.currentTarget.value)}
+                            />
+                            <Text size="xs" c="dimmed">
+                                {t("settings.openrouter.apiKeyHint")}
+                            </Text>
+                        </Stack>
                     </Accordion.Panel>
                 </Accordion.Item>
                 <Accordion.Item value="management-key">
@@ -264,15 +270,12 @@ export function OpenRouterSection({
                     >
                         <Table.Thead>
                             <Table.Tr>
-                                <Table.Th style={{ width: 50 }} />
+                                <Table.Th style={{ width: 48 }} />
                                 <Table.Th
                                     style={{ cursor: "pointer", width: "auto" }}
                                     onClick={() => handleSort("name")}
                                 >
                                     {t("settings.openrouter.model")}{sortArrow("name")}
-                                </Table.Th>
-                                <Table.Th style={{ width: 280, maxWidth: 300 }}>
-                                    {t("settings.openrouter.description")}
                                 </Table.Th>
                                 <Table.Th
                                     style={{ cursor: "pointer", width: 110 }}
@@ -304,7 +307,7 @@ export function OpenRouterSection({
                                         style={{ cursor: disabled ? "not-allowed" : "pointer" }}
                                         onClick={() => !disabled && toggleOpenrouterModel(m.id)}
                                     >
-                                        <Table.Td>
+                                        <Table.Td style={{ width: 48, verticalAlign: "middle" }}>
                                             <Checkbox
                                                 checked={checked}
                                                 disabled={disabled}
@@ -314,41 +317,26 @@ export function OpenRouterSection({
                                             />
                                         </Table.Td>
                                         <Table.Td>
-                                            <Text size="sm">{m.name}</Text>
-                                            <Text size="xs" c="dimmed">
-                                                {m.id}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td
-                                            style={{
-                                                maxWidth: 300,
-                                                minWidth: 0,
-                                            }}
-                                        >
                                             {m.description?.trim() ? (
                                                 <Tooltip
                                                     label={m.description}
                                                     multiline
                                                     maw={400}
                                                 >
-                                                    <Text
-                                                        size="xs"
-                                                        c="dimmed"
-                                                        style={{
-                                                            display: "-webkit-box",
-                                                            WebkitLineClamp: 3,
-                                                            WebkitBoxOrient:
-                                                                "vertical",
-                                                            overflow: "hidden",
-                                                        }}
-                                                    >
-                                                        {m.description}
-                                                    </Text>
+                                                    <Box>
+                                                        <Text size="sm">{m.name}</Text>
+                                                        <Text size="xs" c="dimmed">
+                                                            {m.id}
+                                                        </Text>
+                                                    </Box>
                                                 </Tooltip>
                                             ) : (
-                                                <Text size="xs" c="dimmed">
-                                                    —
-                                                </Text>
+                                                <Box>
+                                                    <Text size="sm">{m.name}</Text>
+                                                    <Text size="xs" c="dimmed">
+                                                        {m.id}
+                                                    </Text>
+                                                </Box>
                                             )}
                                         </Table.Td>
                                         <Table.Td>

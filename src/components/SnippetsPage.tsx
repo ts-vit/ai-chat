@@ -115,6 +115,7 @@ export function SnippetsPage() {
     const [categoryModalOpen, setCategoryModalOpen] = useState(false);
     const [categoryEditId, setCategoryEditId] = useState<string | null>(null);
     const [categoryName, setCategoryName] = useState("");
+    const [categoryNameError, setCategoryNameError] = useState<string | null>(null);
     const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
 
     const [snippetModalOpen, setSnippetModalOpen] = useState(false);
@@ -122,6 +123,8 @@ export function SnippetsPage() {
     const [snippetName, setSnippetName] = useState("");
     const [snippetContent, setSnippetContent] = useState("");
     const [snippetCategoryId, setSnippetCategoryId] = useState<string | null>(null);
+    const [snippetNameError, setSnippetNameError] = useState<string | null>(null);
+    const [snippetCategoryError, setSnippetCategoryError] = useState<string | null>(null);
     const [deletingSnippetId, setDeletingSnippetId] = useState<string | null>(null);
 
     const [variablesModalOpen, setVariablesModalOpen] = useState(false);
@@ -180,11 +183,16 @@ export function SnippetsPage() {
         setCategoryModalOpen(false);
         setCategoryEditId(null);
         setCategoryName("");
+        setCategoryNameError(null);
     };
 
     const saveCategoryFromModal = async () => {
         const name = categoryName.trim();
-        if (!name) return;
+        if (!name) {
+            setCategoryNameError(t("common.fieldRequired"));
+            return;
+        }
+        setCategoryNameError(null);
         if (categoryEditId) {
             await updateCategory(categoryEditId, name);
         } else {
@@ -214,17 +222,33 @@ export function SnippetsPage() {
         setSnippetName("");
         setSnippetContent("");
         setSnippetCategoryId(null);
+        setSnippetNameError(null);
+        setSnippetCategoryError(null);
     };
 
     const saveSnippetFromModal = async () => {
         const name = snippetName.trim();
         const content = snippetContent.trim();
         const categoryId = snippetCategoryId;
-        if (!name || !categoryId) return;
-        if (snippetEditId) {
-            await updateSnippet(snippetEditId, name, content, categoryId);
+        let hasError = false;
+        if (!name) {
+            setSnippetNameError(t("common.fieldRequired"));
+            hasError = true;
         } else {
-            await createSnippet(name, content, categoryId);
+            setSnippetNameError(null);
+        }
+        if (!categoryId) {
+            setSnippetCategoryError(t("common.fieldRequired"));
+            hasError = true;
+        } else {
+            setSnippetCategoryError(null);
+        }
+        if (hasError) return;
+        const categoryIdStr = categoryId ?? "";
+        if (snippetEditId) {
+            await updateSnippet(snippetEditId, name, content, categoryIdStr);
+        } else {
+            await createSnippet(name, content, categoryIdStr);
         }
         closeSnippetModal();
     };
@@ -283,31 +307,33 @@ export function SnippetsPage() {
                         </Group>
                         <Group gap="xs" wrap="wrap">
                             {categories.map((c) => (
-                                <Group key={c.id} gap="sm" wrap="nowrap">
+                                <Group key={c.id} className="snippet-category-row" gap="sm" wrap="nowrap">
                                     <Badge variant="light" size="lg">
                                         {c.name}
                                     </Badge>
-                                    <Tooltip label={t("common.edit")}>
-                                        <ActionIcon
-                                            variant="subtle"
-                                            size="xs"
-                                            onClick={() => openCategoryModal(c)}
-                                            aria-label={t("common.edit")}
-                                        >
-                                            <IconEdit size={14} stroke={1.5} />
-                                        </ActionIcon>
-                                    </Tooltip>
-                                    <Tooltip label={t("common.delete")}>
-                                        <ActionIcon
-                                            variant="subtle"
-                                            size="xs"
-                                            color="red"
-                                            onClick={() => setDeletingCategoryId(c.id)}
-                                            aria-label={t("common.delete")}
-                                        >
-                                            <IconTrash size={14} stroke={1.5} />
-                                        </ActionIcon>
-                                    </Tooltip>
+                                    <Group className="action-icons" gap="sm" wrap="nowrap">
+                                        <Tooltip label={t("common.edit")}>
+                                            <ActionIcon
+                                                variant="subtle"
+                                                size="xs"
+                                                onClick={() => openCategoryModal(c)}
+                                                aria-label={t("common.edit")}
+                                            >
+                                                <IconEdit size={14} stroke={1.5} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                        <Tooltip label={t("common.delete")}>
+                                            <ActionIcon
+                                                variant="subtle"
+                                                size="xs"
+                                                color="red"
+                                                onClick={() => setDeletingCategoryId(c.id)}
+                                                aria-label={t("common.delete")}
+                                            >
+                                                <IconTrash size={14} stroke={1.5} />
+                                            </ActionIcon>
+                                        </Tooltip>
+                                    </Group>
                                 </Group>
                             ))}
                         </Group>
@@ -363,7 +389,7 @@ export function SnippetsPage() {
                                                 </Badge>
                                                 <ContentPreview content={s.content} />
                                             </Stack>
-                                            <Group gap="sm" wrap="nowrap">
+                                            <Group className="action-icons" gap="sm" wrap="nowrap">
                                                 <Tooltip label={t("common.edit")}>
                                                     <ActionIcon
                                                         variant="subtle"
@@ -422,13 +448,17 @@ export function SnippetsPage() {
                         label={t("common.name")}
                         placeholder={t("snippets.namePlaceholder")}
                         value={categoryName}
-                        onChange={(e) => setCategoryName(e.currentTarget.value)}
+                        onChange={(e) => {
+                            setCategoryName(e.currentTarget.value);
+                            setCategoryNameError(null);
+                        }}
+                        error={categoryNameError}
                     />
                     <Group justify="flex-end" gap="sm">
                         <Button variant="subtle" onClick={closeCategoryModal}>
                             {t("common.cancel")}
                         </Button>
-                        <Button onClick={saveCategoryFromModal} disabled={!categoryName.trim()}>
+                        <Button onClick={saveCategoryFromModal}>
                             {t("common.save")}
                         </Button>
                     </Group>
@@ -447,14 +477,22 @@ export function SnippetsPage() {
                         label={t("common.name")}
                         placeholder={t("snippets.snippetNamePlaceholder")}
                         value={snippetName}
-                        onChange={(e) => setSnippetName(e.currentTarget.value)}
+                        onChange={(e) => {
+                            setSnippetName(e.currentTarget.value);
+                            setSnippetNameError(null);
+                        }}
+                        error={snippetNameError}
                     />
                     <Select
                         label={t("snippets.categoryLabel")}
                         data={categories.map((c) => ({ value: c.id, label: c.name }))}
                         value={snippetCategoryId}
-                        onChange={setSnippetCategoryId}
+                        onChange={(v) => {
+                            setSnippetCategoryId(v);
+                            setSnippetCategoryError(null);
+                        }}
                         placeholder={t("snippets.categoryPlaceholder")}
+                        error={snippetCategoryError}
                     />
                     <Textarea
                         label={t("snippets.contentLabel")}
@@ -465,9 +503,6 @@ export function SnippetsPage() {
                         maxRows={15}
                         autosize
                     />
-                    <Text size="xs" c="dimmed">
-                        {t("snippets.variablesHint")}
-                    </Text>
                     {snippetContent && (
                         <Stack gap={4}>
                             <Text size="xs" fw={500} c="dimmed">
@@ -480,10 +515,7 @@ export function SnippetsPage() {
                         <Button variant="subtle" onClick={closeSnippetModal}>
                             {t("common.cancel")}
                         </Button>
-                        <Button
-                            onClick={saveSnippetFromModal}
-                            disabled={!snippetName.trim() || !snippetCategoryId}
-                        >
+                        <Button onClick={saveSnippetFromModal}>
                             {t("common.save")}
                         </Button>
                     </Group>

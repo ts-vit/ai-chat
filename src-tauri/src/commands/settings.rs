@@ -29,6 +29,17 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     store.set("presencePenalty", serde_json::to_value(&settings.presence_penalty).map_err(|e| e.to_string())?);
     store.set("language", serde_json::to_value(&settings.language).map_err(|e| e.to_string())?);
     store.set("sendByEnter", serde_json::to_value(&settings.send_by_enter).map_err(|e| e.to_string())?);
+    store.set("sttProvider", serde_json::to_value(&settings.stt_provider).map_err(|e| e.to_string())?);
+    store.set("sttLanguage", serde_json::to_value(&settings.stt_language).map_err(|e| e.to_string())?);
+    store.set("openaiApiKey", serde_json::to_value(&settings.openai_api_key).map_err(|e| e.to_string())?);
+    store.set("groqSttApiKey", serde_json::to_value(&settings.groq_stt_api_key).map_err(|e| e.to_string())?);
+    store.set("ttsProvider", serde_json::to_value(&settings.tts_provider).map_err(|e| e.to_string())?);
+    store.set("ttsVoice", serde_json::to_value(&settings.tts_voice).map_err(|e| e.to_string())?);
+    store.set("ttsModel", serde_json::to_value(&settings.tts_model).map_err(|e| e.to_string())?);
+    store.set("messageDensity", serde_json::to_value(&settings.message_density).map_err(|e| e.to_string())?);
+    store.set("chatWidth", serde_json::to_value(&settings.chat_width).map_err(|e| e.to_string())?);
+    store.set("showStatusBar", serde_json::to_value(settings.show_status_bar).map_err(|e| e.to_string())?);
+    store.set("statusBarMetrics", serde_json::to_value(&settings.status_bar_metrics).map_err(|e| e.to_string())?);
 
     store.save().map_err(|e| e.to_string())?;
 
@@ -52,6 +63,11 @@ pub async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
         .get("customProviderEnabledModels")
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
+
+    let status_bar_metrics: Vec<String> = store
+        .get("statusBarMetrics")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_else(|| vec!["balance".into(), "context".into(), "tokens".into(), "cost".into()]);
 
     let settings = AppSettings {
         api_key: store.get("api_key")
@@ -89,6 +105,23 @@ pub async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
         send_by_enter: store.get("sendByEnter").and_then(|v| v.as_bool()).unwrap_or(true),
+        stt_provider: store.get("sttProvider").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        stt_language: store.get("sttLanguage").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        openai_api_key: store.get("openaiApiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        groq_stt_api_key: store.get("groqSttApiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        tts_provider: store.get("ttsProvider").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        tts_voice: store.get("ttsVoice").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        tts_model: store.get("ttsModel").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        message_density: store
+            .get("messageDensity")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "standard".to_string()),
+        chat_width: store
+            .get("chatWidth")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "standard".to_string()),
+        show_status_bar: store.get("showStatusBar").and_then(|v| v.as_bool()).unwrap_or(true),
+        status_bar_metrics,
     };
 
     Ok(settings)

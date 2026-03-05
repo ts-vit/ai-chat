@@ -1,6 +1,5 @@
 import { useTranslation } from "react-i18next";
 import {
-    Box,
     Checkbox,
     Group,
     NumberInput,
@@ -56,128 +55,144 @@ export function GenerationSection({
 }: GenerationSectionProps) {
     const { t } = useTranslation();
     return (
-        <Stack gap="lg">
+        <Stack gap="xl">
+            <Text size="sm" fw={500}>
+                {t("settings.generation.title")}
+            </Text>
             <Stack gap="xs">
                 <Text size="sm" fw={500}>
-                    {t("settings.generation.title")}
+                    {t("settings.generation.temperature")}
                 </Text>
-                <Group align="flex-end" wrap="nowrap">
-                    <Box style={{ flex: 1 }}>
-                        <Text size="sm" mb={4}>
-                            {t("settings.generation.temperature", { value: temperature })}
-                        </Text>
-                        <Slider
-                            min={0}
-                            max={2}
-                            step={0.1}
-                            value={temperature}
-                            onChange={onTemperatureChange}
-                        />
-                    </Box>
-                    <NumberInput
-                        label={t("settings.generation.maxTokens")}
-                        value={maxTokens}
-                        onChange={(val) => onMaxTokensChange(Number(val) || 4096)}
-                        min={1}
-                        max={200000}
-                        style={{ width: 140 }}
-                    />
-                </Group>
+                <Text size="xs" c="dimmed">
+                    {t("settings.generation.temperatureDescription")}
+                </Text>
+                <Slider
+                    min={0}
+                    max={2}
+                    step={0.1}
+                    value={temperature}
+                    onChange={onTemperatureChange}
+                />
+            </Stack>
+
+            <Stack gap="xs">
+                <Text size="sm" fw={500}>
+                    {t("settings.generation.maxTokens")}
+                </Text>
+                <Text size="xs" c="dimmed">
+                    {t("settings.generation.maxTokensDescription")}
+                </Text>
+                <NumberInput
+                    value={maxTokens}
+                    onChange={(val) => onMaxTokensChange(Number(val) || 4096)}
+                    min={1}
+                    max={200000}
+                    style={{ maxWidth: 200 }}
+                />
             </Stack>
 
             <Stack gap="xs">
                 <Group justify="space-between" align="center">
+                    <Text size="sm" fw={500}>
+                        {t("settings.generation.topP")}
+                    </Text>
                     <Checkbox
-                        label="Top P"
+                        label={t("settings.generation.enable")}
                         checked={topPEnabled}
                         onChange={(e) => onTopPEnabledChange(e.currentTarget.checked)}
                     />
-                    {topPEnabled && <Text size="sm">{topP}</Text>}
                 </Group>
-                <Slider
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={topP}
-                    onChange={onTopPChange}
-                    disabled={!topPEnabled}
-                />
                 <Text size="xs" c="dimmed">
-                    {t("settings.generation.topPHint")}
+                    {t("settings.generation.topPDescription")}
                 </Text>
+                {topPEnabled && (
+                    <Slider
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={topP}
+                        onChange={onTopPChange}
+                    />
+                )}
             </Stack>
 
             <Stack gap="xs">
                 <Group justify="space-between" align="center">
+                    <Text size="sm" fw={500}>
+                        {t("settings.generation.topK")}
+                    </Text>
                     <Checkbox
-                        label="Top K"
+                        label={t("settings.generation.enable")}
                         checked={topKEnabled}
                         onChange={(e) => onTopKEnabledChange(e.currentTarget.checked)}
                     />
                 </Group>
-                <NumberInput
-                    value={topK}
-                    onChange={(val) => onTopKChange(Number(val) || 40)}
-                    min={1}
-                    max={500}
-                    disabled={!topKEnabled}
-                    style={{ maxWidth: 140 }}
-                />
                 <Text size="xs" c="dimmed">
-                    {t("settings.generation.topKHint")}
+                    {t("settings.generation.topKDescription")}
                 </Text>
+                {topKEnabled && (
+                    <NumberInput
+                        value={topK}
+                        onChange={(val) => onTopKChange(Number(val) || 40)}
+                        min={1}
+                        max={500}
+                        style={{ maxWidth: 140 }}
+                    />
+                )}
             </Stack>
 
             <Stack gap="xs">
                 <Group justify="space-between" align="center">
+                    <Text size="sm" fw={500}>
+                        {t("settings.generation.frequencyPenalty")}
+                    </Text>
                     <Checkbox
-                        label="Frequency Penalty"
+                        label={t("settings.generation.enable")}
                         checked={frequencyPenaltyEnabled}
                         onChange={(e) =>
                             onFrequencyPenaltyEnabledChange(e.currentTarget.checked)
                         }
                     />
-                    {frequencyPenaltyEnabled && (
-                        <Text size="sm">{frequencyPenalty}</Text>
-                    )}
                 </Group>
-                <Slider
-                    min={-2}
-                    max={2}
-                    step={0.1}
-                    value={frequencyPenalty}
-                    onChange={onFrequencyPenaltyChange}
-                    disabled={!frequencyPenaltyEnabled}
-                />
                 <Text size="xs" c="dimmed">
-                    {t("settings.generation.frequencyPenaltyHint")}
+                    {t("settings.generation.frequencyPenaltyDescription")}
                 </Text>
+                {frequencyPenaltyEnabled && (
+                    <Slider
+                        min={-2}
+                        max={2}
+                        step={0.1}
+                        value={frequencyPenalty}
+                        onChange={onFrequencyPenaltyChange}
+                    />
+                )}
             </Stack>
 
             <Stack gap="xs">
                 <Group justify="space-between" align="center">
+                    <Text size="sm" fw={500}>
+                        {t("settings.generation.presencePenalty")}
+                    </Text>
                     <Checkbox
-                        label="Presence Penalty"
+                        label={t("settings.generation.enable")}
                         checked={presencePenaltyEnabled}
                         onChange={(e) =>
                             onPresencePenaltyEnabledChange(e.currentTarget.checked)
                         }
                     />
-                    {presencePenaltyEnabled && (
-                        <Text size="sm">{presencePenalty}</Text>
-                    )}
                 </Group>
-                <Slider
-                    min={-2}
-                    max={2}
-                    step={0.1}
-                    value={presencePenalty}
-                    onChange={onPresencePenaltyChange}
-                    disabled={!presencePenaltyEnabled}
-                />
                 <Text size="xs" c="dimmed">
-                    {t("settings.generation.presencePenaltyHint")}
+                    {t("settings.generation.presencePenaltyDescription")}
                 </Text>
+                {presencePenaltyEnabled && (
+                    <Slider
+                        min={-2}
+                        max={2}
+                        step={0.1}
+                        value={presencePenalty}
+                        onChange={onPresencePenaltyChange}
+                    />
+                )}
             </Stack>
         </Stack>
     );

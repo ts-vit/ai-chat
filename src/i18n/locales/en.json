@@ -1,4 +1,7 @@
 {
+  "header": {
+    "more": "More"
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",
@@ -11,12 +14,14 @@
     "edit": "Edit",
     "back": "Back",
     "name": "Name",
-    "open": "Open"
+    "open": "Open",
+    "fieldRequired": "Required field"
   },
   "sidebar": {
     "newChat": "New Chat",
     "newFolder": "New folder",
     "folderName": "Folder name",
+    "folderColor": "Color",
     "deleteChat": "Delete",
     "renameFolder": "Rename",
     "deleteFolder": "Delete folder",
@@ -25,6 +30,9 @@
     "themeDark": "Dark theme",
     "toggleTheme": "Toggle theme",
     "snippets": "Templates",
+    "compare": "Compare",
+    "comparisons": "Comparisons",
+    "newComparison": "New comparison",
     "settings": "Settings",
     "moveToFolder": "Move to folder",
     "removeFromFolder": "Remove from folder",
@@ -49,9 +57,17 @@
     "showRightPanel": "Show right panel",
     "emptyStateTitle": "Start conversation",
     "emptyStateHint": "Create a new chat or select one from the list",
-    "newChat": "New Chat",
     "modelTyping": "Model is typing",
-    "startConversation": "Start a conversation — type a message"
+    "mcpToolsAvailable": "{{count}} tools available",
+    "mcpCallingTool": "Calling: {{name}}",
+    "mcpToolArguments": "Arguments",
+    "mcpToolResult": "Result",
+    "mcpToolShowResult": "Show result",
+    "mcpToolHideResult": "Hide result",
+    "mcpToolError": "Error",
+    "mcpToolDone": "Done",
+    "speak": "Speak",
+    "stopSpeaking": "Stop speaking"
   },
   "chatParams": {
     "title": "Generation Parameters",
@@ -65,7 +81,6 @@
     "globalValue": "Global: {{value}}"
   },
   "messageList": {
-    "startDialog": "Start a conversation — type a message",
     "copyCode": "Copy code",
     "copied": "Copied",
     "open": "Open",
@@ -82,7 +97,17 @@
     "send": "Send",
     "fileTypeNotSupported": "File type not supported: {{name}}",
     "fileTooBig": "File {{name}} exceeds 10 MB",
-    "delete": "Delete"
+    "delete": "Delete",
+    "tokenCount": "{{count}} tok.",
+    "contextUsage": "Used: {{used}} + input: {{input}} / {{limit}}",
+    "contextWarning": "Approaching context limit",
+    "contextExceeded": "Context limit exceeded",
+    "voiceInput": "Voice input",
+    "stopRecording": "Stop recording",
+    "sttNotConfigured": "Configure voice input in Settings → Audio",
+    "sttOpenAiKeyNotSet": "OpenAI API key is not set. Set it in Settings → Audio.",
+    "sttGroqKeyNotSet": "Groq API key is not set. Set it in Settings → Audio.",
+    "transcribing": "Transcribing..."
   },
   "chatStats": {
     "balance": "Balance",
@@ -103,7 +128,8 @@
     "indexing": "Indexing: {{indexed}}/{{total}} messages",
     "noQuery": "Enter a query to search chat history",
     "noResults": "No results for \"{{query}}\"",
-    "noTitle": "Untitled"
+    "noTitle": "Untitled",
+    "comingSoon": "Coming soon"
   },
   "snippets": {
     "title": "Prompt templates",
@@ -126,7 +152,6 @@
     "categoryPlaceholder": "Select category",
     "contentLabel": "Content",
     "contentPlaceholder": "Template text. Use {name} for variables.",
-    "variablesHint": "Use {name} for variables.",
     "variablesPreview": "Variable preview:",
     "confirmDeleteCategory": "Category will be deleted. You cannot delete a category that has templates.",
     "confirmDeleteSnippet": "Template will be permanently deleted."
@@ -143,13 +168,16 @@
       "interface": "Interface",
       "presets": "Presets",
       "templates": "Templates",
+      "mcp": "MCP",
+      "audio": "Audio",
       "data": "Data",
       "about": "About"
     },
     "openrouter": {
       "apiKey": "API key",
+      "apiKeyHint": "Key for accessing OpenRouter models. Get one at openrouter.ai/keys",
       "managementKey": "Management key",
-      "managementKeyHint": "Create at openrouter.ai/settings/keys with Management key checked (for balance display)",
+      "managementKeyHint": "For displaying balance and statistics. Optional",
       "modelsTitle": "OpenRouter models (show when creating chat)",
       "selectedCount": "Selected: {{count}}/5",
       "all": "All",
@@ -170,7 +198,7 @@
       "urlHint": "Change only if Ollama runs on a different port"
     },
     "customProviders": {
-      "title": "Custom providers (OpenAI-compatible API)",
+      "title": "Custom providers",
       "addProvider": "Add provider",
       "noProviders": "No custom providers. Add an OpenAI-compatible endpoint.",
       "editProvider": "Edit provider",
@@ -185,16 +213,20 @@
     },
     "generation": {
       "title": "Generation parameters",
-      "temperature": "Temperature: {{value}}",
+      "temperature": "Temperature",
+      "temperatureWithValue": "Temperature: {{value}}",
+      "temperatureDescription": "Response creativity. Lower values are more precise, higher — more diverse",
       "maxTokens": "Max tokens",
+      "maxTokensDescription": "Maximum response length in tokens",
+      "enable": "Enable",
       "topP": "Top P",
-      "topPHint": "Nucleus sampling. Alternative to temperature — cuts low-probability tokens. Not recommended with temperature.",
+      "topPDescription": "Nucleus sampling. Limits token selection by cumulative probability",
       "topK": "Top K",
-      "topKHint": "Limits choice to N most likely tokens. Not supported by all providers.",
+      "topKDescription": "Limits selection to top-K most probable tokens",
       "frequencyPenalty": "Frequency Penalty",
-      "frequencyPenaltyHint": "Penalty for frequency. Positive values reduce repetition proportionally to word frequency.",
+      "frequencyPenaltyDescription": "Penalizes repeated tokens to reduce repetition",
       "presencePenalty": "Presence Penalty",
-      "presencePenaltyHint": "Penalty for presence. Positive values reduce repetition of any already used words."
+      "presencePenaltyDescription": "Encourages the model to explore new topics"
     },
     "interface": {
       "fontSize": "Message font size",
@@ -204,10 +236,28 @@
       "languageEn": "English",
       "sendMethod": "Send messages",
       "sendByEnter": "Enter to send, Shift+Enter for new line",
-      "sendByCtrlEnter": "Ctrl+Enter to send, Enter for new line"
+      "sendByCtrlEnter": "Ctrl+Enter to send, Enter for new line",
+      "fontPreview": "Sample message text",
+      "theme": "Color theme",
+      "themeDark": "Dark",
+      "themeLight": "Light",
+      "messageDensity": "Message density",
+      "densityCompact": "Compact",
+      "densityStandard": "Standard",
+      "densitySpacious": "Spacious",
+      "chatWidth": "Chat area width",
+      "chatWidthNarrow": "Narrow",
+      "chatWidthStandard": "Standard",
+      "chatWidthWide": "Wide",
+      "showStatusBar": "Show status bar",
+      "statusBarMetrics": "Status bar metrics",
+      "metricBalance": "Balance",
+      "metricContext": "Context",
+      "metricTokens": "Tokens",
+      "metricCost": "Cost"
     },
     "presets": {
-      "title": "System prompts (presets)",
+      "title": "System prompts",
       "addPreset": "+ Add preset",
       "noPresets": "No presets. Add a preset to set model behavior for chats.",
       "editPreset": "Edit preset",
@@ -218,6 +268,73 @@
       "defaultTooltip": "Default",
       "setDefaultTooltip": "Set as default",
       "confirmDeletePreset": "Preset will be permanently deleted."
+    },
+    "mcp": {
+      "title": "MCP",
+      "description": "Connect external tools (MCP servers) for use by models",
+      "catalog": "MCP Server Catalog",
+      "catalogDescription": "Ready presets of popular MCP servers",
+      "addPreset": "Add",
+      "alreadyAdded": "Added",
+      "addServer": "Add MCP server",
+      "editServer": "Edit MCP server",
+      "serverName": "Name",
+      "serverCommand": "Command",
+      "serverArgs": "Arguments (JSON array)",
+      "serverEnv": "Environment variables (JSON object)",
+      "noServers": "No MCP servers added",
+      "reconnectAll": "Reconnect",
+      "tools": "tools",
+      "invalidJson": "Invalid JSON",
+      "deleteConfirm": "Delete MCP server \"{{name}}\"?",
+      "connected": "Connected",
+      "connectionError": "Not connected"
+    },
+    "audio": {
+      "title": "Voice Input",
+      "sttProvider": "STT Provider",
+      "disabled": "Disabled",
+      "vosk": "Vosk (offline)",
+      "whisper": "OpenAI Whisper",
+      "groqWhisper": "Groq Whisper",
+      "language": "Recognition Language",
+      "openaiApiKey": "OpenAI API Key",
+      "voskDescription": "Free, works offline. Library and models are downloaded automatically.",
+      "whisperDescription": "High accuracy, requires internet. ~$0.006/min.",
+      "groqTitle": "Groq Whisper",
+      "groqDescription": "Cloud speech recognition via Groq API. Model whisper-large-v3-turbo — fast and free within limits. Requires a Groq API key.",
+      "groqApiKey": "Groq API Key",
+      "groqGetKey": "Get key at console.groq.com",
+      "modelLoaded": "Model loaded",
+      "modelNotFound": "Model not downloaded",
+      "downloadInstructions": "Download from alphacephei.com/vosk/models and extract to app data folder under vosk-models/{{lang}}/",
+      "voskLibrary": "Vosk Library",
+      "voskLibraryInstalled": "Installed",
+      "voskLibraryNotInstalled": "Not installed",
+      "installVosk": "Install Vosk (~5 MB)",
+      "installingVosk": "Installing Vosk...",
+      "voskInstallSuccess": "Vosk installed",
+      "voskInstallError": "Vosk installation error",
+      "downloadModel": "Download (~50 MB)",
+      "downloadingModel": "Downloading...",
+      "modelDownloaded": "Downloaded",
+      "modelDownloadSuccess": "Model downloaded",
+      "modelDownloadError": "Model download error",
+      "voskModelsTitle": "Recognition Models",
+      "voskNotInstalled": "Install Vosk in Settings → Audio",
+      "uninstallVosk": "Uninstall",
+      "uninstallVoskConfirm": "Vosk and all its files will be deleted.",
+      "uninstallVoskSuccess": "Vosk uninstalled",
+      "ttsTitle": "Text-to-Speech (TTS)",
+      "ttsProvider": "TTS Provider",
+      "ttsSystem": "System voices",
+      "ttsOpenai": "OpenAI TTS",
+      "ttsVoice": "Voice",
+      "ttsModel": "Model",
+      "ttsOpenaiKeyHint": "Uses the same API key as Whisper",
+      "ttsModelTts1": "tts-1 (fast)",
+      "ttsModelTts1Hd": "tts-1-hd (quality)",
+      "modelSizeWarning": "Warning: Russian language model is ~1.8 GB. Make sure you have enough disk space."
     },
     "data": {
       "backup": "Backup",
@@ -233,9 +350,13 @@
     "about": {
       "appName": "AI Chat",
       "version": "Version {{version}}",
-      "stack": "Tauri 2 + React + Rust",
+      "stack": "Tauri 2, React 19, Rust, SQLite, Mantine 8",
       "description": "Desktop AI chat client with OpenRouter, Ollama and OpenAI-compatible providers.",
-      "github": "GitHub"
+      "github": "GitHub",
+      "website": "Website",
+      "checkUpdates": "Check for updates",
+      "noUpdates": "No updates available",
+      "license": "MIT License"
     }
   },
   "templates": {
@@ -319,11 +440,35 @@
     "providerNotFound": "Provider not found",
     "apiKeyNotSet": "API key not set. Open settings.",
     "modelDownloaded": "Model downloaded",
-    "chatsExported": "Chats exported"
+    "chatsExported": "Chats exported",
+    "mcpServerAdded": "MCP server added",
+    "mcpServerUpdated": "MCP server updated",
+    "mcpServerRemoved": "MCP server removed"
   },
   "dates": {
     "today": "Today",
     "yesterday": "Yesterday"
+  },
+  "compare": {
+    "title": "Model Comparison",
+    "newComparison": "New Comparison",
+    "leftModel": "Left Model",
+    "rightModel": "Right Model",
+    "emptyState": "Select a comparison from the sidebar or create a new one",
+    "emptyActive": "Select a comparison from the list or create a new one",
+    "vsLabel": "vs",
+    "selectLeftProvider": "Left provider",
+    "selectRightProvider": "Right provider",
+    "selectLeftModel": "Left model",
+    "selectRightModel": "Right model",
+    "leftSystemPrompt": "System prompt (left)",
+    "rightSystemPrompt": "System prompt (right)",
+    "deleteConfirm": "Delete this comparison?",
+    "comparisonCreated": "Comparison created",
+    "comparisonDeleted": "Comparison deleted",
+    "titlePlaceholder": "Comparison title",
+    "userMessage": "User message",
+    "round": "Round {{n}}"
   },
   "ollama": {
     "title": "Local models (Ollama)",
@@ -338,9 +483,7 @@
     "deleteModel": "Delete model",
     "downloadModel": "Download model",
     "download": "Download",
-    "serverUrl": "Server URL",
     "serverUrlPlaceholder": "http://localhost:11434/v1",
-    "serverUrlHint": "Change only if Ollama runs on a different port",
     "cancel": "Cancel",
     "deleteModelConfirm": "Delete model {{name}}?",
     "pullLlama": "Llama 3.2 (~2 GB) — universal",

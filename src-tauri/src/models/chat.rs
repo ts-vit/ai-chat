@@ -82,6 +82,24 @@ pub struct Delta {
     pub content: Option<String>,
     #[serde(default)]
     pub images: Option<Vec<ImageDeltaItem>>,
+    #[serde(default)]
+    pub tool_calls: Option<Vec<ToolCallDelta>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ToolCallDelta {
+    pub index: usize,
+    pub id: Option<String>,
+    #[serde(rename = "type")]
+    #[allow(dead_code)]
+    pub call_type: Option<String>,
+    pub function: Option<FunctionCallDelta>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FunctionCallDelta {
+    pub name: Option<String>,
+    pub arguments: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -238,6 +256,28 @@ pub struct AppSettings {
     pub language: String,
     #[serde(default = "default_send_by_enter", rename = "sendByEnter")]
     pub send_by_enter: bool,
+    #[serde(default, rename = "sttProvider")]
+    pub stt_provider: Option<String>,
+    #[serde(default, rename = "sttLanguage")]
+    pub stt_language: Option<String>,
+    #[serde(default, rename = "openaiApiKey")]
+    pub openai_api_key: Option<String>,
+    #[serde(default, rename = "groqSttApiKey")]
+    pub groq_stt_api_key: Option<String>,
+    #[serde(default, rename = "ttsProvider")]
+    pub tts_provider: Option<String>,
+    #[serde(default, rename = "ttsVoice")]
+    pub tts_voice: Option<String>,
+    #[serde(default, rename = "ttsModel")]
+    pub tts_model: Option<String>,
+    #[serde(default = "default_message_density", rename = "messageDensity")]
+    pub message_density: String,
+    #[serde(default = "default_chat_width", rename = "chatWidth")]
+    pub chat_width: String,
+    #[serde(default = "default_show_status_bar", rename = "showStatusBar")]
+    pub show_status_bar: bool,
+    #[serde(default = "default_status_bar_metrics", rename = "statusBarMetrics")]
+    pub status_bar_metrics: Vec<String>,
 }
 
 fn default_ollama_url() -> String {
@@ -246,6 +286,27 @@ fn default_ollama_url() -> String {
 
 fn default_send_by_enter() -> bool {
     true
+}
+
+fn default_message_density() -> String {
+    "standard".to_string()
+}
+
+fn default_chat_width() -> String {
+    "standard".to_string()
+}
+
+fn default_show_status_bar() -> bool {
+    true
+}
+
+fn default_status_bar_metrics() -> Vec<String> {
+    vec![
+        "balance".to_string(),
+        "context".to_string(),
+        "tokens".to_string(),
+        "cost".to_string(),
+    ]
 }
 
 impl Default for AppSettings {
@@ -267,6 +328,17 @@ impl Default for AppSettings {
             presence_penalty: None,
             language: String::new(),
             send_by_enter: true,
+            stt_provider: None,
+            stt_language: None,
+            openai_api_key: None,
+            groq_stt_api_key: None,
+            tts_provider: None,
+            tts_voice: None,
+            tts_model: None,
+            message_density: default_message_density(),
+            chat_width: default_chat_width(),
+            show_status_bar: default_show_status_bar(),
+            status_bar_metrics: default_status_bar_metrics(),
         }
     }
 }

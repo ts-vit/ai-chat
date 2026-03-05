@@ -1,4 +1,7 @@
 {
+  "header": {
+    "more": "Ещё"
+  },
   "common": {
     "save": "Сохранить",
     "cancel": "Отмена",
@@ -11,12 +14,14 @@
     "edit": "Редактировать",
     "back": "Назад",
     "name": "Название",
-    "open": "Открыть"
+    "open": "Открыть",
+    "fieldRequired": "Обязательное поле"
   },
   "sidebar": {
     "newChat": "Новый чат",
     "newFolder": "Новая папка",
     "folderName": "Название папки",
+    "folderColor": "Цвет",
     "deleteChat": "Удалить",
     "renameFolder": "Переименовать",
     "deleteFolder": "Удалить папку",
@@ -25,6 +30,9 @@
     "themeDark": "Тёмная тема",
     "toggleTheme": "Сменить тему",
     "snippets": "Шаблоны",
+    "compare": "Сравнение",
+    "comparisons": "Сравнения",
+    "newComparison": "Новое сравнение",
     "settings": "Настройки",
     "moveToFolder": "Переместить в папку",
     "removeFromFolder": "Убрать из папки",
@@ -49,9 +57,17 @@
     "showRightPanel": "Показать правую панель",
     "emptyStateTitle": "Начните общение",
     "emptyStateHint": "Создайте новый чат или выберите существующий из списка",
-    "newChat": "Новый чат",
     "modelTyping": "Модель печатает",
-    "startConversation": "Начните диалог — напишите сообщение"
+    "mcpToolsAvailable": "Доступно {{count}} инструментов",
+    "mcpCallingTool": "Вызов: {{name}}",
+    "mcpToolArguments": "Аргументы",
+    "mcpToolResult": "Результат",
+    "mcpToolShowResult": "Показать результат",
+    "mcpToolHideResult": "Скрыть результат",
+    "mcpToolError": "Ошибка",
+    "mcpToolDone": "Выполнено",
+    "speak": "Озвучить",
+    "stopSpeaking": "Остановить озвучивание"
   },
   "chatParams": {
     "title": "Параметры генерации",
@@ -65,7 +81,6 @@
     "globalValue": "Глобальное: {{value}}"
   },
   "messageList": {
-    "startDialog": "Начните диалог — напишите сообщение",
     "copyCode": "Копировать код",
     "copied": "Скопировано",
     "open": "Открыть",
@@ -82,7 +97,17 @@
     "send": "Отправить",
     "fileTypeNotSupported": "Тип файла не поддерживается: {{name}}",
     "fileTooBig": "Файл {{name}} превышает 10 МБ",
-    "delete": "Удалить"
+    "delete": "Удалить",
+    "tokenCount": "{{count}} ток.",
+    "contextUsage": "Использовано: {{used}} + ввод: {{input}} / {{limit}}",
+    "contextWarning": "Приближается к лимиту контекста",
+    "contextExceeded": "Превышен лимит контекста",
+    "voiceInput": "Голосовой ввод",
+    "stopRecording": "Остановить запись",
+    "sttNotConfigured": "Настройте голосовой ввод в Настройках → Аудио",
+    "sttOpenAiKeyNotSet": "API-ключ OpenAI не задан. Укажите его в Настройках → Аудио.",
+    "sttGroqKeyNotSet": "API-ключ Groq не задан. Укажите его в Настройках → Аудио.",
+    "transcribing": "Распознавание..."
   },
   "chatStats": {
     "balance": "Баланс",
@@ -103,7 +128,8 @@
     "indexing": "Индексация: {{indexed}}/{{total}} сообщений",
     "noQuery": "Введите запрос для поиска по истории чатов",
     "noResults": "Ничего не найдено по запросу «{{query}}»",
-    "noTitle": "Без названия"
+    "noTitle": "Без названия",
+    "comingSoon": "Скоро"
   },
   "snippets": {
     "title": "Шаблоны промптов",
@@ -126,7 +152,6 @@
     "categoryPlaceholder": "Выберите категорию",
     "contentLabel": "Содержимое",
     "contentPlaceholder": "Текст шаблона. Используйте {название} для переменных.",
-    "variablesHint": "Используйте {название} для переменных.",
     "variablesPreview": "Превью переменных:",
     "confirmDeleteCategory": "Категория будет удалена. Нельзя удалить категорию, к которой привязаны шаблоны.",
     "confirmDeleteSnippet": "Шаблон будет удалён безвозвратно."
@@ -143,13 +168,16 @@
       "interface": "Интерфейс",
       "presets": "Пресеты",
       "templates": "Шаблоны",
+      "mcp": "MCP",
+      "audio": "Аудио",
       "data": "Данные",
       "about": "О программе"
     },
     "openrouter": {
       "apiKey": "API-ключ",
+      "apiKeyHint": "Ключ для доступа к моделям OpenRouter. Получить на openrouter.ai/keys",
       "managementKey": "Management key",
-      "managementKeyHint": "Создайте на openrouter.ai/settings/keys с галочкой Management key (для отображения баланса)",
+      "managementKeyHint": "Для отображения баланса и статистики. Необязательный",
       "modelsTitle": "Модели OpenRouter (показывать при создании чата)",
       "selectedCount": "Выбрано: {{count}}/5",
       "all": "Все",
@@ -170,7 +198,7 @@
       "urlHint": "Изменяйте только если Ollama запущена на другом порту"
     },
     "customProviders": {
-      "title": "Кастомные провайдеры (OpenAI-совместимый API)",
+      "title": "Кастомные провайдеры",
       "addProvider": "Добавить провайдер",
       "noProviders": "Нет кастомных провайдеров. Добавьте OpenAI-совместимый endpoint.",
       "editProvider": "Редактировать провайдер",
@@ -185,16 +213,20 @@
     },
     "generation": {
       "title": "Параметры генерации",
-      "temperature": "Температура: {{value}}",
+      "temperature": "Температура",
+      "temperatureWithValue": "Температура: {{value}}",
+      "temperatureDescription": "Креативность ответов. Низкие значения — точнее, высокие — разнообразнее",
       "maxTokens": "Макс. токенов",
-      "topP": "Top P",
-      "topPHint": "Ядровая выборка. Альтернатива температуре — обрезает маловероятные токены. Не рекомендуется использовать вместе с температурой.",
-      "topK": "Top K",
-      "topKHint": "Ограничивает выбор из N самых вероятных токенов. Поддерживается не всеми провайдерами.",
-      "frequencyPenalty": "Frequency Penalty",
-      "frequencyPenaltyHint": "Штраф за частоту. Положительные значения уменьшают повторение слов пропорционально их частоте в тексте.",
-      "presencePenalty": "Presence Penalty",
-      "presencePenaltyHint": "Штраф за присутствие. Положительные значения уменьшают повторение любых уже использованных слов."
+      "maxTokensDescription": "Максимальная длина ответа в токенах",
+      "enable": "Включить",
+      "topP": "Топ-P",
+      "topPDescription": "Ядерная выборка. Ограничивает выбор токенов по суммарной вероятности",
+      "topK": "Топ-K",
+      "topKDescription": "Ограничивает выбор из топ-K наиболее вероятных токенов",
+      "frequencyPenalty": "Штраф за частоту",
+      "frequencyPenaltyDescription": "Штраф за повторение. Снижает вероятность уже использованных слов",
+      "presencePenalty": "Штраф за присутствие",
+      "presencePenaltyDescription": "Штраф за присутствие. Поощряет использование новых тем"
     },
     "interface": {
       "fontSize": "Размер шрифта сообщений",
@@ -204,10 +236,28 @@
       "languageEn": "English",
       "sendMethod": "Отправка сообщений",
       "sendByEnter": "Enter — отправить, Shift+Enter — новая строка",
-      "sendByCtrlEnter": "Ctrl+Enter — отправить, Enter — новая строка"
+      "sendByCtrlEnter": "Ctrl+Enter — отправить, Enter — новая строка",
+      "fontPreview": "Пример текста сообщения",
+      "theme": "Тема оформления",
+      "themeDark": "Тёмная",
+      "themeLight": "Светлая",
+      "messageDensity": "Плотность сообщений",
+      "densityCompact": "Компактный",
+      "densityStandard": "Стандартный",
+      "densitySpacious": "Просторный",
+      "chatWidth": "Ширина области чата",
+      "chatWidthNarrow": "Узкая",
+      "chatWidthStandard": "Стандартная",
+      "chatWidthWide": "Широкая",
+      "showStatusBar": "Показывать статусбар",
+      "statusBarMetrics": "Метрики статусбара",
+      "metricBalance": "Баланс",
+      "metricContext": "Контекст",
+      "metricTokens": "Токены",
+      "metricCost": "Стоимость"
     },
     "presets": {
-      "title": "Системные промпты (пресеты)",
+      "title": "Системные промпты",
       "addPreset": "+ Добавить пресет",
       "noPresets": "Нет пресетов. Добавьте пресет, чтобы задавать поведение модели для чатов.",
       "editPreset": "Редактировать пресет",
@@ -218,6 +268,73 @@
       "defaultTooltip": "По умолчанию",
       "setDefaultTooltip": "Сделать по умолчанию",
       "confirmDeletePreset": "Пресет будет удалён безвозвратно."
+    },
+    "mcp": {
+      "title": "MCP",
+      "description": "Подключение внешних инструментов (MCP серверов) для использования моделями",
+      "catalog": "Каталог MCP серверов",
+      "catalogDescription": "Готовые пресеты популярных MCP серверов",
+      "addPreset": "Добавить",
+      "alreadyAdded": "Добавлен",
+      "addServer": "Добавить MCP сервер",
+      "editServer": "Редактировать MCP сервер",
+      "serverName": "Название",
+      "serverCommand": "Команда",
+      "serverArgs": "Аргументы (JSON массив)",
+      "serverEnv": "Переменные окружения (JSON объект)",
+      "noServers": "Нет добавленных MCP серверов",
+      "reconnectAll": "Переподключить",
+      "tools": "инструментов",
+      "invalidJson": "Невалидный JSON",
+      "deleteConfirm": "Удалить MCP сервер \"{{name}}\"?",
+      "connected": "Подключён",
+      "connectionError": "Не подключён"
+    },
+    "audio": {
+      "title": "Голосовой ввод",
+      "sttProvider": "Провайдер распознавания речи",
+      "disabled": "Выключено",
+      "vosk": "Vosk (офлайн)",
+      "whisper": "OpenAI Whisper",
+      "groqWhisper": "Groq Whisper",
+      "language": "Язык распознавания",
+      "openaiApiKey": "OpenAI API Key",
+      "voskDescription": "Бесплатно, работает офлайн. Библиотека и модели скачиваются автоматически.",
+      "whisperDescription": "Высокая точность, требуется интернет. ~$0.006/мин.",
+      "groqTitle": "Groq Whisper",
+      "groqDescription": "Облачное распознавание через Groq API. Модель whisper-large-v3-turbo — быстрая и бесплатная в рамках лимитов. Требуется API-ключ Groq.",
+      "groqApiKey": "API-ключ Groq",
+      "groqGetKey": "Получить ключ на console.groq.com",
+      "modelLoaded": "Модель загружена",
+      "modelNotFound": "Модель не скачана",
+      "downloadInstructions": "Скачайте модель с alphacephei.com/vosk/models и распакуйте в папку данных приложения в vosk-models/{{lang}}/",
+      "voskLibrary": "Библиотека Vosk",
+      "voskLibraryInstalled": "Установлена",
+      "voskLibraryNotInstalled": "Не установлена",
+      "installVosk": "Установить Vosk (~5 МБ)",
+      "installingVosk": "Установка Vosk...",
+      "voskInstallSuccess": "Vosk установлен",
+      "voskInstallError": "Ошибка установки Vosk",
+      "downloadModel": "Скачать (~50 МБ)",
+      "downloadingModel": "Скачивание...",
+      "modelDownloaded": "Скачана",
+      "modelDownloadSuccess": "Модель скачана",
+      "modelDownloadError": "Ошибка скачивания модели",
+      "voskModelsTitle": "Модели распознавания",
+      "voskNotInstalled": "Установите Vosk в Настройки → Аудио",
+      "uninstallVosk": "Удалить",
+      "uninstallVoskConfirm": "Vosk и все его файлы будут удалены.",
+      "uninstallVoskSuccess": "Vosk удалён",
+      "ttsTitle": "Озвучивание (TTS)",
+      "ttsProvider": "Провайдер TTS",
+      "ttsSystem": "Системные голоса",
+      "ttsOpenai": "OpenAI TTS",
+      "ttsVoice": "Голос",
+      "ttsModel": "Модель",
+      "ttsOpenaiKeyHint": "Используется тот же ключ, что и для Whisper",
+      "ttsModelTts1": "tts-1 (быстрая)",
+      "ttsModelTts1Hd": "tts-1-hd (качественная)",
+      "modelSizeWarning": "Внимание: модель русского языка занимает ~1.8 ГБ. Убедитесь, что у вас достаточно места на диске."
     },
     "data": {
       "backup": "Резервное копирование",
@@ -233,9 +350,13 @@
     "about": {
       "appName": "AI Chat",
       "version": "Версия {{version}}",
-      "stack": "Tauri 2 + React + Rust",
+      "stack": "Tauri 2, React 19, Rust, SQLite, Mantine 8",
       "description": "Десктопный AI-чат клиент с поддержкой OpenRouter, Ollama и OpenAI-совместимых провайдеров.",
-      "github": "GitHub"
+      "github": "GitHub",
+      "website": "Сайт",
+      "checkUpdates": "Проверить обновления",
+      "noUpdates": "Обновлений нет",
+      "license": "MIT License"
     }
   },
   "templates": {
@@ -319,11 +440,35 @@
     "providerNotFound": "Провайдер не найден",
     "apiKeyNotSet": "API-ключ не задан. Откройте настройки.",
     "modelDownloaded": "Модель скачана",
-    "chatsExported": "Чаты экспортированы"
+    "chatsExported": "Чаты экспортированы",
+    "mcpServerAdded": "MCP сервер добавлен",
+    "mcpServerUpdated": "MCP сервер обновлён",
+    "mcpServerRemoved": "MCP сервер удалён"
   },
   "dates": {
     "today": "Сегодня",
     "yesterday": "Вчера"
+  },
+  "compare": {
+    "title": "Сравнение моделей",
+    "newComparison": "Новое сравнение",
+    "leftModel": "Левая модель",
+    "rightModel": "Правая модель",
+    "emptyState": "Выберите сравнение в сайдбаре или создайте новое",
+    "emptyActive": "Выберите сравнение из списка или создайте новое",
+    "vsLabel": "vs",
+    "selectLeftProvider": "Левый провайдер",
+    "selectRightProvider": "Правый провайдер",
+    "selectLeftModel": "Левая модель",
+    "selectRightModel": "Правая модель",
+    "leftSystemPrompt": "Системный промпт (левая)",
+    "rightSystemPrompt": "Системный промпт (правая)",
+    "deleteConfirm": "Удалить это сравнение?",
+    "comparisonCreated": "Сравнение создано",
+    "comparisonDeleted": "Сравнение удалено",
+    "titlePlaceholder": "Название сравнения",
+    "userMessage": "Сообщение пользователя",
+    "round": "Раунд {{n}}"
   },
   "ollama": {
     "title": "Локальные модели (Ollama)",
@@ -338,9 +483,7 @@
     "deleteModel": "Удалить модель",
     "downloadModel": "Скачать модель",
     "download": "Скачать",
-    "serverUrl": "URL сервера",
     "serverUrlPlaceholder": "http://localhost:11434/v1",
-    "serverUrlHint": "Изменяйте только если Ollama запущена на другом порту",
     "cancel": "Отмена",
     "deleteModelConfirm": "Удалить модель {{name}}?",
     "pullLlama": "Llama 3.2 (~2 ГБ) — универсальная",

@@ -44,6 +44,10 @@ struct ExportChat {
     top_k: Option<i64>,
     frequency_penalty: Option<f32>,
     presence_penalty: Option<f32>,
+    image_size: Option<String>,
+    image_quality: Option<String>,
+    image_style: Option<String>,
+    image_n: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +62,8 @@ struct ExportMessage {
     completion_tokens: Option<i64>,
     cost: Option<f64>,
     has_attachments: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    web_sources: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -96,6 +102,10 @@ fn db_chat_to_export(c: &DbChat) -> ExportChat {
         top_k: c.top_k.map(|v| v as i64),
         frequency_penalty: c.frequency_penalty,
         presence_penalty: c.presence_penalty,
+        image_size: c.image_size.clone(),
+        image_quality: c.image_quality.clone(),
+        image_style: c.image_style.clone(),
+        image_n: c.image_n,
     }
 }
 
@@ -111,6 +121,7 @@ fn db_message_to_export(m: &DbMessage) -> ExportMessage {
         completion_tokens: m.completion_tokens,
         cost: m.cost,
         has_attachments: m.has_attachments,
+        web_sources: m.web_sources.clone(),
     }
 }
 
@@ -148,7 +159,7 @@ fn iso8601_now() -> String {
 
 async fn get_chat_by_id(pool: &Pool, chat_id: &str) -> Result<Option<DbChat>, String> {
     let row = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty FROM chats WHERE id = ?",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty, image_size, image_quality, image_style, image_n FROM chats WHERE id = ?",
     )
     .bind(chat_id)
     .fetch_optional(pool)
@@ -170,6 +181,7 @@ async fn get_chat_by_id(pool: &Pool, chat_id: &str) -> Result<Option<DbChat>, St
         provider_id: row.try_get("provider_id").unwrap_or_else(|_| "openrouter".to_string()),
         model: row.try_get("model").unwrap_or_default(),
         folder_id: row.try_get("folder_id").ok(),
+        project_id: row.try_get("project_id").ok(),
         is_image_model: row.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0,
         temperature: row.try_get::<f64, _>("temperature").ok().map(|v| v as f32),
         max_tokens: row.try_get::<i64, _>("max_tokens").ok().map(|v| v as u32),
@@ -177,12 +189,19 @@ async fn get_chat_by_id(pool: &Pool, chat_id: &str) -> Result<Option<DbChat>, St
         top_k: row.try_get::<i64, _>("top_k").ok().map(|v| v as u32),
         frequency_penalty: row.try_get::<f64, _>("frequency_penalty").ok().map(|v| v as f32),
         presence_penalty: row.try_get::<f64, _>("presence_penalty").ok().map(|v| v as f32),
+        image_size: row.try_get::<Option<String>, _>("image_size").ok().flatten(),
+        image_quality: row.try_get::<Option<String>, _>("image_quality").ok().flatten(),
+        image_style: row.try_get::<Option<String>, _>("image_style").ok().flatten(),
+        image_n: row.try_get::<Option<i64>, _>("image_n").ok().flatten().map(|v| v as u32),
+        negative_prompt: row.try_get::<Option<String>, _>("negative_prompt").ok().flatten(),
+        active_child_map: row.try_get::<Option<String>, _>("active_child_map").ok().flatten(),
+        mode: row.try_get::<String, _>("mode").unwrap_or_else(|_| "chat".to_string()),
     }))
 }
 
 async fn get_all_chats_internal(pool: &Pool) -> Result<Vec<DbChat>, String> {
     let rows = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty FROM chats ORDER BY updated_at DESC",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty, image_size, image_quality, image_style, image_n FROM chats ORDER BY updated_at DESC",
     )
     .fetch_all(pool)
     .await
@@ -201,6 +220,7 @@ async fn get_all_chats_internal(pool: &Pool) -> Result<Vec<DbChat>, String> {
             provider_id: row.try_get("provider_id").unwrap_or_else(|_| "openrouter".to_string()),
             model: row.try_get("model").unwrap_or_default(),
             folder_id: row.try_get("folder_id").ok(),
+            project_id: row.try_get("project_id").ok(),
             is_image_model: row.try_get::<i64, _>("is_image_model").unwrap_or(0) != 0,
             temperature: row.try_get::<f64, _>("temperature").ok().map(|v| v as f32),
             max_tokens: row.try_get::<i64, _>("max_tokens").ok().map(|v| v as u32),
@@ -208,13 +228,20 @@ async fn get_all_chats_internal(pool: &Pool) -> Result<Vec<DbChat>, String> {
             top_k: row.try_get::<i64, _>("top_k").ok().map(|v| v as u32),
             frequency_penalty: row.try_get::<f64, _>("frequency_penalty").ok().map(|v| v as f32),
             presence_penalty: row.try_get::<f64, _>("presence_penalty").ok().map(|v| v as f32),
+            image_size: row.try_get::<Option<String>, _>("image_size").ok().flatten(),
+            image_quality: row.try_get::<Option<String>, _>("image_quality").ok().flatten(),
+            image_style: row.try_get::<Option<String>, _>("image_style").ok().flatten(),
+            image_n: row.try_get::<Option<i64>, _>("image_n").ok().flatten().map(|v| v as u32),
+            negative_prompt: row.try_get::<Option<String>, _>("negative_prompt").ok().flatten(),
+            active_child_map: row.try_get::<Option<String>, _>("active_child_map").ok().flatten(),
+            mode: row.try_get::<String, _>("mode").unwrap_or_else(|_| "chat".to_string()),
         })
         .collect())
 }
 
 async fn get_messages_internal(pool: &Pool, chat_id: &str) -> Result<Vec<DbMessage>, String> {
     let rows = sqlx::query(
-        "SELECT id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments FROM messages WHERE chat_id = ? ORDER BY timestamp",
+        "SELECT id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments, web_sources FROM messages WHERE chat_id = ? ORDER BY timestamp",
     )
     .bind(chat_id)
     .fetch_all(pool)
@@ -237,6 +264,9 @@ async fn get_messages_internal(pool: &Pool, chat_id: &str) -> Result<Vec<DbMessa
             completion_tokens: row.try_get("completion_tokens").ok(),
             cost: row.try_get("cost").ok(),
             has_attachments: row.try_get("has_attachments").ok(),
+            web_sources: row.try_get::<Option<String>, _>("web_sources").ok().flatten(),
+            agent_step: row.try_get("agent_step").ok().flatten(),
+            agent_run_id: row.try_get::<Option<String>, _>("agent_run_id").ok().flatten(),
         })
         .collect())
 }
@@ -707,7 +737,7 @@ async fn import_single_chat(
     let mut old_to_new_msg: HashMap<String, String> = HashMap::new();
 
     sqlx::query(
-        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO chats (id, title, created_at, updated_at, system_prompt, provider_id, model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty, image_size, image_quality, image_style, image_n) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&new_chat_id)
     .bind(&chat.title)
@@ -722,6 +752,10 @@ async fn import_single_chat(
     .bind(chat.top_k)
     .bind(chat.frequency_penalty)
     .bind(chat.presence_penalty)
+    .bind(&chat.image_size)
+    .bind(&chat.image_quality)
+    .bind(&chat.image_style)
+    .bind(chat.image_n.map(|v| v as i64))
     .execute(pool)
     .await
     .map_err(|e| {
@@ -766,7 +800,7 @@ async fn import_single_chat(
         };
 
         sqlx::query(
-            "INSERT INTO messages (id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments, fts_indexed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+            "INSERT INTO messages (id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments, fts_indexed, web_sources) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
         )
         .bind(&new_msg_id)
         .bind(&new_chat_id)
@@ -779,6 +813,7 @@ async fn import_single_chat(
         .bind(msg.completion_tokens)
         .bind(msg.cost)
         .bind(msg.has_attachments.unwrap_or(0))
+        .bind(&msg.web_sources)
         .execute(pool)
         .await
         .map_err(|e| {

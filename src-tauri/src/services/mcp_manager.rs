@@ -1,11 +1,19 @@
 // MCP manager: multiple MCP servers, connect/disconnect, list tools, call tool
 use crate::models::mcp::{McpConnectionInfo, McpTool, McpToolResult, McpToolInfo};
 use crate::services::mcp_client::McpClient;
+use crate::services::builtin_mcp_client::BuiltinMcpClient;
+use crate::services::builtin_fs_server::BuiltinFsServer;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
+enum McpClientKind {
+    External(McpClient),
+    Builtin(BuiltinMcpClient),
+}
+
 struct McpServerEntry {
-    client: McpClient,
+    client: McpClientKind,
     tools: Vec<McpTool>,
     server_name: String,
 }
@@ -30,8 +38,11 @@ impl McpManager {
         env: HashMap<String, String>,
     ) -> Result<Vec<McpTool>, String> {
         let mut guard = self.servers.write().await;
-        if let Some(mut old) = guard.remove(server_id) {
-            let _ = old.client.shutdown().await;
+        if let Some(old) = guard.remove(server_id) {
+            match old.client {
+                McpClientKind::External(mut c) => { let _ = c.shutdown().await; }
+                McpClientKind::Builtin(c) => { let _ = c.shutdown().await; }
+            }
         }
         let client = McpClient::new(command, args, env).await?;
         client.initialize().await?;
@@ -40,7 +51,35 @@ impl McpManager {
         guard.insert(
             server_id.to_string(),
             McpServerEntry {
-                client,
+                client: McpClientKind::External(client),
+                tools: tools.clone(),
+                server_name,
+            },
+        );
+        Ok(tools)
+    }
+
+    pub async fn connect_builtin(
+        &self,
+        server_id: &str,
+        name: &str,
+        server: Arc<BuiltinFsServer>,
+    ) -> Result<Vec<McpTool>, String> {
+        let mut guard = self.servers.write().await;
+        if let Some(old) = guard.remove(server_id) {
+            match old.client {
+                McpClientKind::External(mut c) => { let _ = c.shutdown().await; }
+                McpClientKind::Builtin(c) => { let _ = c.shutdown().await; }
+            }
+        }
+        let client = BuiltinMcpClient::new(server);
+        client.initialize().await?;
+        let tools = client.list_tools().await?;
+        let server_name = name.to_string();
+        guard.insert(
+            server_id.to_string(),
+            McpServerEntry {
+                client: McpClientKind::Builtin(client),
                 tools: tools.clone(),
                 server_name,
             },
@@ -51,16 +90,22 @@ impl McpManager {
     #[allow(dead_code)]
     pub async fn disconnect_all(&self) -> Result<(), String> {
         let mut guard = self.servers.write().await;
-        for (_, mut entry) in guard.drain() {
-            let _ = entry.client.shutdown().await;
+        for (_, entry) in guard.drain() {
+            match entry.client {
+                McpClientKind::External(mut c) => { let _ = c.shutdown().await; }
+                McpClientKind::Builtin(c) => { let _ = c.shutdown().await; }
+            }
         }
         Ok(())
     }
 
     pub async fn disconnect(&self, server_id: &str) -> Result<(), String> {
         let mut guard = self.servers.write().await;
-        let mut entry = guard.remove(server_id).ok_or("server not found")?;
-        entry.client.shutdown().await
+        let entry = guard.remove(server_id).ok_or("server not found")?;
+        match entry.client {
+            McpClientKind::External(mut c) => c.shutdown().await,
+            McpClientKind::Builtin(c) => c.shutdown().await,
+        }
     }
 
     #[allow(dead_code)]
@@ -83,7 +128,10 @@ impl McpManager {
     ) -> Result<McpToolResult, String> {
         let guard = self.servers.read().await;
         let entry = guard.get(server_id).ok_or("server not found")?;
-        entry.client.call_tool(tool_name, arguments).await
+        match &entry.client {
+            McpClientKind::External(c) => c.call_tool(tool_name, arguments).await,
+            McpClientKind::Builtin(c) => c.call_tool(tool_name, arguments).await,
+        }
     }
 
     pub async fn list_connections(&self) -> Vec<McpConnectionInfo> {

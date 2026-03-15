@@ -202,13 +202,13 @@ export function McpSection() {
                 {t("settings.mcp.description")}
             </Text>
 
-            {mcpServers.length === 0 ? (
+            {mcpServers.filter((s) => s.id !== "builtin-filesystem").length === 0 ? (
                 <Text c="dimmed" ta="center">
                     {t("settings.mcp.noServers")}
                 </Text>
             ) : (
                 <Stack gap="sm">
-                    {mcpServers.map((server) => {
+                    {mcpServers.filter((s) => s.id !== "builtin-filesystem").map((server) => {
                         const conn = getConnection(server.id);
                         return (
                             <Paper key={server.id} p="md" withBorder>

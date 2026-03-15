@@ -3,7 +3,7 @@ import type { RefObject } from "react";
 
 export interface UseAppHotkeysOptions {
     messageInputRef: RefObject<HTMLTextAreaElement | null> | null;
-    currentView: "chat" | "settings" | "snippets" | "search" | "compare";
+    currentView: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler";
     chats: { id: string }[];
     activeChatId: string | null;
     onNewChat: () => void;
@@ -12,6 +12,7 @@ export interface UseAppHotkeysOptions {
     onRequestDeleteChat: () => void;
     setActiveChat: (id: string) => void;
     onEscape: () => void;
+    onToggleTerminal?: () => void;
 }
 
 /**
@@ -30,6 +31,7 @@ export function useAppHotkeys(options: UseAppHotkeysOptions): void {
         onRequestDeleteChat,
         setActiveChat,
         onEscape,
+        onToggleTerminal,
     } = options;
 
     useMantineHotkeys(
@@ -93,6 +95,14 @@ export function useAppHotkeys(options: UseAppHotkeysOptions): void {
                     const idx = chats.findIndex((c) => c.id === activeChatId);
                     if (idx === -1 || idx >= chats.length - 1) return;
                     setActiveChat(chats[idx + 1].id);
+                },
+                { preventDefault: true, usePhysicalKeys: true },
+            ],
+            [
+                "mod+`",
+                (e) => {
+                    e.preventDefault();
+                    onToggleTerminal?.();
                 },
                 { preventDefault: true, usePhysicalKeys: true },
             ],

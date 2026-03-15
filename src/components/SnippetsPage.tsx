@@ -12,6 +12,7 @@ import {
     ScrollArea,
     Select,
     Stack,
+    Switch,
     Text,
     Textarea,
     TextInput,
@@ -126,6 +127,7 @@ export function SnippetsPage() {
     const [snippetNameError, setSnippetNameError] = useState<string | null>(null);
     const [snippetCategoryError, setSnippetCategoryError] = useState<string | null>(null);
     const [deletingSnippetId, setDeletingSnippetId] = useState<string | null>(null);
+    const [snippetShowOnWelcome, setSnippetShowOnWelcome] = useState(false);
 
     const [variablesModalOpen, setVariablesModalOpen] = useState(false);
     const [variablesModalContent, setVariablesModalContent] = useState("");
@@ -207,11 +209,13 @@ export function SnippetsPage() {
             setSnippetName(snippet.name);
             setSnippetContent(snippet.content);
             setSnippetCategoryId(snippet.categoryId);
+            setSnippetShowOnWelcome(snippet.showOnWelcome ?? false);
         } else {
             setSnippetEditId(null);
             setSnippetName("");
             setSnippetContent("");
             setSnippetCategoryId(categories[0]?.id ?? null);
+            setSnippetShowOnWelcome(false);
         }
         setSnippetModalOpen(true);
     };
@@ -224,6 +228,7 @@ export function SnippetsPage() {
         setSnippetCategoryId(null);
         setSnippetNameError(null);
         setSnippetCategoryError(null);
+        setSnippetShowOnWelcome(false);
     };
 
     const saveSnippetFromModal = async () => {
@@ -246,9 +251,9 @@ export function SnippetsPage() {
         if (hasError) return;
         const categoryIdStr = categoryId ?? "";
         if (snippetEditId) {
-            await updateSnippet(snippetEditId, name, content, categoryIdStr);
+            await updateSnippet(snippetEditId, name, content, categoryIdStr, snippetShowOnWelcome);
         } else {
-            await createSnippet(name, content, categoryIdStr);
+            await createSnippet(name, content, categoryIdStr, snippetShowOnWelcome);
         }
         closeSnippetModal();
     };
@@ -502,6 +507,11 @@ export function SnippetsPage() {
                         minRows={4}
                         maxRows={15}
                         autosize
+                    />
+                    <Switch
+                        label={t("welcome.showOnWelcome")}
+                        checked={snippetShowOnWelcome}
+                        onChange={(e) => setSnippetShowOnWelcome(e.currentTarget.checked)}
                     />
                     {snippetContent && (
                         <Stack gap={4}>

@@ -28,4 +28,5 @@ pub struct DbComparisonMessage {
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
     pub cost: f64,
+    pub has_attachments: Option<i64>,
 }

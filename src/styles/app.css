@@ -1,0 +1,302 @@
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Hover: иконки действий по умолчанию скрыты, показываются при hover на родителя */
+.snippet-category-row .action-icons,
+.snippet-card .action-icons,
+.folder-row .action-icons,
+.chat-item .chat-delete-btn,
+.message-row .message-actions {
+    opacity: 0;
+    transition: opacity 150ms ease;
+}
+.snippet-category-row:hover .action-icons,
+.snippet-card:hover .action-icons,
+.folder-row:hover .action-icons,
+.chat-item:hover .chat-delete-btn,
+.message-row:hover .message-actions {
+    opacity: 1;
+}
+.chat-item .chat-delete-btn:hover {
+    color: var(--mantine-color-red-6);
+}
+/* Контекстное меню открыто — иконки чата остаются видимыми */
+.chat-item[data-context-menu-open="true"] .chat-delete-btn {
+    opacity: 1;
+}
+/* Стриминг: кнопки у сообщения не показывать */
+.message-row.streaming .message-actions,
+.message-row.streaming:hover .message-actions {
+    opacity: 0;
+}
+
+/* Состояние фокуса Textarea (MessageInput) — only outside pill */
+.mantine-Textarea-input:focus {
+    border-color: var(--mantine-color-brand-5);
+    box-shadow: 0 0 0 2px var(--mantine-color-brand-1);
+}
+
+/* === MessageInput pill container === */
+.message-input-pill {
+    border-radius: 24px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    background: var(--mantine-color-body);
+    padding: 8px 12px;
+    transition: border 150ms ease, box-shadow 150ms ease;
+}
+[data-mantine-color-scheme="light"] .message-input-pill {
+    border: 1px solid var(--mantine-color-brand-2);
+    box-shadow: 0 2px 12px rgba(212, 133, 74, 0.1);
+}
+[data-mantine-color-scheme="dark"] .message-input-pill {
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--mantine-color-dark-4);
+}
+.message-input-pill.dragging {
+    border: 2px solid var(--mantine-color-brand-4) !important;
+}
+
+/* Placeholder color */
+.message-input-pill textarea::placeholder {
+    color: var(--mantine-color-brand-3) !important;
+}
+
+/* Textarea inside pill — no borders */
+.message-input-pill .mantine-Textarea-input {
+    border: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    padding: 6px 4px;
+}
+.message-input-pill .mantine-Textarea-input:focus {
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Bottom toolbar inside pill */
+.message-input-pill .input-toolbar {
+    min-height: 36px;
+}
+
+/* === Positioner for center/bottom animation === */
+.message-input-positioner {
+    margin-top: auto;
+    width: 100%;
+    transition: margin 300ms ease, max-width 300ms ease;
+}
+.message-input-positioner.centered {
+    margin: auto;
+    max-width: 680px;
+}
+@media (prefers-reduced-motion: reduce) {
+    .message-input-positioner {
+        transition: none !important;
+    }
+}
+
+/* === Welcome screen === */
+.welcome-screen {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    margin-bottom: 16px;
+}
+.welcome-suggest-card {
+    border: 1px solid var(--mantine-color-default-border);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.welcome-suggest-card:hover {
+    border-color: var(--mantine-color-brand-4);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+[data-mantine-color-scheme="dark"] .welcome-suggest-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-reduced-motion: reduce) {
+    .welcome-suggest-card {
+        transition: none !important;
+    }
+}
+
+/* Hover на карточках сниппетов */
+.snippet-card {
+    transition: background-color 0.2s;
+}
+.snippet-card:hover {
+    background-color: var(--mantine-color-default-hover);
+}
+
+/* Плавные hover для NavLink, ActionIcon, Card */
+.mantine-NavLink-root {
+    transition: background-color 100ms ease, color 100ms ease;
+}
+.mantine-ActionIcon-root {
+    transition: background-color 100ms ease, opacity 100ms ease;
+}
+.mantine-Card-root {
+    transition: background-color 100ms ease;
+}
+
+/* Индикатор «модель печатает» (typing indicator) */
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0;
+    color: var(--mantine-color-dimmed);
+}
+
+.typing-indicator-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: currentColor;
+    animation: typing-dot-bounce 1.4s ease-in-out infinite both;
+}
+
+.typing-indicator-dot:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-indicator-dot:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing-dot-bounce {
+    0%, 80%, 100% {
+        transform: scale(0.8);
+        opacity: 0.5;
+    }
+    40% {
+        transform: scale(1.1);
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+    .typing-indicator-dot {
+        animation: none;
+        opacity: 0.7;
+    }
+    .snippet-category-row .action-icons,
+    .snippet-card .action-icons,
+    .folder-row .action-icons,
+    .chat-item .chat-delete-btn,
+    .message-row .message-actions {
+        transition: none;
+    }
+}
+
+/* Tool Call блоки */
+.tool-call-block {
+    margin: 8px 0;
+}
+
+.tool-call-result-content {
+    font-family: var(--mantine-font-family-monospace);
+    font-size: var(--mantine-font-size-xs);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 8px;
+    border-radius: var(--mantine-radius-sm);
+}
+
+[data-mantine-color-scheme="dark"] .tool-call-result-content {
+    background: var(--mantine-color-dark-6);
+}
+
+[data-mantine-color-scheme="light"] .tool-call-result-content {
+    background: var(--mantine-color-brand-0);
+}
+
+@keyframes tool-call-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.tool-call-spinner {
+    animation: tool-call-spin 1s linear infinite;
+    display: inline-block;
+}
+
+@keyframes recording-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+.recording-pulse {
+    animation: recording-pulse 1.5s ease-in-out infinite;
+}
+
+/* App header (full-width) */
+.app-header {
+    height: 48px;
+    border-bottom: 1px solid var(--mantine-color-default-border);
+    background: var(--mantine-color-body);
+}
+
+/* Dark theme: SegmentedControl */
+[data-mantine-color-scheme="dark"] .mantine-SegmentedControl-root {
+    background-color: var(--mantine-color-dark-6);
+}
+[data-mantine-color-scheme="dark"] .mantine-SegmentedControl-label {
+    color: var(--mantine-color-brand-2);
+}
+[data-mantine-color-scheme="dark"] .mantine-SegmentedControl-label[data-active] {
+    color: var(--mantine-color-brand-5);
+}
+[data-mantine-color-scheme="dark"] .mantine-SegmentedControl-indicator {
+    background-color: var(--mantine-color-dark-4);
+}
+
+/* Dark theme: Accordion */
+[data-mantine-color-scheme="dark"] .mantine-Accordion-control {
+    background-color: var(--mantine-color-dark-6);
+    color: var(--mantine-color-brand-2);
+}
+[data-mantine-color-scheme="dark"] .mantine-Accordion-chevron {
+    color: var(--mantine-color-brand-4);
+}
+
+/* Dark theme: message bubbles and input */
+[data-mantine-color-scheme="dark"] .user-message-bubble {
+    background-color: var(--mantine-color-brand-8);
+}
+
+[data-mantine-color-scheme="dark"] .assistant-message {
+    background-color: var(--mantine-color-dark-6);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: var(--mantine-color-brand-0);
+}
+::-webkit-scrollbar-thumb {
+    background: var(--mantine-color-brand-3);
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: var(--mantine-color-brand-5);
+}
+
+[data-mantine-color-scheme="dark"] ::-webkit-scrollbar-track {
+    background: var(--mantine-color-dark-7);
+}
+[data-mantine-color-scheme="dark"] ::-webkit-scrollbar-thumb {
+    background: var(--mantine-color-brand-7);
+}
+[data-mantine-color-scheme="dark"] ::-webkit-scrollbar-thumb:hover {
+    background: var(--mantine-color-brand-5);
+}

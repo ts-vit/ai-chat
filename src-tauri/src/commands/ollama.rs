@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
 
 use crate::commands::settings::fetch_ollama_models;
+use crate::services::http_client::build_http_client;
 
 const STORE_NAME: &str = "settings.json";
 const OLLAMA_CHECK_TIMEOUT_SECS: u64 = 3;
@@ -52,10 +53,7 @@ fn get_ollama_base_url(app: &AppHandle) -> String {
 pub async fn check_ollama_status(app: AppHandle) -> Result<bool, String> {
     let base = get_ollama_base_url(&app);
 
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(OLLAMA_CHECK_TIMEOUT_SECS))
-        .build()
-    {
+    let client = match build_http_client(&app, Some(Duration::from_secs(OLLAMA_CHECK_TIMEOUT_SECS))).await {
         Ok(c) => c,
         Err(_) => return Ok(false),
     };
@@ -69,10 +67,7 @@ pub async fn check_ollama_status(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub async fn get_local_ollama_models(app: AppHandle) -> Result<Vec<OllamaLocalModel>, String> {
     let url = get_ollama_url_from_store(&app);
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = build_http_client(&app, Some(Duration::from_secs(15))).await?;
     let models = fetch_ollama_models(&client, &url).await?;
     Ok(models
         .into_iter()
@@ -109,10 +104,7 @@ pub struct OllamaPullErrorPayload {
 pub async fn pull_ollama_model(app: AppHandle, model_name: String) -> Result<(), String> {
     let base = get_ollama_base_url(&app);
     let pull_url = format!("{}/api/pull", base.trim_end_matches('/'));
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(600))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = build_http_client(&app, Some(Duration::from_secs(600))).await?;
 
     let response = client
         .post(&pull_url)
@@ -219,10 +211,7 @@ pub async fn pull_ollama_model(app: AppHandle, model_name: String) -> Result<(),
 pub async fn delete_ollama_model(app: AppHandle, model_name: String) -> Result<(), String> {
     let base = get_ollama_base_url(&app);
     let delete_url = format!("{}/api/delete", base.trim_end_matches('/'));
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(OLLAMA_DELETE_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = build_http_client(&app, Some(Duration::from_secs(OLLAMA_DELETE_TIMEOUT_SECS))).await?;
 
     let response = client
         .delete(&delete_url)

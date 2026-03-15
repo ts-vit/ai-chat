@@ -20,6 +20,7 @@ pub fn openai_model_ids() -> &'static [&'static str] {
 
 /// Calls OpenAI TTS API and returns mp3 bytes.
 pub async fn speak_openai(
+    client: &reqwest::Client,
     text: String,
     api_key: &str,
     voice: &str,
@@ -47,11 +48,6 @@ pub async fn speak_openai(
         "input": text,
         "voice": voice,
     });
-
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .map_err(|e| format!("HTTP client: {}", e))?;
 
     let response = client
         .post(OPENAI_TTS_URL)

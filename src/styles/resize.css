@@ -9,5 +9,5 @@
 
 .resize-handle:hover,
 .resize-handle.active {
-    background: var(--mantine-color-blue-5);
+    background: var(--mantine-color-brand-5);
 }

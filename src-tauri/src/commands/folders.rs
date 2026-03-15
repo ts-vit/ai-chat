@@ -10,7 +10,7 @@ type Pool = sqlx::SqlitePool;
 #[tauri::command]
 pub async fn get_all_folders(pool: State<'_, Pool>) -> Result<Vec<DbFolder>, String> {
     let rows = sqlx::query(
-        "SELECT id, name, color, sort_order, created_at FROM folders ORDER BY sort_order, name",
+        "SELECT id, name, color, sort_order, created_at, mode FROM folders ORDER BY sort_order, name",
     )
     .fetch_all(pool.inner())
     .await
@@ -27,6 +27,7 @@ pub async fn get_all_folders(pool: State<'_, Pool>) -> Result<Vec<DbFolder>, Str
             color: row.try_get("color").ok(),
             sort_order: row.get("sort_order"),
             created_at: row.get("created_at"),
+            mode: row.try_get("mode").unwrap_or_else(|_| "chat".to_string()),
         })
         .collect();
     Ok(folders)
@@ -37,6 +38,7 @@ pub async fn create_folder(
     pool: State<'_, Pool>,
     name: String,
     color: Option<String>,
+    mode: String,
 ) -> Result<DbFolder, String> {
     let id = Uuid::new_v4().to_string();
     let now = std::time::SystemTime::now()
@@ -53,13 +55,14 @@ pub async fn create_folder(
         })?;
 
     sqlx::query(
-        "INSERT INTO folders (id, name, color, sort_order, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO folders (id, name, color, sort_order, created_at, mode) VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&name)
     .bind(&color)
     .bind(sort_order)
     .bind(now)
+    .bind(&mode)
     .execute(pool.inner())
     .await
     .map_err(|e| {
@@ -73,6 +76,7 @@ pub async fn create_folder(
         color,
         sort_order,
         created_at: now,
+        mode,
     })
 }
 

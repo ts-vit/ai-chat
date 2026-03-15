@@ -17,8 +17,9 @@ export const notify = {
             autoClose: 5000,
         });
     },
-    warning: (message: string) => {
+    warning: (message: string, id?: string) => {
         notifications.show({
+            ...(id && { id }),
             message,
             color: "yellow",
             autoClose: 4000,

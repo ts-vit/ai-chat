@@ -2,9 +2,10 @@ import { useCallback, useRef } from "react";
 
 interface ResizeHandleProps {
     onResize: (delta: number) => void;
+    direction?: "vertical" | "horizontal";
 }
 
-export function ResizeHandle({ onResize }: ResizeHandleProps) {
+export function ResizeHandle({ onResize, direction = "vertical" }: ResizeHandleProps) {
     const elRef = useRef<HTMLDivElement>(null);
     const rafId = useRef<number | null>(null);
 
@@ -18,7 +19,11 @@ export function ResizeHandle({ onResize }: ResizeHandleProps) {
             const onMouseMove = (moveEvent: MouseEvent) => {
                 if (rafId.current != null) cancelAnimationFrame(rafId.current);
                 rafId.current = requestAnimationFrame(() => {
-                    onResize(moveEvent.movementX);
+                    onResize(
+                        direction === "horizontal"
+                            ? moveEvent.movementY
+                            : moveEvent.movementX
+                    );
                     rafId.current = null;
                 });
             };
@@ -40,11 +45,19 @@ export function ResizeHandle({ onResize }: ResizeHandleProps) {
     return (
         <div
             ref={elRef}
-            className="resize-handle"
+            className={
+                direction === "horizontal"
+                    ? "resize-handle resize-handle-horizontal"
+                    : "resize-handle"
+            }
             role="separator"
-            aria-orientation="vertical"
+            aria-orientation={direction === "horizontal" ? "horizontal" : "vertical"}
             onMouseDown={handleMouseDown}
-            style={{ height: "100%" }}
+            style={
+                direction === "horizontal"
+                    ? { width: "100%", height: 5, cursor: "row-resize" }
+                    : { height: "100%" }
+            }
         />
     );
 }

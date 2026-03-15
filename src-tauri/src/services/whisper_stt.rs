@@ -18,6 +18,7 @@ struct WhisperErrorDetail {
 }
 
 pub async fn transcribe_whisper(
+    client: &reqwest::Client,
     wav_bytes: Vec<u8>,
     api_key: &str,
     language: Option<&str>,
@@ -27,11 +28,6 @@ pub async fn transcribe_whisper(
     if api_key.is_empty() {
         return Err("API key is not set".to_string());
     }
-
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
     let file_part = reqwest::multipart::Part::bytes(wav_bytes)
         .file_name("audio.wav")

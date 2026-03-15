@@ -1,9 +1,13 @@
 // команды для сохранения/загрузки API-ключа и настроек
-use serde::Deserialize;
-use tauri::AppHandle;
+use serde::{Deserialize, Serialize};
+use sqlx::Row;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
 
+type Pool = sqlx::SqlitePool;
+
 use crate::models::chat::{AppSettings, Model, ModelPricing};
+use crate::services::http_client::build_http_client;
 
 // Имя файла хранилища — будет создан автоматически в AppData
 const STORE_NAME: &str = "settings.json";
@@ -40,8 +44,40 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     store.set("chatWidth", serde_json::to_value(&settings.chat_width).map_err(|e| e.to_string())?);
     store.set("showStatusBar", serde_json::to_value(settings.show_status_bar).map_err(|e| e.to_string())?);
     store.set("statusBarMetrics", serde_json::to_value(&settings.status_bar_metrics).map_err(|e| e.to_string())?);
+    store.set("webSearchProvider", serde_json::to_value(&settings.web_search_provider).map_err(|e| e.to_string())?);
+    store.set("tavilyApiKey", serde_json::to_value(&settings.tavily_api_key).map_err(|e| e.to_string())?);
+    store.set("braveApiKey", serde_json::to_value(&settings.brave_api_key).map_err(|e| e.to_string())?);
+    store.set("terminalFontSize", serde_json::to_value(&settings.terminal_font_size).map_err(|e| e.to_string())?);
+    store.set("terminalShell", serde_json::to_value(&settings.terminal_shell).map_err(|e| e.to_string())?);
+    store.set("proxyEnabled", serde_json::to_value(settings.proxy_enabled).map_err(|e| e.to_string())?);
+    store.set("proxyType", serde_json::to_value(&settings.proxy_type).map_err(|e| e.to_string())?);
+    store.set("proxyHost", serde_json::to_value(&settings.proxy_host).map_err(|e| e.to_string())?);
+    store.set("proxyPort", serde_json::to_value(&settings.proxy_port).map_err(|e| e.to_string())?);
+    store.set("proxyUsername", serde_json::to_value(&settings.proxy_username).map_err(|e| e.to_string())?);
+    store.set("proxyPassword", serde_json::to_value(&settings.proxy_password).map_err(|e| e.to_string())?);
+    store.set("sshHost", serde_json::to_value(&settings.ssh_host).map_err(|e| e.to_string())?);
+    store.set("sshPort", serde_json::to_value(&settings.ssh_port).map_err(|e| e.to_string())?);
+    store.set("sshUsername", serde_json::to_value(&settings.ssh_username).map_err(|e| e.to_string())?);
+    store.set("sshAuthType", serde_json::to_value(&settings.ssh_auth_type).map_err(|e| e.to_string())?);
+    store.set("sshPassword", serde_json::to_value(&settings.ssh_password).map_err(|e| e.to_string())?);
+    store.set("sshKeyPath", serde_json::to_value(&settings.ssh_key_path).map_err(|e| e.to_string())?);
+    store.set("sshAutoConnect", serde_json::to_value(settings.ssh_auto_connect).map_err(|e| e.to_string())?);
+    store.set("routingEnabled", serde_json::to_value(settings.routing_enabled).map_err(|e| e.to_string())?);
+    store.set("routingStrategy", serde_json::to_value(&settings.routing_strategy).map_err(|e| e.to_string())?);
+    store.set("budgetPlanEnabled", serde_json::to_value(settings.budget_plan_enabled).map_err(|e| e.to_string())?);
+    store.set("budgetPlanLimit", serde_json::to_value(&settings.budget_plan_limit).map_err(|e| e.to_string())?);
+    store.set("budgetGlobalEnabled", serde_json::to_value(settings.budget_global_enabled).map_err(|e| e.to_string())?);
+    store.set("budgetGlobalLimit", serde_json::to_value(&settings.budget_global_limit).map_err(|e| e.to_string())?);
+    store.set("budgetGlobalPeriod", serde_json::to_value(&settings.budget_global_period).map_err(|e| e.to_string())?);
+    store.set("modelCatalogLastSync", serde_json::to_value(&settings.model_catalog_last_sync).map_err(|e| e.to_string())?);
+    store.set("telegramBotToken", serde_json::to_value(&settings.telegram_bot_token).map_err(|e| e.to_string())?);
+    store.set("telegramEnabled", serde_json::to_value(settings.telegram_enabled).map_err(|e| e.to_string())?);
+    store.set("telegramAutoStart", serde_json::to_value(settings.telegram_auto_start).map_err(|e| e.to_string())?);
+    store.set("telegramModel", serde_json::to_value(&settings.telegram_model).map_err(|e| e.to_string())?);
 
     store.save().map_err(|e| e.to_string())?;
+
+    let _ = app.emit("proxy-settings-changed", ());
 
     Ok(())
 }
@@ -122,6 +158,36 @@ pub async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
             .unwrap_or_else(|| "standard".to_string()),
         show_status_bar: store.get("showStatusBar").and_then(|v| v.as_bool()).unwrap_or(true),
         status_bar_metrics,
+        web_search_provider: store.get("webSearchProvider").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        tavily_api_key: store.get("tavilyApiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        brave_api_key: store.get("braveApiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        terminal_font_size: store.get("terminalFontSize").and_then(|v| v.as_i64()).map(|v| v as i32),
+        terminal_shell: store.get("terminalShell").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        proxy_enabled: store.get("proxyEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
+        proxy_type: store.get("proxyType").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        proxy_host: store.get("proxyHost").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        proxy_port: store.get("proxyPort").and_then(|v| v.as_u64()).map(|v| v as u16),
+        proxy_username: store.get("proxyUsername").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        proxy_password: store.get("proxyPassword").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        ssh_host: store.get("sshHost").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        ssh_port: store.get("sshPort").and_then(|v| v.as_u64()).map(|v| v as u16),
+        ssh_username: store.get("sshUsername").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        ssh_auth_type: store.get("sshAuthType").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        ssh_password: store.get("sshPassword").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        ssh_key_path: store.get("sshKeyPath").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        ssh_auto_connect: store.get("sshAutoConnect").and_then(|v| v.as_bool()).unwrap_or(false),
+        routing_enabled: store.get("routingEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
+        routing_strategy: store.get("routingStrategy").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        budget_plan_enabled: store.get("budgetPlanEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
+        budget_plan_limit: store.get("budgetPlanLimit").and_then(|v| v.as_f64()),
+        budget_global_enabled: store.get("budgetGlobalEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
+        budget_global_limit: store.get("budgetGlobalLimit").and_then(|v| v.as_f64()),
+        budget_global_period: store.get("budgetGlobalPeriod").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        model_catalog_last_sync: store.get("modelCatalogLastSync").and_then(|v| v.as_i64()),
+        telegram_bot_token: store.get("telegramBotToken").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        telegram_enabled: store.get("telegramEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
+        telegram_auto_start: store.get("telegramAutoStart").and_then(|v| v.as_bool()).unwrap_or(false),
+        telegram_model: store.get("telegramModel").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
     };
 
     Ok(settings)
@@ -129,14 +195,11 @@ pub async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
 
 // Получить кредиты OpenRouter (Management key)
 #[tauri::command]
-pub async fn get_credits(management_key: String) -> Result<serde_json::Value, String> {
+pub async fn get_credits(app: AppHandle, management_key: String) -> Result<serde_json::Value, String> {
     if management_key.is_empty() {
         return Err("Management key is empty".to_string());
     }
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = build_http_client(&app, Some(std::time::Duration::from_secs(10))).await?;
     let response = client
         .get("https://openrouter.ai/api/v1/credits")
         .header("Authorization", format!("Bearer {}", management_key))
@@ -157,11 +220,8 @@ pub async fn get_credits(management_key: String) -> Result<serde_json::Value, St
 
 // Получить баланс ключа OpenRouter
 #[tauri::command]
-pub async fn get_balance(api_key: String) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| e.to_string())?;
+pub async fn get_balance(app: AppHandle, api_key: String) -> Result<serde_json::Value, String> {
+    let client = build_http_client(&app, Some(std::time::Duration::from_secs(10))).await?;
     let response = client
         .get("https://openrouter.ai/api/v1/auth/key")
         .header("Authorization", format!("Bearer {}", api_key))
@@ -182,8 +242,8 @@ pub async fn get_balance(api_key: String) -> Result<serde_json::Value, String> {
 
 // Получить список моделей с OpenRouter
 #[tauri::command]
-pub async fn get_models() -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+pub async fn get_models(app: AppHandle) -> Result<serde_json::Value, String> {
+    let client = build_http_client(&app, None).await?;
 
     let response = client
         .get("https://openrouter.ai/api/v1/models")
@@ -231,6 +291,7 @@ fn to_model(id: String) -> Model {
             completion: "0".to_string(),
         },
         supports_vision: false,
+        supports_tool_use: true,
     }
 }
 
@@ -289,23 +350,17 @@ pub async fn fetch_ollama_models(
 
 /// Список моделей Ollama (HTTP API).
 #[tauri::command]
-pub async fn get_ollama_models(base_url: String) -> Result<Vec<Model>, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
+pub async fn get_ollama_models(app: AppHandle, base_url: String) -> Result<Vec<Model>, String> {
+    let client = build_http_client(&app, Some(std::time::Duration::from_secs(15))).await?;
     fetch_ollama_models(&client, &base_url).await
 }
 
 /// Загрузить список моделей кастомного провайдера (GET {base_url}/v1/models с api_key).
 #[tauri::command]
-pub async fn fetch_custom_provider_models(base_url: String, api_key: String) -> Result<Vec<Model>, String> {
+pub async fn fetch_custom_provider_models(app: AppHandle, base_url: String, api_key: String) -> Result<Vec<Model>, String> {
     let base_url = base_url.trim_end_matches('/');
     let url = format!("{}/v1/models", base_url);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = build_http_client(&app, Some(std::time::Duration::from_secs(15))).await?;
     let mut request = client.get(&url);
     if !api_key.is_empty() {
         request = request.header("Authorization", format!("Bearer {}", api_key));
@@ -324,4 +379,95 @@ pub async fn fetch_custom_provider_models(base_url: String, api_key: String) -> 
         .map(|m| to_model(m.id))
         .collect();
     Ok(list)
+}
+
+/// Validate OpenRouter API key by hitting /api/v1/models.
+#[tauri::command]
+pub async fn validate_openrouter_key(app: AppHandle, api_key: String) -> Result<bool, String> {
+    let client = build_http_client(&app, Some(std::time::Duration::from_secs(5))).await?;
+    let resp = client
+        .get("https://openrouter.ai/api/v1/models")
+        .bearer_auth(&api_key)
+        .send()
+        .await
+        .map_err(|e| format!("Не удалось подключиться к OpenRouter: {}", e))?;
+    Ok(resp.status().is_success())
+}
+
+/// Test proxy connection by fetching external IP via httpbin.org.
+#[tauri::command]
+pub async fn test_proxy(
+    proxy_type: String,
+    proxy_host: String,
+    proxy_port: u16,
+    proxy_username: Option<String>,
+    proxy_password: Option<String>,
+) -> Result<String, String> {
+    let client = crate::services::http_client::build_http_client_from_params(
+        &proxy_type,
+        &proxy_host,
+        proxy_port,
+        proxy_username.as_deref(),
+        proxy_password.as_deref(),
+        Some(std::time::Duration::from_secs(10)),
+    )?;
+    let resp = client
+        .get("https://httpbin.org/ip")
+        .send()
+        .await
+        .map_err(|e| format!("{}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(json["origin"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeSettingRow {
+    pub mode: String,
+    pub enabled: bool,
+    pub sort_order: i64,
+    pub config: String,
+}
+
+#[tauri::command]
+pub async fn get_mode_settings(pool: tauri::State<'_, Pool>) -> Result<Vec<ModeSettingRow>, String> {
+    let rows = sqlx::query("SELECT mode, enabled, sort_order, config FROM mode_settings ORDER BY sort_order")
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    let settings = rows
+        .into_iter()
+        .map(|row| ModeSettingRow {
+            mode: row.get("mode"),
+            enabled: row.try_get::<i64, _>("enabled").unwrap_or(1) != 0,
+            sort_order: row.get("sort_order"),
+            config: row.get("config"),
+        })
+        .collect();
+    Ok(settings)
+}
+
+#[tauri::command]
+pub async fn update_mode_settings(
+    pool: tauri::State<'_, Pool>,
+    mode: String,
+    enabled: bool,
+    sort_order: i64,
+    config: String,
+) -> Result<(), String> {
+    sqlx::query("INSERT OR REPLACE INTO mode_settings (mode, enabled, sort_order, config) VALUES (?, ?, ?, ?)")
+        .bind(&mode)
+        .bind(enabled as i64)
+        .bind(sort_order)
+        .bind(&config)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }

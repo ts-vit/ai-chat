@@ -4,14 +4,31 @@
 
 ## 1. Цвета
 
-- **Не использовать** захардкоженные цвета (rgba, hex) в компонентах.
-- Использовать **Mantine CSS-переменные**: `var(--mantine-color-*)`.
-- **Бордеры:** `var(--mantine-color-default-border)`.
-- **Приглушённый текст:** проп `c="dimmed"` у Text.
-- **Фоны:** `var(--mantine-color-body)`, для контрастных блоков — `var(--mantine-color-dark-6)` / `var(--mantine-color-gray-0)`.
-- **Акцентный цвет:** blue (дефолт Mantine).
-- **Опасные действия:** `color="red"`.
-- **Успех:** `color="green"`.
+### Brand-палитра (основная)
+Все цвета интерфейса строятся на brand-палитре (#D4854A):
+- **brand-0** `#fef4ec` — фоны (hover states, inline code bg)
+- **brand-1** `#f9e2cf` — лёгкие фоны (light variant)
+- **brand-2** `#f3c9a7` — бордеры, разделители (светлая тема); текст (тёмная тема)
+- **brand-3** `#ecad7b` — скроллбары (thumb), неактивные элементы
+- **brand-4** `#e59557` — dimmed текст (тёмная тема)
+- **brand-5** `#D4854A` — **основной акцентный цвет** (кнопки, active, иконки, scrollbar hover)
+- **brand-6** `#bf7642` — основной текст
+- **brand-7** `#a5653a` — dimmed текст (светлая тема); скроллбары (тёмная тема)
+- **brand-8** `#8b5432` — бордеры (тёмная тема)
+- **brand-9** `#72442a` — основной текст (светлая тема), самый тёмный
+
+### Правила
+- **Не использовать** чёрный (#000) и серый (gray-*) для текста и бордеров.
+- **Не использовать** захардкоженные цвета (rgba, hex) в компонентах — только CSS-переменные.
+- Все текстовые цвета — через `--mantine-color-text` и `--mantine-color-dimmed` (заданы в `cssVariablesResolver`).
+- Все бордеры — через `var(--mantine-color-default-border)`.
+- Приглушённый текст — проп `c="dimmed"` у Text.
+- Фоны — `var(--mantine-color-body)`, контрастные блоки — `var(--mantine-color-dark-6)` / `var(--mantine-color-brand-0)`.
+- **Скроллбары:** track — brand-0 (light) / dark-7 (dark), thumb — brand-3, hover — brand-5.
+- **Семантические цвета (НЕ менять):**
+  - `color="red"` — опасные действия (удаление)
+  - `color="green"` — успех, статусы
+  - `color="yellow"` — предупреждения
 
 ## 2. Типографика
 

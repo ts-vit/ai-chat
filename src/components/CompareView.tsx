@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-    ActionIcon,
     Badge,
     Box,
     Button,
@@ -15,6 +14,7 @@ import {
     Tooltip,
 } from "@mantine/core";
 import {
+    IconArrowLeft,
     IconColumns,
     IconPlus,
 } from "@tabler/icons-react";
@@ -27,6 +27,7 @@ import { useChatStore } from "../store/chatStore";
 import { CreateComparisonModal } from "./CreateComparisonModal";
 import { MessageInput } from "./MessageInput";
 import type { Comparison, ComparisonMessage, ContentBlock } from "../types";
+import { ToolCallBlock } from "./ToolCallBlock";
 
 function formatTokens(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -131,7 +132,7 @@ function AssistantBubble({
     if (blocks) {
         return (
             <Box style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-                {blocks.map((block, i) => {
+                {blocks.map((block) => {
                     if (block.type === "image") {
                         if (!appDataDirPath) return null;
                         const path = "path" in block ? block.path : "";
@@ -142,24 +143,27 @@ function AssistantBubble({
                             : base + sep + path.replace(/^[/\\]+/, "").replace(/\//g, sep);
                         const src = convertFileSrc(fullPath);
                         return (
-                            <Box key={i} mb="xs">
+                            <Box key={`image-${path}`} mb="xs">
                                 <img
                                     src={src}
-                                    alt={"name" in block ? block.name : `image_${i}`}
+                                    alt={"name" in block ? block.name : "image"}
                                     style={{
                                         maxWidth: 400,
                                         borderRadius: "var(--mantine-radius-sm)",
                                         cursor: "pointer",
                                         display: "block",
                                     }}
+                                    role="button"
+                                    tabIndex={0}
                                     onClick={() => onImageClick?.(src)}
+                                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onImageClick?.(src); } }}
                                 />
                             </Box>
                         );
                     }
                     if (block.type === "text" && "text" in block && block.text) {
                         return (
-                            <Box key={i} className="markdown-body" style={{ fontSize: 14 }}>
+                            <Box key={`text-${block.text.slice(0, 32)}`} className="markdown-body" style={{ fontSize: 14 }}>
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
                                     {block.text}
                                 </ReactMarkdown>
@@ -192,6 +196,66 @@ function AssistantBubble({
     );
 }
 
+function UserMessageContent({
+    message,
+    appDataDirPath,
+    onImageClick,
+}: {
+    message: ComparisonMessage;
+    appDataDirPath: string | null;
+    onImageClick?: (src: string) => void;
+}) {
+    const blocks = message.hasAttachments ? tryParseContentBlocks(message.content) : null;
+    if (!blocks) {
+        return (
+            <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                {message.content}
+            </Text>
+        );
+    }
+    const sep = appDataDirPath?.includes("\\") ? "\\" : "/";
+    const base = appDataDirPath?.replace(/[/\\]+$/, "") ?? "";
+    return (
+        <Box>
+            {blocks.map((block) => {
+                if (block.type === "image" && "path" in block && block.path && appDataDirPath) {
+                    const isAbs = block.path.startsWith("/") || /^[A-Za-z]:[/\\]/.test(block.path);
+                    const full = isAbs ? block.path : base + sep + block.path.replace(/^[/\\]+/, "").replace(/\//g, sep);
+                    const src = convertFileSrc(full);
+                    return (
+                        <Box key={`image-${block.path}`} mb="xs">
+                            <img
+                                src={src}
+                                alt={"name" in block ? block.name : "image"}
+                                style={{ maxWidth: 200, borderRadius: "var(--mantine-radius-sm)", cursor: "pointer", display: "block" }}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => onImageClick?.(src)}
+                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onImageClick?.(src); } }}
+                            />
+                        </Box>
+                    );
+                }
+                if (block.type === "file" && "name" in block) {
+                    return (
+                        <Badge key={`file-${block.name}`} size="xs" variant="light" mb="xs">
+                            {block.name}
+                        </Badge>
+                    );
+                }
+                if (block.type === "text" && "text" in block && block.text) {
+                    return (
+                        <Text key={`text-${block.text.slice(0, 32)}`} size="sm" style={{ whiteSpace: "pre-wrap" }}>
+                            {block.text}
+                        </Text>
+                    );
+                }
+                return null;
+            })}
+        </Box>
+    );
+}
+
 export function CompareView() {
     const { t } = useTranslation();
     const {
@@ -200,7 +264,10 @@ export function CompareView() {
         comparisonMessages,
         compareStreamingLeft,
         compareStreamingRight,
+        compareToolCallsLeft,
+        compareToolCallsRight,
         loadComparisons,
+        setActiveComparison,
         setView,
         createComparison,
         updateComparisonTitle,
@@ -226,6 +293,12 @@ export function CompareView() {
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [comparisonMessages]);
+
+    useEffect(() => {
+        if (!activeComparisonId && comparisons.length > 0) {
+            setActiveComparison(comparisons[0].id);
+        }
+    }, [activeComparisonId, comparisons, setActiveComparison]);
 
     const activeComparison = comparisons.find((c) => c.id === activeComparisonId);
     const rounds = useMemo(() => buildRounds(comparisonMessages), [comparisonMessages]);
@@ -299,14 +372,10 @@ export function CompareView() {
             >
                 <Group justify="space-between" wrap="nowrap">
                     <Group gap="xs" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-                        <ActionIcon
-                            variant="subtle"
-                            size="sm"
-                            onClick={() => setView("chat")}
-                            aria-label={t("common.back")}
-                        >
-                            ←
-                        </ActionIcon>
+                        <Group gap={4} wrap="nowrap" style={{ cursor: "pointer", flexShrink: 0 }} onClick={() => setView("comparisons")}>
+                            <IconArrowLeft size={16} stroke={1.5} color="var(--mantine-color-dimmed)" />
+                            <Text size="sm" c="dimmed">{t("comparisons.back")}</Text>
+                        </Group>
                         {editingTitle === activeComparison.id ? (
                             <TextInput
                                 size="xs"
@@ -333,7 +402,7 @@ export function CompareView() {
                         )}
                     </Group>
                     <Group gap="xs" wrap="nowrap">
-                        <Badge size="xs" variant="light" color="blue">
+                        <Badge size="xs" variant="light" color="brand">
                             {activeComparison.leftModel.split("/").pop()}
                         </Badge>
                         <Text size="xs" c="dimmed">{t("compare.vsLabel")}</Text>
@@ -362,15 +431,17 @@ export function CompareView() {
                                     mb="sm"
                                     radius="sm"
                                     style={{
-                                        backgroundColor: "var(--mantine-color-blue-light)",
+                                        backgroundColor: "var(--mantine-color-brand-light)",
                                     }}
                                 >
                                     <Text size="xs" c="dimmed" mb={4}>
                                         {t("compare.round", { n: i + 1 })}
                                     </Text>
-                                    <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-                                        {round.userMessage.content}
-                                    </Text>
+                                    <UserMessageContent
+                                        message={round.userMessage}
+                                        appDataDirPath={appDataDirPath}
+                                        onImageClick={setLightboxSrc}
+                                    />
                                 </Paper>
 
                                 {/* Two columns */}
@@ -383,7 +454,7 @@ export function CompareView() {
                                         style={{
                                             flex: 1,
                                             minWidth: 0,
-                                            borderColor: "var(--mantine-color-blue-3)",
+                                            borderColor: "var(--mantine-color-brand-3)",
                                             borderWidth: 1,
                                         }}
                                     >
@@ -393,6 +464,9 @@ export function CompareView() {
                                             appDataDirPath={appDataDirPath}
                                             onImageClick={setLightboxSrc}
                                         />
+                                        {compareStreamingLeft && i === rounds.length - 1 && compareToolCallsLeft.length > 0 && (
+                                            <ToolCallBlock toolCalls={compareToolCallsLeft} />
+                                        )}
                                     </Paper>
 
                                     {/* Right */}
@@ -413,6 +487,9 @@ export function CompareView() {
                                             appDataDirPath={appDataDirPath}
                                             onImageClick={setLightboxSrc}
                                         />
+                                        {compareStreamingRight && i === rounds.length - 1 && compareToolCallsRight.length > 0 && (
+                                            <ToolCallBlock toolCalls={compareToolCallsRight} />
+                                        )}
                                     </Paper>
                                 </Box>
                             </Box>
@@ -438,6 +515,7 @@ export function CompareView() {
                 onStop={handleStop}
                 disabled={isStreaming}
                 isStopping={false}
+                enableAttachments
             />
 
             <CreateComparisonModal

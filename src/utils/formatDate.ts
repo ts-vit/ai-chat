@@ -12,6 +12,21 @@ export function toUnixSeconds(timestamp: number): number {
 import i18n from "../i18n";
 
 /**
+ * Форматирует timestamp в относительное время с точностью до минут/часов.
+ */
+export function formatRelativeTime(timestamp: number): string {
+    const sec = toUnixSeconds(timestamp);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const diff = nowSec - sec;
+
+    if (diff < 60) return i18n.t("dates.justNow");
+    if (diff < 3600) return i18n.t("dates.minutesAgo", { count: Math.floor(diff / 60) });
+    if (diff < 86400) return i18n.t("dates.hoursAgo", { count: Math.floor(diff / 3600) });
+
+    return formatRelativeDate(timestamp);
+}
+
+/**
  * Форматирует Unix timestamp (в секундах или мс — нормализуется внутри) в относительную дату для отображения в списке чатов.
  */
 export function formatRelativeDate(timestamp: number): string {

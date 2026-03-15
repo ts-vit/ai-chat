@@ -13,23 +13,19 @@ import {
     SimpleGrid,
     Stack,
     Text,
-    TextInput,
     UnstyledButton,
 } from "@mantine/core";
 import {
     IconCloud,
+    IconPlug,
     IconPlugConnected,
-    IconSearch,
     IconServer,
+    IconTemplate,
 } from "@tabler/icons-react";
-import { FOLDER_COLORS } from "../constants/folderColors";
 import { useChatStore } from "../store/chatStore";
 import type { ChatTemplate, ModelInfo } from "../types";
 
-function getTemplateColor(tmpl: ChatTemplate): string {
-    const c = tmpl.color;
-    return c && FOLDER_COLORS.includes(c as (typeof FOLDER_COLORS)[number]) ? c : "blue";
-}
+const BRAND_COLOR = "#D4854A";
 
 interface ProviderSelectModalProps {
     opened: boolean;
@@ -88,42 +84,18 @@ export function ProviderSelectModal({
         null
     );
     const [selectedModel, setSelectedModel] = useState<string>("");
-    const [searchQuery, setSearchQuery] = useState<string>("");
-
     const openrouterModels = settings.openrouterEnabledModels ?? [];
     const ollamaModels = settings.ollamaEnabledModels ?? [];
     const showOllama = ollamaStatus === "available";
     const customEnabledModels = settings.customProviderEnabledModels ?? {};
 
-    const totalModelsCount = useMemo(() => {
-        const customTotal = customProviders.reduce(
-            (acc, p) => acc + (customEnabledModels[p.id]?.length ?? 0),
-            0
-        );
-        return (
-            openrouterModels.length +
-            (showOllama ? ollamaModels.length : 0) +
-            customTotal
-        );
-    }, [
-        openrouterModels.length,
-        showOllama,
-        ollamaModels.length,
-        customProviders,
-        customEnabledModels,
-    ]);
-
     const providersWithModels = useMemo((): ProviderEntry[] => {
-        const q = searchQuery.trim().toLowerCase();
-        const filter = (list: string[]) =>
-            q ? list.filter((id) => id.toLowerCase().includes(q)) : list;
-
         const entries: ProviderEntry[] = [
             {
                 id: "openrouter",
                 name: "OpenRouter",
-                icon: <IconCloud size={18} stroke={1.5} />,
-                models: filter(openrouterModels),
+                icon: <IconCloud size={20} stroke={1.5} color={BRAND_COLOR} />,
+                models: openrouterModels,
                 isOpenRouter: true,
             },
         ];
@@ -131,8 +103,8 @@ export function ProviderSelectModal({
             entries.push({
                 id: "ollama",
                 name: "Ollama",
-                icon: <IconServer size={18} stroke={1.5} />,
-                models: filter(ollamaModels),
+                icon: <IconServer size={20} stroke={1.5} color={BRAND_COLOR} />,
+                models: ollamaModels,
                 isOpenRouter: false,
             });
         }
@@ -141,14 +113,13 @@ export function ProviderSelectModal({
             entries.push({
                 id: p.id,
                 name: p.name,
-                icon: <IconPlugConnected size={18} stroke={1.5} />,
-                models: filter(list),
+                icon: <IconPlugConnected size={20} stroke={1.5} color={BRAND_COLOR} />,
+                models: list,
                 isOpenRouter: false,
             });
         });
         return entries;
     }, [
-        searchQuery,
         openrouterModels,
         showOllama,
         ollamaModels,
@@ -166,18 +137,10 @@ export function ProviderSelectModal({
             : ([] as string[]);
     }, [providersWithModels]);
 
-    function getOriginalModelCount(entry: ProviderEntry): number {
-        if (entry.id === "openrouter") return openrouterModels.length;
-        if (entry.id === "ollama") return ollamaModels.length;
-        const list = customEnabledModels[entry.id] ?? [];
-        return list.length;
-    }
-
     useEffect(() => {
         if (!opened) {
             setSelectedProviderId(null);
             setSelectedModel("");
-            setSearchQuery("");
             setTab("templates");
         } else {
             checkOllamaStatus();
@@ -185,25 +148,6 @@ export function ProviderSelectModal({
             loadTemplates();
         }
     }, [opened, checkOllamaStatus, loadModels, loadTemplates]);
-
-    useEffect(() => {
-        if (!selectedProviderId || !selectedModel) return;
-        const entry = providersWithModels.find((e) => e.id === selectedProviderId);
-        const stillVisible =
-            entry?.models.some((m) => m === selectedModel) ?? false;
-        if (!stillVisible) {
-            setSelectedProviderId(null);
-            setSelectedModel("");
-        }
-    }, [
-        searchQuery,
-        selectedProviderId,
-        selectedModel,
-        providersWithModels,
-        openrouterModels,
-        ollamaModels,
-        customEnabledModels,
-    ]);
 
     const handleSelect = (providerId: string, model: string) => {
         setSelectedProviderId(providerId);
@@ -238,8 +182,24 @@ export function ProviderSelectModal({
                     value={tab}
                     onChange={(v) => setTab(v as "templates" | "providers")}
                     data={[
-                        { label: t("providerModal.tabTemplates"), value: "templates" },
-                        { label: t("providerModal.tabProviders"), value: "providers" },
+                        {
+                            label: (
+                                <Group gap={6} wrap="nowrap" justify="center">
+                                    <IconTemplate size={16} stroke={1.5} color={BRAND_COLOR} />
+                                    <span style={{ color: BRAND_COLOR }}>{t("providerModal.tabTemplates")}</span>
+                                </Group>
+                            ),
+                            value: "templates",
+                        },
+                        {
+                            label: (
+                                <Group gap={6} wrap="nowrap" justify="center">
+                                    <IconPlug size={16} stroke={1.5} color={BRAND_COLOR} />
+                                    <span style={{ color: BRAND_COLOR }}>{t("providerModal.tabProviders")}</span>
+                                </Group>
+                            ),
+                            value: "providers",
+                        },
                     ]}
                 />
                 {tab === "templates" && (
@@ -261,7 +221,7 @@ export function ProviderSelectModal({
                                                 cursor: "pointer",
                                                 borderColor:
                                                     hoveredTemplateId === tmpl.id
-                                                        ? "var(--mantine-color-blue-5)"
+                                                        ? BRAND_COLOR
                                                         : undefined,
                                                 transition: "border-color 0.15s",
                                             }}
@@ -281,13 +241,13 @@ export function ProviderSelectModal({
                                                         width: 36,
                                                         height: 36,
                                                         borderRadius: "50%",
-                                                        backgroundColor: `var(--mantine-color-${getTemplateColor(tmpl)}-5)`,
+                                                        backgroundColor: "rgba(212, 133, 74, 0.1)",
                                                         display: "flex",
                                                         alignItems: "center",
                                                         justifyContent: "center",
                                                     }}
                                                 >
-                                                    <Text size="xl">{tmpl.icon || "💬"}</Text>
+                                                    <IconTemplate size={20} stroke={1.5} color={BRAND_COLOR} />
                                                 </Box>
                                                 <Text size="sm" fw={600}>
                                                     {tmpl.name}
@@ -319,40 +279,15 @@ export function ProviderSelectModal({
                         <Text size="sm" c="dimmed">
                             {t("providerModal.hint")}
                         </Text>
-                        {totalModelsCount > 5 && (
-                            <TextInput
-                                placeholder={t(
-                                    "providerModal.searchPlaceholder"
-                                )}
-                                leftSection={
-                                    <IconSearch size={16} stroke={1.5} />
-                                }
-                                value={searchQuery}
-                                onChange={(e) =>
-                                    setSearchQuery(e.currentTarget.value)
-                                }
-                            />
-                        )}
                         <ScrollArea.Autosize mah={400} type="scroll">
                             <Accordion
                                 variant="separated"
                                 multiple
                                 defaultValue={defaultValue}
                             >
-                                {providersWithModels
-                                    .filter((entry) => {
-                                        const originalCount =
-                                            getOriginalModelCount(entry);
-                                        return (
-                                            originalCount === 0 ||
-                                            entry.models.length > 0
-                                        );
-                                    })
-                                    .map((entry) => {
-                                        const originalCount =
-                                            getOriginalModelCount(entry);
+                                {providersWithModels.map((entry) => {
                                         const hasNoModels =
-                                            originalCount === 0;
+                                            entry.models.length === 0;
 
                                         return (
                                             <Accordion.Item
@@ -436,7 +371,7 @@ export function ProviderSelectModal({
                                                                                     "var(--mantine-radius-sm)",
                                                                                 backgroundColor:
                                                                                     selected
-                                                                                        ? "var(--mantine-color-blue-light)"
+                                                                                        ? "var(--mantine-color-brand-light)"
                                                                                         : undefined,
                                                                             }}
                                                                         >

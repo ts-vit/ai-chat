@@ -1,4 +1,12 @@
 // реэкспорт моделей
+pub mod catalog;
 pub mod chat;
 pub mod comparison;
 pub mod mcp;
+pub mod memory;
+pub mod prompt_library;
+pub mod skill;
+pub mod plan;
+pub mod workspace;
+pub mod project;
+pub mod scheduler;

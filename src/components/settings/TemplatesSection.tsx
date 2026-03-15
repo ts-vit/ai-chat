@@ -19,7 +19,7 @@ import {
     ColorSwatch,
     Tooltip,
 } from "@mantine/core";
-import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconArrowDown, IconArrowUp, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
 import { FOLDER_COLORS } from "../../constants/folderColors";
 import { useChatStore } from "../../store/chatStore";
 import type { ChatTemplate } from "../../types";
@@ -54,6 +54,7 @@ export function TemplatesSection() {
         createTemplate,
         updateTemplate,
         deleteTemplate,
+        reorderTemplates,
         settings,
         customProviders,
         ollamaStatus,
@@ -243,6 +244,13 @@ export function TemplatesSection() {
         [templates]
     );
 
+    const moveTemplate = async (index: number, direction: "up" | "down") => {
+        const newIndex = direction === "up" ? index - 1 : index + 1;
+        const newTemplates = [...sortedTemplates];
+        [newTemplates[index], newTemplates[newIndex]] = [newTemplates[newIndex], newTemplates[index]];
+        await reorderTemplates(newTemplates.map((t) => t.id));
+    };
+
     return (
         <Stack gap="lg">
             <Stack gap="xs">
@@ -286,7 +294,7 @@ export function TemplatesSection() {
                 </Stack>
             ) : (
                 <Stack gap="xs">
-                    {sortedTemplates.map((tmpl) => (
+                    {sortedTemplates.map((tmpl, index) => (
                         <Card key={tmpl.id} withBorder padding="sm">
                             <Group justify="space-between" wrap="nowrap" align="flex-start">
                                 <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
@@ -327,6 +335,30 @@ export function TemplatesSection() {
                                     )}
                                 </Stack>
                                 <Group gap="xs" wrap="nowrap">
+                                    <Tooltip label={t("templates.moveUp")}>
+                                        <ActionIcon
+                                            variant="subtle"
+                                            size="xs"
+                                            color="brand"
+                                            disabled={index === 0}
+                                            onClick={() => moveTemplate(index, "up")}
+                                            aria-label={t("templates.moveUp")}
+                                        >
+                                            <IconArrowUp size={14} stroke={1.5} />
+                                        </ActionIcon>
+                                    </Tooltip>
+                                    <Tooltip label={t("templates.moveDown")}>
+                                        <ActionIcon
+                                            variant="subtle"
+                                            size="xs"
+                                            color="brand"
+                                            disabled={index === sortedTemplates.length - 1}
+                                            onClick={() => moveTemplate(index, "down")}
+                                            aria-label={t("templates.moveDown")}
+                                        >
+                                            <IconArrowDown size={14} stroke={1.5} />
+                                        </ActionIcon>
+                                    </Tooltip>
                                     <Tooltip label={t("common.edit")}>
                                         <ActionIcon
                                             variant="subtle"

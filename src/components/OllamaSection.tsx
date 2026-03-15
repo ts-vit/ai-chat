@@ -19,11 +19,13 @@ import { useChatStore } from "../store/chatStore";
 import { ConfirmModal } from "./ConfirmModal";
 
 const PULL_MODEL_KEYS = [
-    { value: "llama3.2", labelKey: "ollama.pullLlama" as const },
-    { value: "qwen2.5:0.5b", labelKey: "ollama.pullQwen" as const },
-    { value: "mistral", labelKey: "ollama.pullMistral" as const },
-    { value: "phi3", labelKey: "ollama.pullPhi" as const },
+    { value: "qwen2.5:0.5b", labelKey: "ollama.pullQwen05" as const },
+    { value: "qwen2.5:1.5b", labelKey: "ollama.pullQwen15" as const },
     { value: "gemma2:2b", labelKey: "ollama.pullGemma" as const },
+    { value: "qwen2.5:3b", labelKey: "ollama.pullQwen3" as const },
+    { value: "qwen2.5-coder:3b", labelKey: "ollama.pullQwenCoder" as const },
+    { value: "llama3.2:3b", labelKey: "ollama.pullLlama" as const },
+    { value: "phi3:latest", labelKey: "ollama.pullPhi" as const },
 ] as const;
 
 const MAX_ENABLED_MODELS = 5;
@@ -49,7 +51,7 @@ export function OllamaSection({ ollamaUrl: _ollamaUrl, onOllamaUrlChange: _onOll
     } = useChatStore();
 
     const [deletingModelName, setDeletingModelName] = useState<string | null>(null);
-    const [selectedModel, setSelectedModel] = useState<string>("llama3.2");
+    const [selectedModel, setSelectedModel] = useState<string>("qwen2.5:3b");
 
     useEffect(() => {
         checkOllamaStatus();

@@ -1,14 +1,22 @@
+use std::collections::HashMap;
+use std::sync::Arc;
 use base64::Engine;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE};
 use sqlx::Row;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::commands::attachments::save_attachment_file;
-use crate::commands::chat::{is_image_generation_model, StreamState};
-use crate::models::chat::{ChatRequest, ContentBlock, Message, StreamResponse};
+use crate::commands::chat::{
+    is_image_generation_model, mcp_tools_to_openai, parse_tool_call_name,
+    StreamState, ToolCallBuffer, MAX_TOOL_ITERATIONS,
+};
+use crate::models::chat::{AttachmentInput, ContentBlock, Message, StreamResponse};
 use crate::models::comparison::{DbComparison, DbComparisonMessage};
+use crate::services::http_client::build_http_client;
+use crate::services::mcp_manager::McpManager;
+use crate::services::retry::{retry_http_request, RetryResult};
 
 type Pool = sqlx::SqlitePool;
 
@@ -182,7 +190,7 @@ pub async fn get_comparison_messages(
     comparison_id: String,
 ) -> Result<Vec<DbComparisonMessage>, String> {
     let rows = sqlx::query(
-        "SELECT id, comparison_id, role, side, content, timestamp, model, prompt_tokens, completion_tokens, cost FROM comparison_messages WHERE comparison_id = ? ORDER BY timestamp ASC",
+        "SELECT id, comparison_id, role, side, content, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments FROM comparison_messages WHERE comparison_id = ? ORDER BY timestamp ASC",
     )
     .bind(&comparison_id)
     .fetch_all(pool.inner())
@@ -205,6 +213,7 @@ pub async fn get_comparison_messages(
             prompt_tokens: row.try_get("prompt_tokens").unwrap_or(0),
             completion_tokens: row.try_get("completion_tokens").unwrap_or(0),
             cost: row.try_get("cost").unwrap_or(0.0),
+            has_attachments: row.try_get("has_attachments").ok(),
         })
         .collect();
 
@@ -261,6 +270,7 @@ pub async fn save_comparison_message(
         prompt_tokens: 0,
         completion_tokens: 0,
         cost: 0.0,
+        has_attachments: Some(0),
     })
 }
 
@@ -343,18 +353,50 @@ struct ComparisonStreamImagePayload {
     index: u32,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ComparisonStreamRetryPayload {
+    side: String,
+    attempt: u32,
+    max_attempts: u32,
+    delay_ms: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ComparisonToolCallPayload {
+    side: String,
+    tool_call_id: String,
+    server_id: String,
+    tool_name: String,
+    arguments: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ComparisonToolResultPayload {
+    side: String,
+    tool_call_id: String,
+    result: String,
+    is_error: bool,
+}
+
 async fn stream_one_side(
     app: AppHandle,
     side: String,
     base_url: String,
     api_key: String,
     model: String,
-    messages: Vec<Message>,
+    messages: Vec<serde_json::Value>,
     temperature: Option<f32>,
     max_tokens: Option<u32>,
     assistant_message_id: String,
     pool: Pool,
     cancel_token: tokio_util::sync::CancellationToken,
+    supports_tool_use: bool,
+    openai_tools: Vec<serde_json::Value>,
+    tool_name_map: HashMap<String, (String, String)>,
+    mcp_manager: Arc<McpManager>,
 ) {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
 
@@ -369,158 +411,208 @@ async fn stream_one_side(
     let is_image = is_image_generation_model(&model);
     let temperature = if is_image { None } else { temperature };
     let max_tokens = if is_image { None } else { max_tokens };
-    let modalities = if is_image {
-        Some(vec!["image".to_string(), "text".to_string()])
-    } else {
-        None
-    };
 
-    let request_body = ChatRequest {
-        model: model.clone(),
-        messages,
-        stream: true,
-        temperature,
-        max_tokens,
-        top_p: None,
-        top_k: None,
-        frequency_penalty: None,
-        presence_penalty: None,
-        stream_options: Some(serde_json::json!({"include_usage": true})),
-        modalities,
-        image_config: None,
-    };
-
-    let body = match serde_json::to_value(&request_body) {
-        Ok(b) => b,
-        Err(e) => {
-            let _ = app.emit("comparison-stream-error", ComparisonStreamErrorPayload {
-                side: side.clone(),
-                error: e.to_string(),
-            });
-            return;
-        }
-    };
-
-    let client = reqwest::Client::new();
-    let response = match client.post(&url).headers(headers).json(&body).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            let _ = app.emit("comparison-stream-error", ComparisonStreamErrorPayload {
-                side: side.clone(),
-                error: e.to_string(),
-            });
-            return;
-        }
-    };
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let err_body = response.text().await.unwrap_or_default();
-        log::error!("[comparison-stream-{}] API error {}: {}", side, status, err_body);
-        let parsed = serde_json::from_str::<serde_json::Value>(&err_body).ok();
-        let msg = parsed
-            .as_ref()
-            .and_then(|v| v.get("error"))
-            .and_then(|e| e.get("message"))
-            .and_then(|m| m.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| format!("API error ({})", status.as_u16()));
-        let _ = app.emit("comparison-stream-error", ComparisonStreamErrorPayload {
-            side: side.clone(),
-            error: msg,
-        });
-        return;
+    let mut body = serde_json::json!({
+        "model": model,
+        "messages": messages,
+        "stream": true,
+        "stream_options": {"include_usage": true}
+    });
+    if let Some(t) = temperature {
+        body["temperature"] = serde_json::json!(t);
+    }
+    if let Some(m) = max_tokens {
+        body["max_tokens"] = serde_json::json!(m);
+    }
+    if is_image {
+        body["modalities"] = serde_json::json!(["image", "text"]);
     }
 
-    let mut stream = response.bytes_stream();
-    let mut sse_buffer = String::new();
+    if !is_image && supports_tool_use && !openai_tools.is_empty() {
+        body["tools"] = serde_json::Value::Array(openai_tools.clone());
+    }
+
+    let client = match build_http_client(&app, None).await {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = app.emit("comparison-stream-error", ComparisonStreamErrorPayload {
+                side: side.clone(),
+                error: e,
+            });
+            return;
+        }
+    };
+
     let mut full_content = String::new();
     let mut image_index: u32 = 0;
     let mut saved_images: Vec<(String, u32)> = Vec::new();
+    let mut done_emitted = false;
 
-    loop {
-        tokio::select! {
-            _ = cancel_token.cancelled() => {
-                break;
+    'tool_loop: for _iteration in 0..MAX_TOOL_ITERATIONS {
+        let app_retry = app.clone();
+        let side_retry = side.clone();
+        let response = match retry_http_request(
+            &client,
+            &url,
+            headers.clone(),
+            &body,
+            &cancel_token,
+            |info| {
+                let _ = app_retry.emit("comparison-stream-retry", ComparisonStreamRetryPayload {
+                    side: side_retry.clone(),
+                    attempt: info.attempt,
+                    max_attempts: info.max_attempts,
+                    delay_ms: info.delay_ms,
+                });
+            },
+        ).await {
+            RetryResult::Success(r) => r,
+            RetryResult::Cancelled => break 'tool_loop,
+            RetryResult::NonRetryableHttp { status, body: err_body } => {
+                log::error!("[comparison-stream-{}] API error {}: {}", side, status, err_body);
+                let parsed = serde_json::from_str::<serde_json::Value>(&err_body).ok();
+                let msg = parsed
+                    .as_ref()
+                    .and_then(|v| v.get("error"))
+                    .and_then(|e| e.get("message"))
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| format!("API error ({})", status));
+                let _ = app.emit("comparison-stream-error", ComparisonStreamErrorPayload {
+                    side: side.clone(),
+                    error: msg,
+                });
+                return;
             }
-            chunk = stream.next() => {
-                match chunk {
-                    None => break,
-                    Some(Err(e)) => {
-                        let _ = app.emit("comparison-stream-error", ComparisonStreamErrorPayload {
-                            side: side.clone(),
-                            error: e.to_string(),
-                        });
-                        return;
-                    }
-                    Some(Ok(bytes)) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        sse_buffer.push_str(&text);
+            RetryResult::Failed(e) => {
+                let _ = app.emit("comparison-stream-error", ComparisonStreamErrorPayload {
+                    side: side.clone(),
+                    error: e,
+                });
+                return;
+            }
+        };
 
-                        while let Some(line_end) = sse_buffer.find('\n') {
-                            let line = sse_buffer[..line_end].trim().to_string();
-                            sse_buffer = sse_buffer[line_end + 1..].to_string();
+        let mut stream = response.bytes_stream();
+        let mut sse_buffer = String::new();
+        let mut tool_call_buffers: HashMap<usize, ToolCallBuffer> = HashMap::new();
+        let mut got_tool_calls_finish = false;
+        let mut iteration_content = String::new();
+        let mut stream_done = false;
 
-                            if line.is_empty() || line.starts_with(':') {
-                                continue;
-                            }
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    break 'tool_loop;
+                }
+                chunk = stream.next() => {
+                    match chunk {
+                        None => { stream_done = true; break; }
+                        Some(Err(e)) => {
+                            let _ = app.emit("comparison-stream-error", ComparisonStreamErrorPayload {
+                                side: side.clone(),
+                                error: e.to_string(),
+                            });
+                            return;
+                        }
+                        Some(Ok(bytes)) => {
+                            let text = String::from_utf8_lossy(&bytes);
+                            sse_buffer.push_str(&text);
 
-                            if let Some(data) = line.strip_prefix("data: ") {
-                                if data.trim() == "[DONE]" {
-                                    break;
+                            while let Some(line_end) = sse_buffer.find('\n') {
+                                let line = sse_buffer[..line_end].trim().to_string();
+                                sse_buffer = sse_buffer[line_end + 1..].to_string();
+
+                                if line.is_empty() || line.starts_with(':') {
+                                    continue;
                                 }
 
-                                if let Ok(resp) = serde_json::from_str::<StreamResponse>(data) {
-                                    if let Some(usage) = &resp.usage {
-                                        let _ = app.emit("comparison-stream-usage", ComparisonStreamUsagePayload {
-                                            side: side.clone(),
-                                            prompt_tokens: usage.prompt_tokens,
-                                            completion_tokens: usage.completion_tokens,
-                                            total_tokens: usage.total_tokens,
-                                        });
+                                if let Some(data) = line.strip_prefix("data: ") {
+                                    if data.trim() == "[DONE]" {
+                                        stream_done = true;
+                                        break;
                                     }
-                                    if let Some(choice) = resp.choices.first() {
-                                        if let Some(content) = &choice.delta.content {
-                                            full_content.push_str(content);
-                                            let _ = app.emit("comparison-stream", ComparisonStreamPayload {
+
+                                    if let Ok(resp) = serde_json::from_str::<StreamResponse>(data) {
+                                        if let Some(usage) = &resp.usage {
+                                            let _ = app.emit("comparison-stream-usage", ComparisonStreamUsagePayload {
                                                 side: side.clone(),
-                                                content: content.clone(),
+                                                prompt_tokens: usage.prompt_tokens,
+                                                completion_tokens: usage.completion_tokens,
+                                                total_tokens: usage.total_tokens,
                                             });
                                         }
+                                        if let Some(choice) = resp.choices.first() {
+                                            if let Some(content) = &choice.delta.content {
+                                                iteration_content.push_str(content);
+                                                full_content.push_str(content);
+                                                let _ = app.emit("comparison-stream", ComparisonStreamPayload {
+                                                    side: side.clone(),
+                                                    content: content.clone(),
+                                                });
+                                            }
 
-                                        if let Some(ref images) = choice.delta.images {
-                                            for img in images.iter() {
-                                                let data_url = img.image_url.url.trim();
-                                                if let Some(base64_str) = data_url.splitn(2, ',').nth(1) {
-                                                    match base64::engine::general_purpose::STANDARD.decode(base64_str.trim()) {
-                                                        Ok(decoded) => {
-                                                            let idx = image_index;
-                                                            image_index += 1;
-                                                            let file_name = format!("{}.png", idx);
-                                                            if let Ok(rel_path) = save_attachment_file(
-                                                                &app,
-                                                                &assistant_message_id,
-                                                                &file_name,
-                                                                &decoded,
-                                                            ) {
-                                                                saved_images.push((rel_path.clone(), idx));
-                                                                let _ = app.emit(
-                                                                    "comparison-stream-image",
-                                                                    ComparisonStreamImagePayload {
-                                                                        side: side.clone(),
-                                                                        message_id: assistant_message_id.clone(),
-                                                                        path: rel_path,
-                                                                        index: idx,
-                                                                    },
+                                            if let Some(ref tcs) = choice.delta.tool_calls {
+                                                for tc in tcs {
+                                                    let entry = tool_call_buffers
+                                                        .entry(tc.index)
+                                                        .or_insert_with(|| ToolCallBuffer {
+                                                            id: String::new(),
+                                                            name: String::new(),
+                                                            arguments: String::new(),
+                                                        });
+                                                    if let Some(ref id) = tc.id {
+                                                        entry.id.clone_from(id);
+                                                    }
+                                                    if let Some(ref func) = tc.function {
+                                                        if let Some(ref name) = func.name {
+                                                            entry.name.clone_from(name);
+                                                        }
+                                                        if let Some(ref args) = func.arguments {
+                                                            entry.arguments.push_str(args);
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if choice.finish_reason.as_deref() == Some("tool_calls") {
+                                                got_tool_calls_finish = true;
+                                            }
+
+                                            if let Some(ref images) = choice.delta.images {
+                                                for img in images.iter() {
+                                                    let data_url = img.image_url.url.trim();
+                                                    if let Some(base64_str) = data_url.splitn(2, ',').nth(1) {
+                                                        match base64::engine::general_purpose::STANDARD.decode(base64_str.trim()) {
+                                                            Ok(decoded) => {
+                                                                let idx = image_index;
+                                                                image_index += 1;
+                                                                let file_name = format!("{}.png", idx);
+                                                                if let Ok(rel_path) = save_attachment_file(
+                                                                    &app,
+                                                                    &assistant_message_id,
+                                                                    &file_name,
+                                                                    &decoded,
+                                                                ) {
+                                                                    saved_images.push((rel_path.clone(), idx));
+                                                                    let _ = app.emit(
+                                                                        "comparison-stream-image",
+                                                                        ComparisonStreamImagePayload {
+                                                                            side: side.clone(),
+                                                                            message_id: assistant_message_id.clone(),
+                                                                            path: rel_path,
+                                                                            index: idx,
+                                                                        },
+                                                                    );
+                                                                }
+                                                            }
+                                                            Err(e) => {
+                                                                log::error!(
+                                                                    "[comparison-stream-{}] image base64 decode error: {}",
+                                                                    side,
+                                                                    e
                                                                 );
                                                             }
-                                                        }
-                                                        Err(e) => {
-                                                            log::error!(
-                                                                "[comparison-stream-{}] image base64 decode error: {}",
-                                                                side,
-                                                                e
-                                                            );
                                                         }
                                                     }
                                                 }
@@ -529,11 +621,126 @@ async fn stream_one_side(
                                     }
                                 }
                             }
+
+                            if stream_done {
+                                break;
+                            }
                         }
                     }
                 }
             }
         }
+
+        // Tool call handling
+        if (got_tool_calls_finish || !tool_call_buffers.is_empty())
+            && !cancel_token.is_cancelled()
+        {
+            log::debug!(
+                "[comparison-stream-{}] {} tool_call(s) in iteration {}",
+                side, tool_call_buffers.len(), _iteration
+            );
+
+            let content_value = if iteration_content.is_empty() {
+                serde_json::Value::Null
+            } else {
+                serde_json::Value::String(iteration_content)
+            };
+
+            let mut sorted_indices: Vec<usize> =
+                tool_call_buffers.keys().copied().collect();
+            sorted_indices.sort();
+
+            let tc_array: Vec<serde_json::Value> = sorted_indices
+                .iter()
+                .map(|idx| {
+                    let buf = &tool_call_buffers[idx];
+                    serde_json::json!({
+                        "id": buf.id,
+                        "type": "function",
+                        "function": {
+                            "name": buf.name,
+                            "arguments": buf.arguments
+                        }
+                    })
+                })
+                .collect();
+
+            if let Some(msgs) = body["messages"].as_array_mut() {
+                msgs.push(serde_json::json!({
+                    "role": "assistant",
+                    "content": content_value,
+                    "tool_calls": tc_array
+                }));
+            }
+
+            for idx in &sorted_indices {
+                if cancel_token.is_cancelled() {
+                    break 'tool_loop;
+                }
+
+                let buf = &tool_call_buffers[idx];
+                let (server_id, tool_name) = parse_tool_call_name(&buf.name, &tool_name_map);
+                let args: serde_json::Value =
+                    serde_json::from_str(&buf.arguments).unwrap_or(serde_json::json!({}));
+
+                let _ = app.emit(
+                    "comparison-stream-tool-call",
+                    ComparisonToolCallPayload {
+                        side: side.clone(),
+                        tool_call_id: buf.id.clone(),
+                        server_id: server_id.clone(),
+                        tool_name: tool_name.clone(),
+                        arguments: buf.arguments.clone(),
+                    },
+                );
+
+                let result = mcp_manager.call_tool(&server_id, &tool_name, args).await;
+
+                let (result_text, is_error) = match result {
+                    Ok(r) => {
+                        let text = r
+                            .content
+                            .iter()
+                            .map(|c| c.text.as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        (text, r.is_error)
+                    }
+                    Err(e) => (e.to_string(), true),
+                };
+
+                let _ = app.emit(
+                    "comparison-stream-tool-result",
+                    ComparisonToolResultPayload {
+                        side: side.clone(),
+                        tool_call_id: buf.id.clone(),
+                        result: result_text.clone(),
+                        is_error,
+                    },
+                );
+
+                if let Some(msgs) = body["messages"].as_array_mut() {
+                    msgs.push(serde_json::json!({
+                        "role": "tool",
+                        "tool_call_id": buf.id,
+                        "content": result_text
+                    }));
+                }
+            }
+
+            continue 'tool_loop;
+        }
+
+        // Normal completion
+        done_emitted = true;
+        break;
+    }
+
+    if !done_emitted && !cancel_token.is_cancelled() {
+        log::warn!(
+            "[comparison-stream-{}] tool loop exhausted {} iterations",
+            side, MAX_TOOL_ITERATIONS
+        );
     }
 
     let final_content = if saved_images.is_empty() {
@@ -579,6 +786,7 @@ pub async fn stream_comparison_responses(
     app: AppHandle,
     stream_state: State<'_, StreamState>,
     pool: State<'_, Pool>,
+    mcp_manager: State<'_, Arc<McpManager>>,
     comparison_id: String,
     content: String,
     left_base_url: String,
@@ -589,6 +797,9 @@ pub async fn stream_comparison_responses(
     left_max_tokens: Option<u32>,
     right_temperature: Option<f32>,
     right_max_tokens: Option<u32>,
+    attachments: Option<Vec<AttachmentInput>>,
+    left_supports_tool_use: Option<bool>,
+    right_supports_tool_use: Option<bool>,
 ) -> Result<(), String> {
     let pool_inner = pool.inner().clone();
     let now = now_unix()?;
@@ -629,6 +840,66 @@ pub async fn stream_comparison_responses(
     .await
     .map_err(|e| e.to_string())?;
 
+    // Process attachments
+    let mut api_blocks_for_current: Option<Vec<serde_json::Value>> = None;
+    if let Some(ref atts) = attachments {
+        if !atts.is_empty() {
+            let mut db_blocks: Vec<ContentBlock> = Vec::new();
+            let mut api_blocks: Vec<serde_json::Value> = Vec::new();
+
+            for att in atts.iter() {
+                let path = save_attachment_file(&app, &user_msg_id, &att.name, &att.data)?;
+                let mime_lower = att.mime_type.to_lowercase();
+                if mime_lower.starts_with("image/") {
+                    db_blocks.push(ContentBlock {
+                        block_type: "image".to_string(),
+                        text: None,
+                        image_url: None,
+                        path: Some(path.clone()),
+                        name: Some(att.name.clone()),
+                        mime: None,
+                    });
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&att.data);
+                    api_blocks.push(serde_json::json!({
+                        "type": "image_url",
+                        "image_url": { "url": format!("data:{};base64,{}", att.mime_type, b64) }
+                    }));
+                } else {
+                    db_blocks.push(ContentBlock {
+                        block_type: "file".to_string(),
+                        text: None,
+                        image_url: None,
+                        path: Some(path.clone()),
+                        name: Some(att.name.clone()),
+                        mime: Some(att.mime_type.clone()),
+                    });
+                    let text_content = String::from_utf8_lossy(&att.data);
+                    let file_block = format!("--- Файл: {} ---\n{}\n---", att.name, text_content);
+                    api_blocks.push(serde_json::json!({ "type": "text", "text": file_block }));
+                }
+            }
+            api_blocks.push(serde_json::json!({ "type": "text", "text": content }));
+            db_blocks.push(ContentBlock {
+                block_type: "text".to_string(),
+                text: Some(content.clone()),
+                image_url: None,
+                path: None,
+                name: None,
+                mime: None,
+            });
+
+            let content_json = serde_json::to_string(&db_blocks).map_err(|e| e.to_string())?;
+            sqlx::query("UPDATE comparison_messages SET content = ?, has_attachments = 1 WHERE id = ?")
+                .bind(&content_json)
+                .bind(&user_msg_id)
+                .execute(&pool_inner)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            api_blocks_for_current = Some(api_blocks);
+        }
+    }
+
     let left_assistant_id = Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO comparison_messages (id, comparison_id, role, side, content, timestamp, model, prompt_tokens, completion_tokens, cost) VALUES (?, ?, 'assistant', 'left', '', ?, ?, 0, 0, 0.0)",
@@ -660,19 +931,32 @@ pub async fn stream_comparison_responses(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Emit with content_json if attachments present, so frontend sees the blocks
+    let emit_content = if api_blocks_for_current.is_some() {
+        // Use the db_blocks JSON for the frontend to render attachments
+        sqlx::query_scalar::<_, String>("SELECT content FROM comparison_messages WHERE id = ?")
+            .bind(&user_msg_id)
+            .fetch_one(&pool_inner)
+            .await
+            .unwrap_or_else(|_| content.clone())
+    } else {
+        content.clone()
+    };
+
     let _ = app.emit("comparison-messages-saved", serde_json::json!({
         "userMessageId": user_msg_id,
         "leftAssistantId": left_assistant_id,
         "rightAssistantId": right_assistant_id,
-        "content": content,
+        "content": emit_content,
         "timestamp": now,
         "comparisonId": comparison_id,
         "leftModel": comparison.left_model,
         "rightModel": comparison.right_model,
+        "hasAttachments": api_blocks_for_current.is_some(),
     }));
 
     let existing_rows = sqlx::query(
-        "SELECT role, side, content FROM comparison_messages WHERE comparison_id = ? AND id != ? AND id != ? AND id != ? ORDER BY timestamp ASC",
+        "SELECT role, side, content, has_attachments FROM comparison_messages WHERE comparison_id = ? AND id != ? AND id != ? AND id != ? ORDER BY timestamp ASC",
     )
     .bind(&comparison_id)
     .bind(&user_msg_id)
@@ -682,36 +966,95 @@ pub async fn stream_comparison_responses(
     .await
     .map_err(|e| e.to_string())?;
 
-    let build_history = |side_filter: &str, system_prompt: &Option<String>| -> Vec<Message> {
-        let mut msgs = Vec::new();
+    let app_data_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+
+    let build_history = |side_filter: &str, system_prompt: &Option<String>| -> Vec<serde_json::Value> {
+        let mut msgs: Vec<serde_json::Value> = Vec::new();
         if let Some(sp) = system_prompt {
             if !sp.trim().is_empty() {
-                msgs.push(Message { role: "system".to_string(), content: sp.clone() });
+                msgs.push(serde_json::json!({ "role": "system", "content": sp }));
             }
         }
         for row in &existing_rows {
             let role: String = row.get("role");
             let side: Option<String> = row.get("side");
             let msg_content: String = row.get("content");
+            let has_att: i64 = row.try_get("has_attachments").unwrap_or(0);
             if role == "user" {
-                msgs.push(Message { role: "user".to_string(), content: msg_content });
+                if has_att != 0 {
+                    // Reconstruct API blocks from stored ContentBlock JSON
+                    if let Ok(blocks) = serde_json::from_str::<Vec<ContentBlock>>(&msg_content) {
+                        let mut api_parts: Vec<serde_json::Value> = Vec::new();
+                        for block in &blocks {
+                            match block.block_type.as_str() {
+                                "image" => {
+                                    if let Some(ref rel_path) = block.path {
+                                        let full_path = app_data_dir.join(rel_path);
+                                        if let Ok(data) = std::fs::read(&full_path) {
+                                            let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+                                            let mime = block.mime.as_deref().unwrap_or("image/png");
+                                            api_parts.push(serde_json::json!({
+                                                "type": "image_url",
+                                                "image_url": { "url": format!("data:{};base64,{}", mime, b64) }
+                                            }));
+                                        }
+                                    }
+                                }
+                                "file" => {
+                                    if let Some(ref rel_path) = block.path {
+                                        let full_path = app_data_dir.join(rel_path);
+                                        if let Ok(data) = std::fs::read(&full_path) {
+                                            let text_content = String::from_utf8_lossy(&data);
+                                            let name = block.name.as_deref().unwrap_or("file");
+                                            api_parts.push(serde_json::json!({
+                                                "type": "text",
+                                                "text": format!("--- Файл: {} ---\n{}\n---", name, text_content)
+                                            }));
+                                        }
+                                    }
+                                }
+                                "text" => {
+                                    if let Some(ref text) = block.text {
+                                        api_parts.push(serde_json::json!({ "type": "text", "text": text }));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        msgs.push(serde_json::json!({ "role": "user", "content": api_parts }));
+                    } else {
+                        msgs.push(serde_json::json!({ "role": "user", "content": msg_content }));
+                    }
+                } else {
+                    msgs.push(serde_json::json!({ "role": "user", "content": msg_content }));
+                }
             } else if role == "assistant" {
                 if let Some(ref s) = side {
                     if s == side_filter {
-                        msgs.push(Message { role: "assistant".to_string(), content: msg_content });
+                        msgs.push(serde_json::json!({ "role": "assistant", "content": msg_content }));
                     }
                 }
             }
         }
-        msgs.push(Message { role: "user".to_string(), content: content.clone() });
+        // Current user message
+        if let Some(ref blocks) = api_blocks_for_current {
+            msgs.push(serde_json::json!({ "role": "user", "content": blocks }));
+        } else {
+            msgs.push(serde_json::json!({ "role": "user", "content": content }));
+        }
         msgs
     };
 
     let left_messages = build_history("left", &comparison.left_system_prompt);
     let right_messages = build_history("right", &comparison.right_system_prompt);
 
+    // Prepare MCP tools
+    let mcp_mgr = mcp_manager.inner().clone();
+    let mcp_tools = mcp_mgr.get_all_tools().await;
+    let (openai_tools, tool_name_map) = mcp_tools_to_openai(&mcp_tools);
+
     let cancel_token = tokio_util::sync::CancellationToken::new();
-    *stream_state.cancel_token.lock().await = Some(cancel_token.clone());
+    *stream_state.comparison_cancel_token.lock().await = Some(cancel_token.clone());
 
     let app_left = app.clone();
     let app_right = app.clone();
@@ -723,6 +1066,13 @@ pub async fn stream_comparison_responses(
     let right_model = comparison.right_model.clone();
     let left_aid = left_assistant_id.clone();
     let right_aid = right_assistant_id.clone();
+
+    let left_tools = openai_tools.clone();
+    let right_tools = openai_tools;
+    let left_name_map = tool_name_map.clone();
+    let right_name_map = tool_name_map;
+    let mcp_left = mcp_mgr.clone();
+    let mcp_right = mcp_mgr;
 
     let left_handle = tokio::spawn(stream_one_side(
         app_left,
@@ -736,6 +1086,10 @@ pub async fn stream_comparison_responses(
         left_aid,
         pool_left,
         cancel_left,
+        left_supports_tool_use.unwrap_or(true),
+        left_tools,
+        left_name_map,
+        mcp_left,
     ));
 
     let right_handle = tokio::spawn(stream_one_side(
@@ -750,11 +1104,15 @@ pub async fn stream_comparison_responses(
         right_aid,
         pool_right,
         cancel_right,
+        right_supports_tool_use.unwrap_or(true),
+        right_tools,
+        right_name_map,
+        mcp_right,
     ));
 
     let _ = tokio::join!(left_handle, right_handle);
 
-    *stream_state.cancel_token.lock().await = None;
+    *stream_state.comparison_cancel_token.lock().await = None;
 
     if comparison.title == "Новое сравнение" || comparison.title == "New comparison" {
         let trimmed = content.trim();

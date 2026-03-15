@@ -46,6 +46,7 @@ export function CustomProvidersSection({
     const [providerNameError, setProviderNameError] = useState<string | null>(null);
     const [providerBaseUrlError, setProviderBaseUrlError] = useState<string | null>(null);
     const [deletingProviderId, setDeletingProviderId] = useState<string | null>(null);
+    const [deletingProviderChatCount, setDeletingProviderChatCount] = useState(0);
     const [customProviderModelsList, setCustomProviderModelsList] = useState<Array<{ id: string; name: string }>>([]);
     const [customProviderModelsLoading, setCustomProviderModelsLoading] = useState(false);
 
@@ -173,7 +174,15 @@ export function CustomProvidersSection({
                                             variant="subtle"
                                             size="xs"
                                             color="red"
-                                            onClick={() => setDeletingProviderId(p.id)}
+                                            onClick={async () => {
+                                                try {
+                                                    const count = await invoke<number>("get_provider_chat_count", { providerId: p.id });
+                                                    setDeletingProviderChatCount(count);
+                                                } catch {
+                                                    setDeletingProviderChatCount(0);
+                                                }
+                                                setDeletingProviderId(p.id);
+                                            }}
                                             aria-label={t("common.delete")}
                                         >
                                             <IconTrash size={16} stroke={1.5} />
@@ -278,15 +287,25 @@ export function CustomProvidersSection({
             <ConfirmModal
                 opened={deletingProviderId !== null}
                 onClose={() => setDeletingProviderId(null)}
-                onConfirm={() => {
+                onConfirm={async () => {
                     if (deletingProviderId) {
-                        deleteCustomProvider(deletingProviderId);
+                        const count = deletingProviderChatCount;
+                        await deleteCustomProvider(deletingProviderId);
+                        if (count > 0) {
+                            notify.info(t("notifications.providerDeletedWithChats", { count }));
+                        }
                         setDeletingProviderId(null);
+                        setDeletingProviderChatCount(0);
                     }
                 }}
                 message={
                     deletingProviderId
-                        ? t("confirm.deleteProvider", { name: customProviders.find((x) => x.id === deletingProviderId)?.name ?? "" })
+                        ? deletingProviderChatCount > 0
+                            ? t("confirm.deleteProviderWithChats", {
+                                name: customProviders.find((x) => x.id === deletingProviderId)?.name ?? "",
+                                count: deletingProviderChatCount,
+                            })
+                            : t("confirm.deleteProvider", { name: customProviders.find((x) => x.id === deletingProviderId)?.name ?? "" })
                         : ""
                 }
             />

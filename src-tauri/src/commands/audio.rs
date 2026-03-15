@@ -10,6 +10,7 @@ use tauri_plugin_store::StoreExt;
 use tts::Tts;
 
 use crate::services::audio_recorder::AudioRecorder;
+use crate::services::http_client::build_http_client;
 use crate::services::openai_tts;
 use crate::services::system_tts;
 use crate::services::vosk_stt::{self, VoskStt};
@@ -147,10 +148,7 @@ pub async fn download_vosk_library(app: AppHandle) -> Result<(), String> {
 
     log::info!("Downloading Vosk library from {}", zip_url);
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(300))
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let client = build_http_client(&app, Some(std::time::Duration::from_secs(300))).await?;
 
     let resp = client
         .get(&zip_url)
@@ -254,10 +252,7 @@ pub async fn download_vosk_model(app: AppHandle, language: String) -> Result<(),
     let url = model_url(&language)?;
     log::info!("Downloading Vosk model for '{}' from {}", language, url);
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(600))
-        .build()
-        .map_err(|e| format!("HTTP client error: {}", e))?;
+    let client = build_http_client(&app, Some(std::time::Duration::from_secs(600))).await?;
 
     let resp = client
         .get(&url)
@@ -381,6 +376,7 @@ pub async fn tts_speak(
             system_tts::speak_system(&mut tts, text, voice, None)?;
             let mut guard = tts_state.0.lock().map_err(|e| e.to_string())?;
             *guard = Some(TtsPlayback::System(tts));
+            app.emit("tts-playback-done", ()).unwrap_or_default();
             Ok(())
         }
         "openai" => {
@@ -401,11 +397,17 @@ pub async fn tts_speak(
                 .and_then(|v| v.as_str().map(String::from))
                 .unwrap_or_else(|| "tts-1".to_string());
             let voice_param = voice.unwrap_or(tts_voice);
-            let bytes = openai_tts::speak_openai(text, &api_key, &voice_param, &tts_model).await?;
+            let client = build_http_client(&app, Some(std::time::Duration::from_secs(60))).await?;
+            let bytes = openai_tts::speak_openai(&client, text, &api_key, &voice_param, &tts_model).await?;
             let stop_flag = Arc::new(AtomicBool::new(false));
             let stop_flag_clone = Arc::clone(&stop_flag);
+            let stop_flag_check = Arc::clone(&stop_flag);
+            let app_clone = app.clone();
             let handle = thread::spawn(move || {
                 play_openai_mp3(bytes, stop_flag_clone);
+                if !stop_flag_check.load(Ordering::Relaxed) {
+                    app_clone.emit("tts-playback-done", ()).unwrap_or_default();
+                }
             });
             let mut guard = tts_state.0.lock().map_err(|e| e.to_string())?;
             *guard = Some(TtsPlayback::OpenAi(handle, stop_flag));
@@ -528,7 +530,9 @@ async fn transcribe_whisper_api_openai(
 ) -> Result<String, String> {
     let api_key = load_openai_api_key(app)?;
     let wav_bytes = encode_wav(samples)?;
+    let client = build_http_client(app, Some(std::time::Duration::from_secs(30))).await?;
     whisper_stt::transcribe_whisper(
+        &client,
         wav_bytes,
         &api_key,
         language,
@@ -545,7 +549,9 @@ async fn transcribe_whisper_api_groq(
 ) -> Result<String, String> {
     let api_key = load_groq_stt_api_key(app)?;
     let wav_bytes = encode_wav(samples)?;
+    let client = build_http_client(app, Some(std::time::Duration::from_secs(30))).await?;
     whisper_stt::transcribe_whisper(
+        &client,
         wav_bytes,
         &api_key,
         language,

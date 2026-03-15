@@ -51,4 +51,28 @@ pub struct DbMcpServer {
     pub env: HashMap<String, String>,
     pub enabled: bool,
     pub created_at: i64,
+    pub server_type: String,
+    pub config: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsMcpConfig {
+    pub allowed_directories: Vec<String>,
+    pub blocked_patterns: Vec<String>,
+    pub read_only: bool,
+    pub max_file_size_bytes: u64,
+    pub confirm_destructive: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsAuditEntry {
+    pub id: i64,
+    pub timestamp: i64,
+    pub tool_name: String,
+    pub path: String,
+    pub result: String,
+    pub details: String,
+    pub chat_id: String,
 }

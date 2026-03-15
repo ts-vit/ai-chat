@@ -20,7 +20,29 @@ pub struct EmbeddingEngine {
 
 impl EmbeddingEngine {
     /// Инициализация движка. Вызывать один раз при старте приложения.
-    pub fn init(model_dir: PathBuf) -> Result<(), String> {
+    /// Проверяет сначала appDataDir/models (обновляемая), потом bundled resource (из инсталлятора).
+    pub fn init(app_data_model_dir: PathBuf, bundled_model_dir: PathBuf) -> Result<(), String> {
+        let model_dir = if app_data_model_dir.join("model_int8.onnx").exists() {
+            log::info!("Using model from appDataDir: {}", app_data_model_dir.display());
+            app_data_model_dir
+        } else if bundled_model_dir.join("model_int8.onnx").exists() {
+            log::info!("Using bundled model from: {}", bundled_model_dir.display());
+            bundled_model_dir
+        } else {
+            return Err("Embedding model not found".to_string());
+        };
+        let engine = Self::new(model_dir).map_err(|e| e.to_string())?;
+        ENGINE
+            .set(engine)
+            .map_err(|_| "EmbeddingEngine already initialized".to_string())
+    }
+
+    /// Инициализация с одним путём (для dev fallback)
+    pub fn init_single(model_dir: PathBuf) -> Result<(), String> {
+        if !model_dir.join("model_int8.onnx").exists() {
+            return Err(format!("Model not found in {}", model_dir.display()));
+        }
+        log::info!("Using model from: {}", model_dir.display());
         let engine = Self::new(model_dir).map_err(|e| e.to_string())?;
         ENGINE
             .set(engine)

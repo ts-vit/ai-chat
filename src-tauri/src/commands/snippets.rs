@@ -88,17 +88,20 @@ pub async fn create_snippet(
     name: String,
     content: String,
     category_id: String,
+    show_on_welcome: Option<bool>,
 ) -> Result<DbSnippet, String> {
     let id = Uuid::new_v4().to_string();
     let now = unix_now()?;
+    let welcome_val = show_on_welcome.unwrap_or(false) as i32;
     sqlx::query(
-        "INSERT INTO snippets (id, name, content, category_id, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO snippets (id, name, content, category_id, created_at, show_on_welcome) VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&name)
     .bind(&content)
     .bind(&category_id)
     .bind(now)
+    .bind(welcome_val)
     .execute(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
@@ -108,6 +111,7 @@ pub async fn create_snippet(
         content,
         category_id,
         created_at: now,
+        show_on_welcome: Some(welcome_val),
     })
 }
 
@@ -118,13 +122,16 @@ pub async fn update_snippet(
     name: String,
     content: String,
     category_id: String,
+    show_on_welcome: Option<bool>,
 ) -> Result<(), String> {
+    let welcome_val = show_on_welcome.unwrap_or(false) as i32;
     sqlx::query(
-        "UPDATE snippets SET name = ?, content = ?, category_id = ? WHERE id = ?",
+        "UPDATE snippets SET name = ?, content = ?, category_id = ?, show_on_welcome = ? WHERE id = ?",
     )
     .bind(&name)
     .bind(&content)
     .bind(&category_id)
+    .bind(welcome_val)
     .bind(&id)
     .execute(pool.inner())
     .await
@@ -142,25 +149,26 @@ pub async fn delete_snippet(pool: State<'_, Pool>, id: String) -> Result<(), Str
     Ok(())
 }
 
+fn map_snippet_row(row: sqlx::sqlite::SqliteRow) -> DbSnippet {
+    DbSnippet {
+        id: row.get("id"),
+        name: row.get("name"),
+        content: row.get("content"),
+        category_id: row.get("category_id"),
+        created_at: row.get("created_at"),
+        show_on_welcome: row.get("show_on_welcome"),
+    }
+}
+
 #[tauri::command]
 pub async fn get_all_snippets(pool: State<'_, Pool>) -> Result<Vec<DbSnippet>, String> {
     let rows = sqlx::query(
-        "SELECT id, name, content, category_id, created_at FROM snippets ORDER BY name",
+        "SELECT id, name, content, category_id, created_at, show_on_welcome FROM snippets ORDER BY name",
     )
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
-    let list = rows
-        .into_iter()
-        .map(|row| DbSnippet {
-            id: row.get("id"),
-            name: row.get("name"),
-            content: row.get("content"),
-            category_id: row.get("category_id"),
-            created_at: row.get("created_at"),
-        })
-        .collect();
-    Ok(list)
+    Ok(rows.into_iter().map(map_snippet_row).collect())
 }
 
 #[tauri::command]
@@ -169,21 +177,25 @@ pub async fn get_snippets_by_category(
     category_id: String,
 ) -> Result<Vec<DbSnippet>, String> {
     let rows = sqlx::query(
-        "SELECT id, name, content, category_id, created_at FROM snippets WHERE category_id = ? ORDER BY name",
+        "SELECT id, name, content, category_id, created_at, show_on_welcome FROM snippets WHERE category_id = ? ORDER BY name",
     )
     .bind(&category_id)
     .fetch_all(pool.inner())
     .await
     .map_err(|e| e.to_string())?;
-    let list = rows
-        .into_iter()
-        .map(|row| DbSnippet {
-            id: row.get("id"),
-            name: row.get("name"),
-            content: row.get("content"),
-            category_id: row.get("category_id"),
-            created_at: row.get("created_at"),
-        })
-        .collect();
-    Ok(list)
+    Ok(rows.into_iter().map(map_snippet_row).collect())
+}
+
+#[tauri::command]
+pub async fn get_welcome_snippets(pool: State<'_, Pool>) -> Result<Vec<DbSnippet>, String> {
+    let rows = sqlx::query(
+        "SELECT id, name, content, category_id, created_at, show_on_welcome
+         FROM snippets
+         ORDER BY CASE WHEN show_on_welcome = 1 THEN 0 ELSE 1 END, created_at DESC
+         LIMIT 4",
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(map_snippet_row).collect())
 }

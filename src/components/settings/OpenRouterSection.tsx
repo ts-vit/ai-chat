@@ -75,9 +75,6 @@ export function OpenRouterSection({
         }
     }, [models.length, modelsLoading, loadModels]);
 
-    useEffect(() => {
-        setPage(1);
-    }, [filterSegment, searchQuery, sortKey, sortDir]);
 
     const filteredModels = useMemo(() => {
         let list = models;
@@ -150,6 +147,7 @@ export function OpenRouterSection({
             setSortKey(key);
             setSortDir("asc");
         }
+        setPage(1);
     };
 
     const sortArrow = (key: SortKey) => {
@@ -213,7 +211,7 @@ export function OpenRouterSection({
                 <Group wrap="nowrap" align="flex-end" gap="sm">
                     <SegmentedControl
                         value={filterSegment}
-                        onChange={(v) => setFilterSegment(v as FilterSegment)}
+                        onChange={(v) => { setFilterSegment(v as FilterSegment); setPage(1); }}
                         data={[
                             { label: t("settings.openrouter.all"), value: "all" },
                             { label: t("settings.openrouter.popular"), value: "popular" },
@@ -225,7 +223,7 @@ export function OpenRouterSection({
                         placeholder={t("settings.openrouter.searchPlaceholder")}
                         leftSection={<IconSearch size={16} stroke={1.5} />}
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.currentTarget.value)}
+                        onChange={(e) => { setSearchQuery(e.currentTarget.value); setPage(1); }}
                         style={{ flex: 1, minWidth: 200 }}
                     />
                 </Group>

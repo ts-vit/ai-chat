@@ -7,21 +7,32 @@ import {
     Collapse,
     Group,
     Menu,
+    Modal,
     NavLink,
     Popover,
     ScrollArea,
+    Stack,
     Text,
+    Textarea,
     TextInput,
     Tooltip,
     useMantineColorScheme,
 } from "@mantine/core";
 import { ColorSwatch } from "@mantine/core";
 import {
+    IconArchive,
+    IconArrowsExchange,
+    IconBriefcase,
+    IconCheck,
     IconChevronDown,
     IconChevronRight,
-    IconColumns,
     IconFolderFilled,
     IconFolderPlus,
+    IconLayoutSidebarLeftCollapse,
+    IconLayoutSidebarLeftExpand,
+    IconBook2,
+    IconBrain,
+    IconList,
     IconMessages,
     IconMoon,
     IconPencil,
@@ -29,22 +40,30 @@ import {
     IconSearch,
     IconSettings,
     IconSun,
-    IconTemplate,
+    IconTerminal2,
     IconTrash,
+    IconSubtask,
+    IconTarget,
+    IconLayoutBoard,
+    IconWand,
+    IconCalendarEvent,
 } from "@tabler/icons-react";
 import { FOLDER_COLORS } from "../constants/folderColors";
 import { useChatStore } from "../store/chatStore";
 import { formatRelativeDate } from "../utils/formatDate";
 import { ConfirmModal } from "./ConfirmModal";
-import { CreateComparisonModal } from "./CreateComparisonModal";
 import { CreateFolderModal } from "./CreateFolderModal";
-import type { Chat, Folder } from "../types";
+import { CreateProjectModal } from "./CreateProjectModal";
+import type { Chat, Folder, ProjectSummary } from "../types";
 
 interface SidebarProps {
     width?: number;
     style?: React.CSSProperties;
     compact?: boolean;
-    onNewChat: () => void;
+    onNewChat: (projectId?: string) => void;
+    onToggleSidebar: () => void;
+    terminalOpen?: boolean;
+    onToggleTerminal?: () => void;
 }
 
 function ChatRow({
@@ -72,6 +91,7 @@ function ChatRow({
     return (
         <div
             className="chat-item"
+            role="listitem"
             data-context-menu-open={isContextMenuOpen ? "true" : undefined}
             onContextMenu={onContextMenu ? (e) => onContextMenu(e, chat.id) : undefined}
             onMouseDown={onMouseDown}
@@ -110,7 +130,7 @@ function ChatRow({
                     root: {
                         borderLeft:
                             chat.id === activeChatId
-                                ? "3px solid var(--mantine-color-blue-5)"
+                                ? "3px solid var(--mantine-color-brand-5)"
                                 : "3px solid transparent",
                     },
                 }}
@@ -133,7 +153,7 @@ function ChatRow({
     );
 }
 
-export function Sidebar({ width = 260, style, compact = false, onNewChat }: SidebarProps) {
+export function Sidebar({ width = 260, style, compact = false, onNewChat, onToggleSidebar, terminalOpen, onToggleTerminal }: SidebarProps) {
     const { t } = useTranslation();
     const { colorScheme, toggleColorScheme } = useMantineColorScheme();
 
@@ -153,24 +173,31 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
     const {
         chats,
         folders,
+        projects,
         activeChatId,
-        activeComparisonId,
-        comparisons,
+        currentView,
         deleteChat,
         setActiveChat,
         setView,
-        setActiveComparison,
-        createComparison,
-        deleteComparison,
         updateFolder,
         deleteFolder,
         moveChatToFolder,
+        updateProject,
+        deleteProject: storeDeleteProject,
+        archiveProject,
+        assignChatToProject,
+        removeChatFromProject,
+        openProjectDashboard,
     } = useChatStore();
+    const activeMode = useChatStore((s) => s.activeMode);
+
+    const isAssistantMode = activeMode === "assistant";
+    const modeChats = chats.filter((c) => (c.mode ?? "chat") === activeMode);
+    const modeFolders = folders.filter((f) => (f.mode ?? "chat") === activeMode);
+    const activeProjects = projects.filter((p) => p.status !== "archived");
 
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
     const [deletingFolderId, setDeletingFolderId] = useState<string | null>(null);
-    const [deletingComparisonId, setDeletingComparisonId] = useState<string | null>(null);
-    const [createComparisonModalOpen, setCreateComparisonModalOpen] = useState(false);
     const [chatsPopoverOpened, setChatsPopoverOpened] = useState(false);
     const [contextMenu, setContextMenu] = useState<{
         chatId: string;
@@ -193,6 +220,22 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
     } | null>(null);
     const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
     const [dragOverNoFolder, setDragOverNoFolder] = useState(false);
+
+    // Project state (assistant mode)
+    const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
+    const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
+    const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+    const [editingProjectName, setEditingProjectName] = useState("");
+    const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+    const [editGoalProjectId, setEditGoalProjectId] = useState<string | null>(null);
+    const [editGoalText, setEditGoalText] = useState("");
+    const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null);
+    const [dragOverNoProject, setDragOverNoProject] = useState(false);
+    const [projectContextMenu, setProjectContextMenu] = useState<{
+        projectId: string;
+        x: number;
+        y: number;
+    } | null>(null);
 
     const toggleFolder = useCallback((folderId: string) => {
         setExpandedFolderIds((prev) => {
@@ -231,15 +274,54 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
     }, []);
 
     const chatsInFolder = useCallback(
-        (folderId: string) => chats.filter((c) => c.folderId === folderId),
-        [chats]
+        (folderId: string) => modeChats.filter((c) => c.folderId === folderId),
+        [modeChats]
     );
-    const chatsWithoutFolder = chats.filter((c) => !c.folderId);
+    const chatsWithoutFolder = modeChats.filter((c) => !c.folderId);
+
+    const chatsInProject = useCallback(
+        (projectId: string) => modeChats.filter((c) => c.projectId === projectId),
+        [modeChats]
+    );
+    const chatsWithoutProject = modeChats.filter((c) => !c.projectId);
+
+    const toggleProject = useCallback((projectId: string) => {
+        setExpandedProjectIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(projectId)) next.delete(projectId);
+            else next.add(projectId);
+            return next;
+        });
+    }, []);
+
+    const startEditProject = useCallback((project: ProjectSummary) => {
+        setEditingProjectId(project.id);
+        setEditingProjectName(project.name);
+    }, []);
+
+    const saveEditProject = useCallback(() => {
+        if (editingProjectId && editingProjectName.trim()) {
+            updateProject(editingProjectId, { name: editingProjectName.trim() });
+            setEditingProjectId(null);
+            setEditingProjectName("");
+        }
+    }, [editingProjectId, editingProjectName, updateProject]);
+
+    const cancelEditProject = useCallback(() => {
+        setEditingProjectId(null);
+        setEditingProjectName("");
+    }, []);
+
+    const handleProjectContextMenu = useCallback((e: React.MouseEvent, projectId: string) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setProjectContextMenu({ projectId, x: e.clientX, y: e.clientY });
+    }, []);
 
     const folderColorVar = (color: string | null) =>
         color ? `var(--mantine-color-${color}-5)` : "var(--mantine-color-gray-5)";
 
-    const contextChat = contextMenu ? chats.find((c) => c.id === contextMenu.chatId) : null;
+    const contextChat = contextMenu ? modeChats.find((c) => c.id === contextMenu.chatId) : null;
 
     const renderChatList = (
         chatList: Chat[],
@@ -283,7 +365,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
 
     const renderFolderList = () => (
         <>
-            {folders.map((folder) => {
+            {modeFolders.map((folder) => {
                 const count = chatsInFolder(folder.id).length;
                 const isExpanded = expandedFolderIds.has(folder.id);
                 const isEditing = editingFolderId === folder.id;
@@ -441,100 +523,208 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
         </>
     );
 
+    const renderProjectList = () => (
+        <>
+            {activeProjects.map((project) => {
+                const count = chatsInProject(project.id).length;
+                const isExpanded = expandedProjectIds.has(project.id);
+                const isEditing = editingProjectId === project.id;
+                const isDragOver = dragOverProjectId === project.id;
+                const isCompleted = project.status === "completed";
+
+                return (
+                    <Box key={project.id} mb="xs">
+                        <div
+                            className="folder-row"
+                            data-project-id={project.id}
+                            onContextMenu={(e) => handleProjectContextMenu(e, project.id)}
+                            style={{
+                                width: "100%",
+                                borderRadius: 4,
+                                padding: "2px 4px",
+                                ...(isDragOver && {
+                                    background: colorScheme === "dark"
+                                        ? "var(--mantine-color-brand-9)"
+                                        : "var(--mantine-color-brand-1)",
+                                }),
+                            }}
+                        >
+                            <Group
+                                wrap="nowrap"
+                                gap="xs"
+                                style={{ cursor: isEditing ? "default" : "pointer" }}
+                                onClick={() => !isEditing && openProjectDashboard(project.id)}
+                            >
+                                <Box
+                                    style={{ width: 16, cursor: "pointer" }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleProject(project.id);
+                                    }}
+                                >
+                                    {isExpanded ? (
+                                        <IconChevronDown size={14} stroke={1.5} />
+                                    ) : (
+                                        <IconChevronRight size={14} stroke={1.5} />
+                                    )}
+                                </Box>
+                                <IconBriefcase
+                                    size={18}
+                                    stroke={1.5}
+                                    style={{
+                                        color: isCompleted
+                                            ? "var(--mantine-color-green-5)"
+                                            : "var(--mantine-color-brand-5)",
+                                    }}
+                                />
+                                {isEditing ? (
+                                    <Box
+                                        style={{ flex: 1, minWidth: 0 }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <TextInput
+                                            size="xs"
+                                            value={editingProjectName}
+                                            onChange={(e) => setEditingProjectName(e.currentTarget.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter") saveEditProject();
+                                                if (e.key === "Escape") cancelEditProject();
+                                            }}
+                                            autoFocus
+                                        />
+                                    </Box>
+                                ) : (
+                                    <>
+                                        <Tooltip
+                                            label={project.goal || project.name}
+                                            disabled={project.name.length < 15 && !project.goal}
+                                        >
+                                            <Text
+                                                size="sm"
+                                                style={{
+                                                    flex: 1,
+                                                    minWidth: 0,
+                                                    ...(isCompleted && {
+                                                        textDecoration: "line-through",
+                                                        opacity: 0.7,
+                                                    }),
+                                                }}
+                                                truncate
+                                                onDoubleClick={(e) => {
+                                                    e.stopPropagation();
+                                                    startEditProject(project);
+                                                }}
+                                            >
+                                                {project.name}
+                                            </Text>
+                                        </Tooltip>
+                                        <Text size="xs" c="dimmed">
+                                            {count}
+                                        </Text>
+                                        <Group className="action-icons" gap={4} wrap="nowrap">
+                                            <Tooltip label={t("project.newChatInProject")}>
+                                                <ActionIcon
+                                                    size="xs"
+                                                    variant="subtle"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onNewChat(project.id);
+                                                    }}
+                                                >
+                                                    <IconPlus size={12} stroke={1.5} />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                            <Tooltip label={t("project.rename")}>
+                                                <ActionIcon
+                                                    size="xs"
+                                                    variant="subtle"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        startEditProject(project);
+                                                    }}
+                                                >
+                                                    <IconPencil size={12} stroke={1.5} />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                            <Tooltip label={t("project.delete")}>
+                                                <ActionIcon
+                                                    size="xs"
+                                                    variant="subtle"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setDeletingProjectId(project.id);
+                                                    }}
+                                                >
+                                                    <IconTrash size={12} stroke={1.5} />
+                                                </ActionIcon>
+                                            </Tooltip>
+                                        </Group>
+                                    </>
+                                )}
+                            </Group>
+                        </div>
+                        <Collapse in={isExpanded}>
+                            <Box pl="md" pr="xs">
+                                {renderChatList(
+                                    chatsInProject(project.id),
+                                    () => {},
+                                    true
+                                )}
+                            </Box>
+                        </Collapse>
+                    </Box>
+                );
+            })}
+        </>
+    );
+
     const noFolderDropBg =
         colorScheme === "dark"
             ? "var(--mantine-color-dark-6)"
             : "var(--mantine-color-gray-1)";
 
+    const noProjectDropBg =
+        colorScheme === "dark"
+            ? "var(--mantine-color-dark-6)"
+            : "var(--mantine-color-gray-1)";
+
+    const freeChats = isAssistantMode ? chatsWithoutProject : chatsWithoutFolder;
+    const hasFreeChats = freeChats.length > 0;
+
     const mainContent = (
         <div style={{ flex: 1, overflowY: "auto" }}>
-            {!compact && renderFolderList()}
+            {!compact && (isAssistantMode ? renderProjectList() : renderFolderList())}
             {!compact && <Box mb="xs" />}
+            {!compact && isAssistantMode && hasFreeChats && (
+                <Text size="xs" c="dimmed" px={4} mb={4}>
+                    {t("project.freeChats")}
+                </Text>
+            )}
             {!compact ? (
                 <Box
-                    data-no-folder-zone
+                    {...(isAssistantMode
+                        ? { "data-no-project-zone": true }
+                        : { "data-no-folder-zone": true })}
                     style={{
                         borderRadius: 4,
                         padding: "2px 4px",
                         minHeight: 8,
-                        ...(dragOverNoFolder && { background: noFolderDropBg }),
+                        ...((isAssistantMode ? dragOverNoProject : dragOverNoFolder) && {
+                            background: isAssistantMode ? noProjectDropBg : noFolderDropBg,
+                        }),
                     }}
                 >
-                    {renderChatList(chatsWithoutFolder, () => {}, true)}
+                    {renderChatList(freeChats, () => {}, true)}
                 </Box>
             ) : (
-                renderChatList(chatsWithoutFolder, () => {})
-            )}
-            {!compact && (
-                <>
-                    <Box mt="md" mb="xs" px="xs">
-                        <Text size="xs" c="dimmed" fw={500} tt="uppercase" mb={4}>
-                            {t("sidebar.comparisons")}
-                        </Text>
-                        <Button
-                            size="xs"
-                            variant="subtle"
-                            leftSection={<IconColumns size={14} stroke={1.5} />}
-                            onClick={() => setCreateComparisonModalOpen(true)}
-                            style={{ width: "100%", justifyContent: "flex-start" }}
-                        >
-                            + {t("sidebar.newComparison")}
-                        </Button>
-                    </Box>
-                    {comparisons.map((comp) => {
-                        const leftLabel = comp.leftModel.split("/").pop() ?? comp.leftModel;
-                        const rightLabel = comp.rightModel.split("/").pop() ?? comp.rightModel;
-                        const isActive = comp.id === activeComparisonId;
-                        return (
-                            <div key={comp.id} className="chat-item" style={{ width: "100%" }}>
-                                <Group wrap="nowrap" gap={0} justify="flex-start">
-                                    <NavLink
-                                        active={isActive}
-                                        leftSection={<IconColumns size={18} stroke={1.5} />}
-                                        label={comp.title}
-                                        description={
-                                            <Text component="span" size="xs" c="dimmed">
-                                                {leftLabel} {t("compare.vsLabel")} {rightLabel}
-                                            </Text>
-                                        }
-                                        onClick={() => {
-                                            setActiveComparison(comp.id);
-                                            setView("compare");
-                                        }}
-                                        style={{ flex: 1, minWidth: 0 }}
-                                        styles={{
-                                            root: {
-                                                borderLeft: isActive
-                                                    ? "3px solid var(--mantine-color-blue-5)"
-                                                    : "3px solid transparent",
-                                            },
-                                        }}
-                                    />
-                                    <Tooltip label={t("sidebar.deleteChat")}>
-                                        <ActionIcon
-                                            className="chat-delete-btn"
-                                            size="xs"
-                                            variant="subtle"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setDeletingComparisonId(comp.id);
-                                            }}
-                                        >
-                                            ✕
-                                        </ActionIcon>
-                                    </Tooltip>
-                                </Group>
-                            </div>
-                        );
-                    })}
-                </>
+                renderChatList(freeChats, () => {})
             )}
         </div>
     );
 
     const popoverContent = (
-        <ScrollArea mah={400} type="scroll">
-            {folders.map((folder) => {
+        <ScrollArea.Autosize mah="calc(100vh - 200px)" type="scroll">
+            {modeFolders.map((folder) => {
                 const count = chatsInFolder(folder.id).length;
                 const isExpanded = expandedFolderIds.has(folder.id);
                 return (
@@ -597,7 +787,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 );
             })}
             {renderChatList(chatsWithoutFolder, () => setChatsPopoverOpened(false))}
-        </ScrollArea>
+        </ScrollArea.Autosize>
     );
 
     const handleMouseMove = useCallback(
@@ -615,13 +805,20 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
 
             if (nowDragging) {
                 const el = document.elementFromPoint(e.clientX, e.clientY);
-                const folderEl = el?.closest("[data-folder-id]");
-                const noFolderEl = el?.closest("[data-no-folder-zone]");
-                setDragOverFolderId(folderEl?.getAttribute("data-folder-id") ?? null);
-                setDragOverNoFolder(!!noFolderEl && !folderEl);
+                if (isAssistantMode) {
+                    const projectEl = el?.closest("[data-project-id]");
+                    const noProjectEl = el?.closest("[data-no-project-zone]");
+                    setDragOverProjectId(projectEl?.getAttribute("data-project-id") ?? null);
+                    setDragOverNoProject(!!noProjectEl && !projectEl);
+                } else {
+                    const folderEl = el?.closest("[data-folder-id]");
+                    const noFolderEl = el?.closest("[data-no-folder-zone]");
+                    setDragOverFolderId(folderEl?.getAttribute("data-folder-id") ?? null);
+                    setDragOverNoFolder(!!noFolderEl && !folderEl);
+                }
             }
         },
-        [dragState]
+        [dragState, isAssistantMode]
     );
 
     const handleMouseUp = useCallback(
@@ -632,19 +829,32 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 return;
             }
             const el = document.elementFromPoint(e.clientX, e.clientY);
-            const folderEl = el?.closest("[data-folder-id]");
-            const noFolderEl = el?.closest("[data-no-folder-zone]");
-            if (folderEl) {
-                const folderId = folderEl.getAttribute("data-folder-id");
-                if (folderId) moveChatToFolder(dragState.chatId, folderId);
-            } else if (noFolderEl) {
-                moveChatToFolder(dragState.chatId, null);
+            if (isAssistantMode) {
+                const projectEl = el?.closest("[data-project-id]");
+                const noProjectEl = el?.closest("[data-no-project-zone]");
+                if (projectEl) {
+                    const projectId = projectEl.getAttribute("data-project-id");
+                    if (projectId) assignChatToProject(dragState.chatId, projectId);
+                } else if (noProjectEl) {
+                    removeChatFromProject(dragState.chatId);
+                }
+                setDragOverProjectId(null);
+                setDragOverNoProject(false);
+            } else {
+                const folderEl = el?.closest("[data-folder-id]");
+                const noFolderEl = el?.closest("[data-no-folder-zone]");
+                if (folderEl) {
+                    const folderId = folderEl.getAttribute("data-folder-id");
+                    if (folderId) moveChatToFolder(dragState.chatId, folderId);
+                } else if (noFolderEl) {
+                    moveChatToFolder(dragState.chatId, null);
+                }
+                setDragOverFolderId(null);
+                setDragOverNoFolder(false);
             }
             setDragState(null);
-            setDragOverFolderId(null);
-            setDragOverNoFolder(false);
         },
-        [dragState, moveChatToFolder]
+        [dragState, isAssistantMode, moveChatToFolder, assignChatToProject, removeChatFromProject]
     );
 
     const handleMouseLeave = useCallback(() => {
@@ -652,6 +862,8 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
             setDragState(null);
             setDragOverFolderId(null);
             setDragOverNoFolder(false);
+            setDragOverProjectId(null);
+            setDragOverNoProject(false);
         }
     }, [dragState]);
 
@@ -672,170 +884,194 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 ...style,
             }}
         >
-            <Box
-                p={compact ? "xs" : "md"}
-                style={
-                    compact
-                        ? { display: "flex", justifyContent: "center" }
-                        : undefined
-                }
-            >
-                {compact ? (
-                    <Tooltip label={t("sidebar.newChat")}>
-                        <ActionIcon
-                            size="lg"
-                            radius="xl"
-                            variant="filled"
-                            onClick={onNewChat}
-                            aria-label={t("sidebar.newChat")}
-                        >
-                            <IconPlus size={18} stroke={1.5} />
+            {compact ? (
+                <Stack gap={4} align="center" px={4} py="xs" style={{ flex: 1 }}>
+                    <Tooltip label={t("sidebar.newChat")} position="right">
+                        <ActionIcon variant="subtle" size="lg" onClick={() => onNewChat()}>
+                            <IconPlus size={20} stroke={1.5} />
                         </ActionIcon>
                     </Tooltip>
-                ) : (
-                    <Group gap="xs" wrap="nowrap">
-                        <Button
-                            style={{ flex: 1 }}
-                            onClick={onNewChat}
-                        >
-                            + {t("sidebar.newChat")}
-                        </Button>
-                        <Tooltip label={t("sidebar.newFolder")}>
-                            <ActionIcon
-                                size="lg"
-                                variant="subtle"
-                                onClick={() => setCreateFolderModalOpen(true)}
-                                aria-label={t("sidebar.newFolder")}
-                            >
-                                <IconFolderPlus size={18} stroke={1.5} />
+                    <Tooltip label={isAssistantMode ? t("project.new") : t("sidebar.newFolder")} position="right">
+                        <ActionIcon variant="subtle" size="lg" onClick={() => isAssistantMode ? setCreateProjectModalOpen(true) : setCreateFolderModalOpen(true)}>
+                            {isAssistantMode ? <IconBriefcase size={20} stroke={1.5} /> : <IconFolderPlus size={20} stroke={1.5} />}
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.comparisons")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "comparisons" ? "brand" : undefined} onClick={() => setView("comparisons")}>
+                            <IconArrowsExchange size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("common.search")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "search" ? "brand" : undefined} onClick={() => setView("search")}>
+                            <IconSearch size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.snippets")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "snippets" ? "brand" : undefined} onClick={() => setView("snippets")}>
+                            <IconList size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.promptLibrary")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "promptLibrary" ? "brand" : undefined} onClick={() => setView("promptLibrary")}>
+                            <IconBook2 size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.memory")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "memory" ? "brand" : undefined} onClick={() => setView("memory")}>
+                            <IconBrain size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.skills")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "skills" ? "brand" : undefined} onClick={() => setView("skills")}>
+                            <IconWand size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.plans")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "plans" ? "brand" : undefined} onClick={() => setView("plans")}>
+                            <IconSubtask size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("scheduler.title")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "scheduler" ? "brand" : undefined} onClick={() => setView("scheduler")}>
+                            <IconCalendarEvent size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.toggleTheme")} position="right">
+                        <ActionIcon variant="subtle" size="lg" onClick={() => toggleColorScheme()}>
+                            {colorScheme === "dark" ? (
+                                <IconSun size={20} stroke={1.5} />
+                            ) : (
+                                <IconMoon size={20} stroke={1.5} />
+                            )}
+                        </ActionIcon>
+                    </Tooltip>
+                    {onToggleTerminal && (
+                        <Tooltip label={t("terminal.tooltip")} position="right">
+                            <ActionIcon variant="subtle" size="lg" color={terminalOpen ? "brand" : undefined} onClick={onToggleTerminal}>
+                                <IconTerminal2 size={20} stroke={1.5} />
                             </ActionIcon>
                         </Tooltip>
-                    </Group>
-                )}
-            </Box>
+                    )}
+                    <Tooltip label={t("sidebar.settings")} position="right">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "settings" ? "brand" : undefined} onClick={() => setView("settings")}>
+                            <IconSettings size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Popover
+                        position="right-start"
+                        width={260}
+                        opened={chatsPopoverOpened}
+                        onChange={setChatsPopoverOpened}
+                    >
+                        <Popover.Target>
+                            <Tooltip label={t("sidebar.chats")} position="right">
+                                <ActionIcon
+                                    variant="subtle"
+                                    size="lg"
+                                    onClick={() => setChatsPopoverOpened((o) => !o)}
+                                >
+                                    <IconMessages size={20} stroke={1.5} />
+                                </ActionIcon>
+                            </Tooltip>
+                        </Popover.Target>
+                        <Popover.Dropdown>{popoverContent}</Popover.Dropdown>
+                    </Popover>
+                    <Box style={{ flex: 1 }} />
+                    <Tooltip label={t("sidebar.expand")} position="right">
+                        <ActionIcon variant="subtle" size="lg" onClick={onToggleSidebar}>
+                            <IconLayoutSidebarLeftExpand size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                </Stack>
+            ) : (
+                <Group gap={4} justify="center" px="sm" py="xs">
+                    <Tooltip label={t("sidebar.newChat")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" onClick={() => onNewChat()}>
+                            <IconPlus size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={isAssistantMode ? t("project.new") : t("sidebar.newFolder")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" onClick={() => isAssistantMode ? setCreateProjectModalOpen(true) : setCreateFolderModalOpen(true)}>
+                            {isAssistantMode ? <IconBriefcase size={20} stroke={1.5} /> : <IconFolderPlus size={20} stroke={1.5} />}
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.comparisons")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "comparisons" ? "brand" : undefined} onClick={() => setView("comparisons")}>
+                            <IconArrowsExchange size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("common.search")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "search" ? "brand" : undefined} onClick={() => setView("search")}>
+                            <IconSearch size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.snippets")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "snippets" ? "brand" : undefined} onClick={() => setView("snippets")}>
+                            <IconList size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.promptLibrary")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "promptLibrary" ? "brand" : undefined} onClick={() => setView("promptLibrary")}>
+                            <IconBook2 size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.memory")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "memory" ? "brand" : undefined} onClick={() => setView("memory")}>
+                            <IconBrain size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.skills")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "skills" ? "brand" : undefined} onClick={() => setView("skills")}>
+                            <IconWand size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.plans")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "plans" ? "brand" : undefined} onClick={() => setView("plans")}>
+                            <IconSubtask size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("scheduler.title")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "scheduler" ? "brand" : undefined} onClick={() => setView("scheduler")}>
+                            <IconCalendarEvent size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                    <Tooltip label={t("sidebar.toggleTheme")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" onClick={() => toggleColorScheme()}>
+                            {colorScheme === "dark" ? (
+                                <IconSun size={20} stroke={1.5} />
+                            ) : (
+                                <IconMoon size={20} stroke={1.5} />
+                            )}
+                        </ActionIcon>
+                    </Tooltip>
+                    {onToggleTerminal && (
+                        <Tooltip label={t("terminal.tooltip")} position="bottom">
+                            <ActionIcon variant="subtle" size="lg" color={terminalOpen ? "brand" : undefined} onClick={onToggleTerminal}>
+                                <IconTerminal2 size={20} stroke={1.5} />
+                            </ActionIcon>
+                        </Tooltip>
+                    )}
+                    <Tooltip label={t("sidebar.settings")} position="bottom">
+                        <ActionIcon variant="subtle" size="lg" color={currentView === "settings" ? "brand" : undefined} onClick={() => setView("settings")}>
+                            <IconSettings size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                </Group>
+            )}
 
             <CreateFolderModal
                 opened={createFolderModalOpen}
                 onClose={() => setCreateFolderModalOpen(false)}
             />
-            <CreateComparisonModal
-                opened={createComparisonModalOpen}
-                onClose={() => setCreateComparisonModalOpen(false)}
-                onConfirm={(a, b, c, d, e, f) => {
-                    createComparison(a, b, c, d, e, f);
-                    setView("compare");
-                    setCreateComparisonModalOpen(false);
-                }}
+            <CreateProjectModal
+                opened={createProjectModalOpen}
+                onClose={() => setCreateProjectModalOpen(false)}
             />
-
-            {compact ? (
-                <Box
-                    style={{
-                        flex: 1,
-                        display: "flex",
-                        flexDirection: "column",
-                        minHeight: 0,
-                    }}
-                    p="xs"
-                >
-                    <Box style={{ display: "flex", justifyContent: "center" }}>
-                        <Popover
-                            position="right-start"
-                            width={260}
-                            opened={chatsPopoverOpened}
-                            onChange={setChatsPopoverOpened}
-                        >
-                            <Popover.Target>
-                                <Tooltip label={t("sidebar.chats")}>
-                                    <ActionIcon
-                                        size="lg"
-                                        radius="xl"
-                                        variant="subtle"
-                                        onClick={() =>
-                                            setChatsPopoverOpened((o) => !o)
-                                        }
-                                        aria-label={t("sidebar.chats")}
-                                    >
-                                        <IconMessages size={18} stroke={1.5} />
-                                    </ActionIcon>
-                                </Tooltip>
-                            </Popover.Target>
-                            <Popover.Dropdown>{popoverContent}</Popover.Dropdown>
-                        </Popover>
-                    </Box>
-                    <Box style={{ flex: 1 }} />
-                </Box>
-            ) : (
+            {!compact && (
                 <Box style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }} p="xs">
                     {mainContent}
                 </Box>
             )}
-
-            <Box
-                p="md"
-                style={{
-                    borderTop:
-                        "1px solid var(--mantine-color-default-border)",
-                }}
-            >
-                <Group justify="center" gap="md">
-                    <Tooltip label={t("sidebar.toggleTheme")}>
-                        <ActionIcon
-                            size="lg"
-                            variant="subtle"
-                            onClick={() => toggleColorScheme()}
-                            aria-label={
-                                colorScheme === "dark"
-                                    ? t("sidebar.themeLight")
-                                    : t("sidebar.themeDark")
-                            }
-                        >
-                            {colorScheme === "dark" ? (
-                                <IconSun size={18} stroke={1.5} />
-                            ) : (
-                                <IconMoon size={18} stroke={1.5} />
-                            )}
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("common.search")}>
-                        <ActionIcon
-                            size="lg"
-                            variant="subtle"
-                            onClick={() => setView("search")}
-                            aria-label={t("common.search")}
-                        >
-                            <IconSearch size={18} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.snippets")}>
-                        <ActionIcon
-                            size="lg"
-                            variant="subtle"
-                            onClick={() => setView("snippets")}
-                        >
-                            <IconTemplate size={18} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.compare")}>
-                        <ActionIcon
-                            size="lg"
-                            variant="subtle"
-                            onClick={() => setView("compare")}
-                        >
-                            <IconColumns size={18} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.settings")}>
-                        <ActionIcon
-                            size="lg"
-                            variant="subtle"
-                            onClick={() => setView("settings")}
-                        >
-                            <IconSettings size={18} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                </Group>
-            </Box>
 
             <Menu
                 opened={contextMenu !== null}
@@ -857,33 +1093,70 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                     />
                 </Menu.Target>
                 <Menu.Dropdown>
-                    <Menu.Label>{t("sidebar.moveToFolder")}</Menu.Label>
-                    {folders.map((f) => (
-                        <Menu.Item
-                            key={f.id}
-                            onClick={() => {
-                                if (contextMenu) {
-                                    moveChatToFolder(contextMenu.chatId, f.id);
-                                    setContextMenu(null);
-                                }
-                            }}
-                        >
-                            {f.name}
-                        </Menu.Item>
-                    ))}
-                    {contextChat?.folderId != null && (
+                    {isAssistantMode ? (
                         <>
-                            <Menu.Divider />
-                            <Menu.Item
-                                onClick={() => {
-                                    if (contextMenu) {
-                                        moveChatToFolder(contextMenu.chatId, null);
-                                        setContextMenu(null);
-                                    }
-                                }}
-                            >
-                                {t("sidebar.removeFromFolder")}
-                            </Menu.Item>
+                            <Menu.Label>{t("sidebar.moveToFolder")}</Menu.Label>
+                            {activeProjects.map((p) => (
+                                <Menu.Item
+                                    key={p.id}
+                                    leftSection={<IconBriefcase size={14} stroke={1.5} />}
+                                    onClick={() => {
+                                        if (contextMenu) {
+                                            assignChatToProject(contextMenu.chatId, p.id);
+                                            setContextMenu(null);
+                                        }
+                                    }}
+                                >
+                                    {p.name}
+                                </Menu.Item>
+                            ))}
+                            {contextChat?.projectId != null && (
+                                <>
+                                    <Menu.Divider />
+                                    <Menu.Item
+                                        onClick={() => {
+                                            if (contextMenu) {
+                                                removeChatFromProject(contextMenu.chatId);
+                                                setContextMenu(null);
+                                            }
+                                        }}
+                                    >
+                                        {t("sidebar.removeFromFolder")}
+                                    </Menu.Item>
+                                </>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <Menu.Label>{t("sidebar.moveToFolder")}</Menu.Label>
+                            {modeFolders.map((f) => (
+                                <Menu.Item
+                                    key={f.id}
+                                    onClick={() => {
+                                        if (contextMenu) {
+                                            moveChatToFolder(contextMenu.chatId, f.id);
+                                            setContextMenu(null);
+                                        }
+                                    }}
+                                >
+                                    {f.name}
+                                </Menu.Item>
+                            ))}
+                            {contextChat?.folderId != null && (
+                                <>
+                                    <Menu.Divider />
+                                    <Menu.Item
+                                        onClick={() => {
+                                            if (contextMenu) {
+                                                moveChatToFolder(contextMenu.chatId, null);
+                                                setContextMenu(null);
+                                            }
+                                        }}
+                                    >
+                                        {t("sidebar.removeFromFolder")}
+                                    </Menu.Item>
+                                </>
+                            )}
                         </>
                     )}
                 </Menu.Dropdown>
@@ -935,16 +1208,154 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                 message={t("sidebar.confirmDeleteFolder")}
             />
             <ConfirmModal
-                opened={deletingComparisonId !== null}
-                onClose={() => setDeletingComparisonId(null)}
+                opened={deletingProjectId !== null}
+                onClose={() => setDeletingProjectId(null)}
                 onConfirm={() => {
-                    if (deletingComparisonId) {
-                        deleteComparison(deletingComparisonId);
-                        setDeletingComparisonId(null);
+                    if (deletingProjectId) {
+                        storeDeleteProject(deletingProjectId);
+                        setDeletingProjectId(null);
                     }
                 }}
-                message={t("compare.deleteConfirm")}
+                message={t("project.deleteConfirm")}
             />
+            <Menu
+                opened={projectContextMenu !== null}
+                onChange={(opened) => {
+                    if (!opened) setProjectContextMenu(null);
+                }}
+                position="bottom-start"
+            >
+                <Menu.Target>
+                    <div
+                        style={{
+                            position: "fixed",
+                            left: projectContextMenu?.x ?? 0,
+                            top: projectContextMenu?.y ?? 0,
+                            width: 0,
+                            height: 0,
+                        }}
+                        aria-hidden
+                    />
+                </Menu.Target>
+                <Menu.Dropdown>
+                    <Menu.Item
+                        leftSection={<IconLayoutBoard size={14} stroke={1.5} />}
+                        onClick={() => {
+                            if (projectContextMenu) {
+                                openProjectDashboard(projectContextMenu.projectId);
+                                setProjectContextMenu(null);
+                            }
+                        }}
+                    >
+                        {t("project.dashboard.openDashboard")}
+                    </Menu.Item>
+                    <Menu.Divider />
+                    <Menu.Item
+                        leftSection={<IconPencil size={14} stroke={1.5} />}
+                        onClick={() => {
+                            if (projectContextMenu) {
+                                const p = activeProjects.find((pr) => pr.id === projectContextMenu.projectId);
+                                if (p) startEditProject(p);
+                                setProjectContextMenu(null);
+                            }
+                        }}
+                    >
+                        {t("project.rename")}
+                    </Menu.Item>
+                    <Menu.Item
+                        leftSection={<IconTarget size={14} stroke={1.5} />}
+                        onClick={() => {
+                            if (projectContextMenu) {
+                                const p = activeProjects.find((pr) => pr.id === projectContextMenu.projectId);
+                                if (p) {
+                                    setEditGoalProjectId(p.id);
+                                    setEditGoalText(p.goal);
+                                }
+                                setProjectContextMenu(null);
+                            }
+                        }}
+                    >
+                        {t("project.editGoal")}
+                    </Menu.Item>
+                    <Menu.Divider />
+                    <Menu.Item
+                        leftSection={<IconCheck size={14} stroke={1.5} />}
+                        onClick={() => {
+                            if (projectContextMenu) {
+                                updateProject(projectContextMenu.projectId, { status: "completed" });
+                                setProjectContextMenu(null);
+                            }
+                        }}
+                    >
+                        {t("project.complete")}
+                    </Menu.Item>
+                    <Menu.Item
+                        leftSection={<IconArchive size={14} stroke={1.5} />}
+                        onClick={() => {
+                            if (projectContextMenu) {
+                                archiveProject(projectContextMenu.projectId);
+                                setProjectContextMenu(null);
+                            }
+                        }}
+                    >
+                        {t("project.archive")}
+                    </Menu.Item>
+                    <Menu.Divider />
+                    <Menu.Item
+                        color="red"
+                        leftSection={<IconTrash size={14} stroke={1.5} />}
+                        onClick={() => {
+                            if (projectContextMenu) {
+                                setDeletingProjectId(projectContextMenu.projectId);
+                                setProjectContextMenu(null);
+                            }
+                        }}
+                    >
+                        {t("project.delete")}
+                    </Menu.Item>
+                </Menu.Dropdown>
+            </Menu>
+            <Modal
+                size="sm"
+                title={t("project.editGoal")}
+                opened={editGoalProjectId !== null}
+                onClose={() => { setEditGoalProjectId(null); setEditGoalText(""); }}
+            >
+                <Stack gap="md">
+                    <Textarea
+                        placeholder={t("project.goalPlaceholder")}
+                        value={editGoalText}
+                        onChange={(e) => setEditGoalText(e.currentTarget.value)}
+                        minRows={2}
+                        maxRows={4}
+                        autosize
+                        autoFocus
+                    />
+                    <Group justify="flex-end" gap="sm">
+                        <Button variant="subtle" onClick={() => { setEditGoalProjectId(null); setEditGoalText(""); }}>
+                            {t("common.cancel")}
+                        </Button>
+                        <Button onClick={() => {
+                            if (editGoalProjectId) {
+                                updateProject(editGoalProjectId, { goal: editGoalText.trim() });
+                                setEditGoalProjectId(null);
+                                setEditGoalText("");
+                            }
+                        }}>
+                            {t("common.save")}
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
+            {!compact && (
+                <Box px="sm" py="xs" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
+                    <Tooltip label={t("sidebar.collapse")} position="right">
+                        <ActionIcon variant="subtle" size="lg" onClick={onToggleSidebar} w="100%">
+                            <IconLayoutSidebarLeftCollapse size={20} stroke={1.5} />
+                        </ActionIcon>
+                    </Tooltip>
+                </Box>
+            )}
         </Box>
     );
 }

@@ -8,10 +8,16 @@ export interface Attachment {
     data: number[];
 }
 
+export interface WebSource {
+    title: string;
+    url: string;
+    snippet: string;
+}
+
 // Одно сообщение в чате
 export interface Message {
     id: string;
-    role: "system" | "user" | "assistant";
+    role: "system" | "user" | "assistant" | "tool";
     content: string;
     parentId?: string;
     timestamp: number;
@@ -20,6 +26,24 @@ export interface Message {
     completionTokens?: number;
     cost?: number;
     hasAttachments?: boolean;
+    webSources?: WebSource[];
+    agentStep?: number;
+    agentRunId?: string;
+}
+
+// Превью соседней ветки
+export interface SiblingPreview {
+    id: string;
+    contentPreview: string;
+    createdAt: number;
+}
+
+// Сообщение с информацией о ветках
+export interface MessageWithSiblings extends Message {
+    siblingCount: number;
+    siblingIndex: number;
+    siblingIds: string[];
+    siblings: SiblingPreview[];
 }
 
 // Пресет системного промпта
@@ -38,25 +62,60 @@ export interface Folder {
     color: string | null;
     sortOrder: number;
     createdAt: number;
+    mode?: string;
+}
+
+// Проект (группировка чатов в Assistant mode)
+export interface Project {
+    id: string;
+    name: string;
+    goal: string;
+    status: 'active' | 'completed' | 'archived';
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface ProjectSummary extends Project {
+    chatCount: number;
+    artifactCount: number;
+    memoryCount: number;
+    planCount: number;
 }
 
 // Один чат (беседа)
 export interface Chat {
     id: string;
     title: string;
-    messages: Message[];
+    messages: MessageWithSiblings[];
     createdAt: number;
     updatedAt?: number;
     systemPrompt?: string;
     providerId?: string;
     model?: string;
     folderId?: string | null;
+    projectId?: string | null;
     temperature?: number | null;
     maxTokens?: number | null;
     topP?: number | null;
     topK?: number | null;
     frequencyPenalty?: number | null;
     presencePenalty?: number | null;
+    imageSize?: string | null;
+    imageQuality?: string | null;
+    imageStyle?: string | null;
+    imageN?: number | null;
+    negativePrompt?: string | null;
+    mode?: string;
+    autoSkillDetection?: boolean;
+}
+
+export interface ImageStyle {
+    id: string;
+    name: string;
+    promptSuffix: string;
+    isBuiltin: boolean;
+    sortOrder: number;
+    createdAt: number;
 }
 
 // Локальная модель Ollama (вывод ollama list)
@@ -76,6 +135,7 @@ export interface ModelInfo {
     context_length: number;
     supportsVision: boolean;
     supportsImageGeneration?: boolean;
+    supportsToolUse?: boolean;
     description?: string;
 }
 
@@ -135,6 +195,54 @@ export interface AppSettings {
     chatWidth?: "narrow" | "standard" | "wide";
     showStatusBar?: boolean;
     statusBarMetrics?: string[];
+    webSearchProvider?: string;
+    tavilyApiKey?: string;
+    braveApiKey?: string;
+    terminalFontSize?: number;
+    terminalShell?: string;
+    proxyEnabled?: boolean;
+    proxyType?: string;
+    proxyHost?: string;
+    proxyPort?: number;
+    proxyUsername?: string;
+    proxyPassword?: string;
+    sshHost?: string;
+    sshPort?: number;
+    sshUsername?: string;
+    sshAuthType?: string;
+    sshPassword?: string;
+    sshKeyPath?: string;
+    sshAutoConnect?: boolean;
+    routingEnabled?: boolean;
+    routingStrategy?: "rules" | "llm";
+    budgetPlanEnabled?: boolean;
+    budgetPlanLimit?: number;
+    budgetGlobalEnabled?: boolean;
+    budgetGlobalLimit?: number;
+    budgetGlobalPeriod?: "daily" | "monthly";
+    modelCatalogLastSync?: number;
+    telegramBotToken?: string;
+    telegramEnabled?: boolean;
+    telegramAutoStart?: boolean;
+    telegramModel?: string;
+}
+
+export interface TelegramStatus {
+    running: boolean;
+    botUsername: string | null;
+    authorizedUser: string | null;
+}
+
+export interface TelegramAuthRequest {
+    userId: number;
+    firstName: string;
+    lastName: string | null;
+    username: string | null;
+}
+
+export interface TelegramBotInfo {
+    username: string;
+    firstName: string;
 }
 
 // Payload событий стриминга — приходят из Rust через emit
@@ -203,6 +311,7 @@ export interface Snippet {
     content: string;
     categoryId: string;
     createdAt: number;
+    showOnWelcome?: boolean;
 }
 
 export interface SearchResult {
@@ -260,6 +369,26 @@ export interface McpServer {
     env: Record<string, string>;
     enabled: boolean;
     createdAt: number;
+    serverType?: string;
+    config?: string;
+}
+
+export interface FsMcpConfig {
+    allowedDirectories: string[];
+    blockedPatterns: string[];
+    readOnly: boolean;
+    maxFileSizeBytes: number;
+    confirmDestructive: boolean;
+}
+
+export interface FsAuditEntry {
+    id: number;
+    timestamp: number;
+    toolName: string;
+    path: string;
+    result: string;
+    details: string;
+    chatId: string;
 }
 
 export interface McpConnectionInfo {
@@ -303,11 +432,27 @@ export interface ComparisonMessage {
     promptTokens: number;
     completionTokens: number;
     cost: number;
+    hasAttachments?: number;
 }
 
 export interface ComparisonStreamPayload {
     side: "left" | "right";
     content: string;
+}
+
+export interface ComparisonToolCallPayload {
+    side: "left" | "right";
+    toolCallId: string;
+    serverId: string;
+    toolName: string;
+    arguments: string;
+}
+
+export interface ComparisonToolResultPayload {
+    side: "left" | "right";
+    toolCallId: string;
+    result: string;
+    isError: boolean;
 }
 
 export interface ComparisonStreamDonePayload {
@@ -332,4 +477,260 @@ export interface ComparisonStreamImagePayload {
     messageId: string;
     path: string;
     index: number;
+}
+
+export interface StreamRetryPayload {
+    attempt: number;
+    maxAttempts: number;
+    delayMs: number;
+}
+
+export interface ComparisonStreamRetryPayload {
+    side: "left" | "right";
+    attempt: number;
+    maxAttempts: number;
+    delayMs: number;
+}
+
+export interface PromptLibraryItem {
+    id: string;
+    title: string;
+    description: string;
+    content: string;
+    category: string;
+    isBuiltin: boolean;
+    language: string;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface ModeSettingRow {
+    mode: string;
+    enabled: boolean;
+    sortOrder: number;
+    config: string;
+}
+
+export interface ModeWorkspace {
+    activeChatId: string | null;
+    activeComparisonId: string | null;
+}
+
+export type ModeStateMap = Record<string, ModeWorkspace>;
+
+// Model catalog and routing
+export interface ModelCatalogEntry {
+    id: string;
+    provider: string;
+    modelId: string;
+    displayName: string;
+    costPerInputToken?: number;
+    costPerOutputToken?: number;
+    contextWindow?: number;
+    category: string;
+    strengths?: string;
+    isAvailable: boolean;
+    updatedAt: number;
+}
+
+export interface RoutingRule {
+    id: number;
+    taskCategory: string;
+    preferredModel: string;
+    fallbackModel?: string;
+    priority: number;
+    enabled: boolean;
+}
+
+// Agent types
+export interface AgentRun {
+    id: string;
+    chatId: string;
+    status: "running" | "paused" | "completed" | "failed" | "cancelled" | "paused_budget";
+    iterations: number;
+    maxIterations: number;
+    startedAt: number;
+    finishedAt?: number;
+    error?: string;
+    cost?: number;
+    assignedModel?: string;
+}
+
+export interface AgentRunStartedPayload {
+    runId: string;
+    chatId: string;
+    maxIterations: number;
+}
+
+export interface AgentStepPayload {
+    runId: string;
+    chatId: string;
+    iteration: number;
+}
+
+export interface AgentRunFinishedPayload {
+    runId: string;
+    status: string;
+    iterations: number;
+    error?: string;
+}
+
+export interface AgentRunLimitPayload {
+    runId: string;
+    iteration: number;
+    maxIterations: number;
+}
+
+export type AgentStatus = "idle" | "running" | "paused" | "completed" | "failed" | "cancelled";
+
+// Agent Memory types
+export interface AgentMemory {
+    id: string;
+    content: string;
+    category: string;
+    sourceChatId?: string;
+    sourceMessageId?: string;
+    projectId?: string | null;
+    isPinned: boolean;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface AgentMemorySearchResult {
+    memory: AgentMemory;
+    score: number;
+}
+
+export type MemoryCategory = "fact" | "decision" | "preference" | "context" | "learning";
+
+// Skills
+export interface Skill {
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    content: string;
+    triggerDescription: string;
+    requiredTools: string;
+    isBuiltin: boolean;
+    enabled: boolean;
+    sortOrder: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface ChatSkill {
+    chatId: string;
+    skillId: string;
+    attachedBy: string;
+    createdAt: number;
+}
+
+// ─── Plans ──────────────────────────────────────────────────
+
+export interface AgentPlan {
+    id: string;
+    chatId: string;
+    projectId?: string | null;
+    goal: string;
+    status: string;
+    executionMode: string;
+    replanCount: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface AgentTask {
+    id: string;
+    planId: string;
+    title: string;
+    description: string;
+    status: string;
+    dependencies: string[];
+    result: string | null;
+    agentRunId: string | null;
+    sortOrder: number;
+    createdAt: number;
+    updatedAt: number;
+    category?: string;
+    assignedModel?: string;
+}
+
+export interface PlanWithTasks {
+    plan: AgentPlan;
+    tasks: AgentTask[];
+}
+
+export interface AgentPlanWithProgress extends AgentPlan {
+    totalTasks: number;
+    completedTasks: number;
+}
+
+// ─── Workspace ─────────────────────────────────────────────
+
+export interface WorkspaceArtifact {
+    id: string;
+    chatId: string;
+    projectId: string | null;
+    name: string;
+    contentType: "code" | "text" | "data" | "image";
+    content: string | null;
+    filePath: string | null;
+    createdBy: string | null;
+    updatedBy: string | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
+// ─── Sub-Agents ────────────────────────────────────────────
+
+export interface SubAgentInfo {
+    agentRunId: string;
+    parentRunId: string;
+    goal: string;
+    model: string | null;
+    status: "running" | "completed" | "failed" | "cancelled";
+    iterations: number;
+    maxIterations: number;
+    cost: number | null;
+}
+
+export interface SubAgentRunInfo {
+    id: string;
+    parentRunId: string | null;
+    status: string;
+    goal: string;
+    iterations: number;
+    maxIterations: number;
+    cost: number | null;
+    assignedModel: string | null;
+}
+
+// ─── Scheduler ────────────────────────────────────────────
+
+export interface ScheduledTask {
+    id: string;
+    name: string;
+    prompt: string;
+    cronExpression: string;
+    enabled: boolean;
+    mode: string;
+    model: string | null;
+    skillId: string | null;
+    projectId: string | null;
+    deliverTelegram: boolean;
+    deliverDesktopNotification: boolean;
+    lastRunAt: number | null;
+    nextRunAt: number | null;
+    lastRunStatus: string | null;
+    lastRunError: string | null;
+    runCount: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface SchedulerStatus {
+    running: boolean;
+    taskCount: number;
+    nextTaskAt: number | null;
 }

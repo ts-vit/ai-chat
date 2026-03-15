@@ -143,6 +143,8 @@ pub struct DbChat {
     pub model: String,
     #[serde(rename = "folderId", default)]
     pub folder_id: Option<String>,
+    #[serde(rename = "projectId", default)]
+    pub project_id: Option<String>,
     #[serde(rename = "isImageModel", default)]
     pub is_image_model: bool,
     #[serde(rename = "temperature", skip_serializing_if = "Option::is_none")]
@@ -157,6 +159,31 @@ pub struct DbChat {
     pub frequency_penalty: Option<f32>,
     #[serde(rename = "presencePenalty", skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
+    #[serde(rename = "imageSize", skip_serializing_if = "Option::is_none")]
+    pub image_size: Option<String>,
+    #[serde(rename = "imageQuality", skip_serializing_if = "Option::is_none")]
+    pub image_quality: Option<String>,
+    #[serde(rename = "imageStyle", skip_serializing_if = "Option::is_none")]
+    pub image_style: Option<String>,
+    #[serde(rename = "imageN", skip_serializing_if = "Option::is_none")]
+    pub image_n: Option<u32>,
+    #[serde(rename = "negativePrompt", skip_serializing_if = "Option::is_none")]
+    pub negative_prompt: Option<String>,
+    #[serde(rename = "activeChildMap", default)]
+    pub active_child_map: Option<String>,
+    #[serde(rename = "mode", default = "default_mode")]
+    pub mode: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbImageStyle {
+    pub id: String,
+    pub name: String,
+    pub prompt_suffix: String,
+    pub is_builtin: bool,
+    pub sort_order: i64,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -167,6 +194,7 @@ pub struct DbFolder {
     pub color: Option<String>,
     pub sort_order: i64,
     pub created_at: i64,
+    pub mode: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -196,12 +224,59 @@ pub struct Model {
     pub context_length: u32,
     pub pricing: ModelPricing,
     pub supports_vision: bool,
+    #[serde(default = "default_true")]
+    pub supports_tool_use: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_mode() -> String { "chat".to_string() }
+
+/// Agent run record
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentRun {
+    pub id: String,
+    pub chat_id: String,
+    pub status: String,
+    pub iterations: i64,
+    pub max_iterations: i64,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assigned_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelPricing {
     pub prompt: String,
     pub completion: String,
+}
+
+// Превью соседней ветки (для выпадающего списка)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiblingPreview {
+    pub id: String,
+    pub content_preview: String,
+    pub created_at: i64,
+}
+
+// Сообщение из БД с информацией о ветках (для get_messages_branched)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbMessageWithSiblings {
+    #[serde(flatten)]
+    pub message: DbMessage,
+    pub sibling_count: u32,
+    pub sibling_index: u32,
+    pub sibling_ids: Vec<String>,
+    pub siblings: Vec<SiblingPreview>,
 }
 
 // Сообщение из БД (ответы команд)
@@ -225,6 +300,12 @@ pub struct DbMessage {
     pub cost: Option<f64>,
     #[serde(rename = "hasAttachments", skip_serializing_if = "Option::is_none")]
     pub has_attachments: Option<i64>,
+    #[serde(rename = "webSources", skip_serializing_if = "Option::is_none")]
+    pub web_sources: Option<String>,
+    #[serde(rename = "agentStep", skip_serializing_if = "Option::is_none")]
+    pub agent_step: Option<i64>,
+    #[serde(rename = "agentRunId", skip_serializing_if = "Option::is_none")]
+    pub agent_run_id: Option<String>,
 }
 
 // Настройки приложения
@@ -278,6 +359,66 @@ pub struct AppSettings {
     pub show_status_bar: bool,
     #[serde(default = "default_status_bar_metrics", rename = "statusBarMetrics")]
     pub status_bar_metrics: Vec<String>,
+    #[serde(default, rename = "webSearchProvider")]
+    pub web_search_provider: Option<String>,
+    #[serde(default, rename = "tavilyApiKey")]
+    pub tavily_api_key: Option<String>,
+    #[serde(default, rename = "braveApiKey")]
+    pub brave_api_key: Option<String>,
+    #[serde(default, rename = "terminalFontSize")]
+    pub terminal_font_size: Option<i32>,
+    #[serde(default, rename = "terminalShell")]
+    pub terminal_shell: Option<String>,
+    #[serde(default, rename = "proxyEnabled")]
+    pub proxy_enabled: bool,
+    #[serde(default, rename = "proxyType")]
+    pub proxy_type: Option<String>,
+    #[serde(default, rename = "proxyHost")]
+    pub proxy_host: Option<String>,
+    #[serde(default, rename = "proxyPort")]
+    pub proxy_port: Option<u16>,
+    #[serde(default, rename = "proxyUsername")]
+    pub proxy_username: Option<String>,
+    #[serde(default, rename = "proxyPassword")]
+    pub proxy_password: Option<String>,
+    #[serde(default, rename = "sshHost")]
+    pub ssh_host: Option<String>,
+    #[serde(default, rename = "sshPort")]
+    pub ssh_port: Option<u16>,
+    #[serde(default, rename = "sshUsername")]
+    pub ssh_username: Option<String>,
+    #[serde(default, rename = "sshAuthType")]
+    pub ssh_auth_type: Option<String>,
+    #[serde(default, rename = "sshPassword")]
+    pub ssh_password: Option<String>,
+    #[serde(default, rename = "sshKeyPath")]
+    pub ssh_key_path: Option<String>,
+    #[serde(default, rename = "sshAutoConnect")]
+    pub ssh_auto_connect: bool,
+    #[serde(default, rename = "routingEnabled")]
+    pub routing_enabled: bool,
+    #[serde(default, rename = "routingStrategy")]
+    pub routing_strategy: Option<String>,
+    #[serde(default, rename = "budgetPlanEnabled")]
+    pub budget_plan_enabled: bool,
+    #[serde(default, rename = "budgetPlanLimit")]
+    pub budget_plan_limit: Option<f64>,
+    #[serde(default, rename = "budgetGlobalEnabled")]
+    pub budget_global_enabled: bool,
+    #[serde(default, rename = "budgetGlobalLimit")]
+    pub budget_global_limit: Option<f64>,
+    #[serde(default, rename = "budgetGlobalPeriod")]
+    pub budget_global_period: Option<String>,
+    #[serde(default, rename = "modelCatalogLastSync")]
+    pub model_catalog_last_sync: Option<i64>,
+    #[serde(default, rename = "telegramBotToken")]
+    pub telegram_bot_token: Option<String>,
+    #[serde(default, rename = "telegramEnabled")]
+    pub telegram_enabled: bool,
+    #[serde(default, rename = "telegramAutoStart")]
+    pub telegram_auto_start: bool,
+    #[serde(default, rename = "telegramModel")]
+    pub telegram_model: Option<String>,
 }
 
 fn default_ollama_url() -> String {
@@ -339,6 +480,36 @@ impl Default for AppSettings {
             chat_width: default_chat_width(),
             show_status_bar: default_show_status_bar(),
             status_bar_metrics: default_status_bar_metrics(),
+            web_search_provider: None,
+            tavily_api_key: None,
+            brave_api_key: None,
+            terminal_font_size: None,
+            terminal_shell: None,
+            proxy_enabled: false,
+            proxy_type: None,
+            proxy_host: None,
+            proxy_port: None,
+            proxy_username: None,
+            proxy_password: None,
+            ssh_host: None,
+            ssh_port: None,
+            ssh_username: None,
+            ssh_auth_type: None,
+            ssh_password: None,
+            ssh_key_path: None,
+            ssh_auto_connect: false,
+            routing_enabled: false,
+            routing_strategy: None,
+            budget_plan_enabled: false,
+            budget_plan_limit: None,
+            budget_global_enabled: false,
+            budget_global_limit: None,
+            budget_global_period: None,
+            model_catalog_last_sync: None,
+            telegram_bot_token: None,
+            telegram_enabled: false,
+            telegram_auto_start: false,
+            telegram_model: None,
         }
     }
 }
@@ -359,6 +530,7 @@ pub struct DbSnippet {
     pub content: String,
     pub category_id: String,
     pub created_at: i64,
+    pub show_on_welcome: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

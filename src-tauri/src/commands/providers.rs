@@ -81,7 +81,22 @@ pub async fn update_custom_provider(
 }
 
 #[tauri::command]
+pub async fn get_provider_chat_count(pool: State<'_, Pool>, provider_id: String) -> Result<i64, String> {
+    let row = sqlx::query("SELECT COUNT(*) as cnt FROM chats WHERE provider_id = ?")
+        .bind(&provider_id)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(row.get::<i64, _>("cnt"))
+}
+
+#[tauri::command]
 pub async fn delete_custom_provider(pool: State<'_, Pool>, id: String) -> Result<(), String> {
+    sqlx::query("UPDATE chats SET provider_id = 'openrouter', model = '' WHERE provider_id = ?")
+        .bind(&id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM custom_providers WHERE id = ?")
         .bind(&id)
         .execute(pool.inner())

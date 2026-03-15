@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import type { AppSettings } from "../types";
 import {
@@ -15,27 +16,45 @@ import {
     IconCpu,
     IconDatabase,
     IconFileText,
+    IconFolder,
     IconInfoCircle,
     IconKey,
     IconLayoutGrid,
     IconMicrophone,
     IconPalette,
     IconPlug,
+    IconRoute,
     IconSettings,
+    IconNetwork,
+    IconTerminal2,
+    IconWorldSearch,
+    IconBrain,
+    IconApps,
+    IconBrandTelegram,
 } from "@tabler/icons-react";
 import { useChatStore } from "../store/chatStore";
+import { notify } from "../utils/notify";
 import {
     AboutSection,
     AudioSection,
+    BudgetSection,
     CustomProvidersSection,
     DataSection,
     GenerationSection,
     InterfaceSection,
+    FilesystemSection,
     McpSection,
     OllamaModelsSection,
     OpenRouterSection,
     PresetsSection,
+    RoutingSection,
+    VpnSection,
     TemplatesSection,
+    TerminalSection,
+    WebSearchSection,
+    SearchModelSection,
+    ModesSection,
+    TelegramSection,
 } from "./settings";
 
 export type SettingsSection =
@@ -44,10 +63,18 @@ export type SettingsSection =
     | "customProviders"
     | "generation"
     | "interface"
+    | "modes"
+    | "routing"
     | "presets"
     | "templates"
     | "mcp"
+    | "filesystem"
+    | "webSearch"
+    | "proxy"
     | "audio"
+    | "terminal"
+    | "searchModel"
+    | "telegram"
     | "data"
     | "about";
 
@@ -57,10 +84,18 @@ const getNavItems = (t: (key: string) => string): { section: SettingsSection; la
     { section: "customProviders", label: t("settings.nav.customProviders"), icon: <IconBox size={18} stroke={1.5} /> },
     { section: "generation", label: t("settings.nav.generation"), icon: <IconSettings size={18} stroke={1.5} /> },
     { section: "interface", label: t("settings.nav.interface"), icon: <IconPalette size={18} stroke={1.5} /> },
+    { section: "modes", label: t("settings.nav.modes"), icon: <IconApps size={18} stroke={1.5} /> },
+    { section: "routing", label: t("routing.title"), icon: <IconRoute size={18} stroke={1.5} /> },
     { section: "presets", label: t("settings.nav.presets"), icon: <IconFileText size={18} stroke={1.5} /> },
     { section: "templates", label: t("settings.nav.templates"), icon: <IconLayoutGrid size={18} stroke={1.5} /> },
     { section: "mcp", label: t("settings.nav.mcp"), icon: <IconPlug size={18} stroke={1.5} /> },
+    { section: "filesystem", label: t("settings.nav.filesystem"), icon: <IconFolder size={18} stroke={1.5} /> },
+    { section: "webSearch", label: t("settings.nav.webSearch"), icon: <IconWorldSearch size={18} stroke={1.5} /> },
+    { section: "proxy", label: t("settings.nav.vpn"), icon: <IconNetwork size={18} stroke={1.5} /> },
     { section: "audio", label: t("settings.nav.audio"), icon: <IconMicrophone size={18} stroke={1.5} /> },
+    { section: "telegram", label: t("telegram.title"), icon: <IconBrandTelegram size={18} stroke={1.5} /> },
+    { section: "terminal", label: t("settings.nav.terminal"), icon: <IconTerminal2 size={18} stroke={1.5} /> },
+    { section: "searchModel", label: t("settings.nav.searchModel"), icon: <IconBrain size={18} stroke={1.5} /> },
     { section: "data", label: t("settings.nav.data"), icon: <IconDatabase size={18} stroke={1.5} /> },
     { section: "about", label: t("settings.nav.about"), icon: <IconInfoCircle size={18} stroke={1.5} /> },
 ];
@@ -86,6 +121,28 @@ interface FormSnapshot {
     chatWidth: string;
     showStatusBar: boolean;
     statusBarMetrics: string[];
+    webSearchProvider: string;
+    tavilyApiKey: string;
+    braveApiKey: string;
+    terminalFontSize: number;
+    terminalShell: string;
+    proxyEnabled: boolean;
+    proxyType: string;
+    proxyHost: string;
+    proxyPort: number | undefined;
+    proxyUsername: string;
+    proxyPassword: string;
+    sshHost: string;
+    sshPort: number | undefined;
+    sshUsername: string;
+    sshAuthType: string;
+    sshPassword: string;
+    sshKeyPath: string;
+    sshAutoConnect: boolean;
+    telegramBotToken: string;
+    telegramEnabled: boolean;
+    telegramAutoStart: boolean;
+    telegramModel: string;
 }
 
 function normalizedCustomProviders(obj: Record<string, string[]>): Record<string, string[]> {
@@ -111,7 +168,29 @@ function isSameSnapshot(a: FormSnapshot, b: FormSnapshot | null): boolean {
         a.topP !== b.topP ||
         a.topK !== b.topK ||
         a.frequencyPenalty !== b.frequencyPenalty ||
-        a.presencePenalty !== b.presencePenalty
+        a.presencePenalty !== b.presencePenalty ||
+        a.webSearchProvider !== b.webSearchProvider ||
+        a.tavilyApiKey !== b.tavilyApiKey ||
+        a.braveApiKey !== b.braveApiKey ||
+        a.terminalFontSize !== b.terminalFontSize ||
+        a.terminalShell !== b.terminalShell ||
+        a.proxyEnabled !== b.proxyEnabled ||
+        a.proxyType !== b.proxyType ||
+        a.proxyHost !== b.proxyHost ||
+        a.proxyPort !== b.proxyPort ||
+        a.proxyUsername !== b.proxyUsername ||
+        a.proxyPassword !== b.proxyPassword ||
+        a.sshHost !== b.sshHost ||
+        a.sshPort !== b.sshPort ||
+        a.sshUsername !== b.sshUsername ||
+        a.sshAuthType !== b.sshAuthType ||
+        a.sshPassword !== b.sshPassword ||
+        a.sshKeyPath !== b.sshKeyPath ||
+        a.sshAutoConnect !== b.sshAutoConnect ||
+        a.telegramBotToken !== b.telegramBotToken ||
+        a.telegramEnabled !== b.telegramEnabled ||
+        a.telegramAutoStart !== b.telegramAutoStart ||
+        a.telegramModel !== b.telegramModel
     ) {
         return false;
     }
@@ -190,6 +269,39 @@ export function SettingsPage() {
     const [statusBarMetrics, setStatusBarMetrics] = useState<string[]>(
         settings.statusBarMetrics ?? ["balance", "context", "tokens", "cost"]
     );
+    const [webSearchProvider, setWebSearchProvider] = useState(settings.webSearchProvider ?? "");
+    const [tavilyApiKey, setTavilyApiKey] = useState(settings.tavilyApiKey ?? "");
+    const [braveApiKey, setBraveApiKey] = useState(settings.braveApiKey ?? "");
+    const [terminalFontSize, setTerminalFontSize] = useState(settings.terminalFontSize ?? 13);
+    const [terminalShell, setTerminalShell] = useState(settings.terminalShell ?? "");
+    const [proxyEnabled, setProxyEnabled] = useState(settings.proxyEnabled ?? false);
+    const [proxyType, setProxyType] = useState(settings.proxyType ?? "http");
+    const [proxyHost, setProxyHost] = useState(settings.proxyHost ?? "");
+    const [proxyPort, setProxyPort] = useState<number | undefined>(settings.proxyPort);
+    const [proxyUsername, setProxyUsername] = useState(settings.proxyUsername ?? "");
+    const [proxyPassword, setProxyPassword] = useState(settings.proxyPassword ?? "");
+    const [sshHost, setSshHost] = useState(settings.sshHost ?? "");
+    const [sshPort, setSshPort] = useState<number | undefined>(settings.sshPort ?? 22);
+    const [sshUsername, setSshUsername] = useState(settings.sshUsername ?? "");
+    const [sshAuthType, setSshAuthType] = useState(settings.sshAuthType ?? "password");
+    const [sshPassword, setSshPassword] = useState(settings.sshPassword ?? "");
+    const [sshKeyPath, setSshKeyPath] = useState(settings.sshKeyPath ?? "");
+    const [sshAutoConnect, setSshAutoConnect] = useState(settings.sshAutoConnect ?? false);
+    const [routingEnabled, setRoutingEnabled] = useState(settings.routingEnabled ?? false);
+    const [routingStrategy, setRoutingStrategy] = useState<"rules" | "llm">(
+        (settings.routingStrategy as "rules" | "llm") ?? "rules"
+    );
+    const [budgetPlanEnabled, setBudgetPlanEnabled] = useState(settings.budgetPlanEnabled ?? false);
+    const [budgetPlanLimit, setBudgetPlanLimit] = useState(settings.budgetPlanLimit ?? 5);
+    const [budgetGlobalEnabled, setBudgetGlobalEnabled] = useState(settings.budgetGlobalEnabled ?? false);
+    const [budgetGlobalLimit, setBudgetGlobalLimit] = useState(settings.budgetGlobalLimit ?? 10);
+    const [budgetGlobalPeriod, setBudgetGlobalPeriod] = useState<"daily" | "monthly">(
+        (settings.budgetGlobalPeriod as "daily" | "monthly") ?? "daily"
+    );
+    const [telegramBotToken, setTelegramBotToken] = useState(settings.telegramBotToken ?? "");
+    const [telegramEnabled, setTelegramEnabled] = useState(settings.telegramEnabled ?? false);
+    const [telegramAutoStart, setTelegramAutoStart] = useState(settings.telegramAutoStart ?? false);
+    const [telegramModel, setTelegramModel] = useState(settings.telegramModel ?? "");
 
     const initialSnapshotRef = useRef<FormSnapshot | null>(null);
 
@@ -214,6 +326,28 @@ export function SettingsPage() {
             chatWidth,
             showStatusBar,
             statusBarMetrics: statusBarMetrics.slice(),
+            webSearchProvider: webSearchProvider ?? "",
+            tavilyApiKey: tavilyApiKey ?? "",
+            braveApiKey: braveApiKey ?? "",
+            terminalFontSize,
+            terminalShell,
+            proxyEnabled,
+            proxyType: proxyType ?? "http",
+            proxyHost: proxyHost ?? "",
+            proxyPort,
+            proxyUsername: proxyUsername ?? "",
+            proxyPassword: proxyPassword ?? "",
+            sshHost: sshHost ?? "",
+            sshPort,
+            sshUsername: sshUsername ?? "",
+            sshAuthType: sshAuthType ?? "password",
+            sshPassword: sshPassword ?? "",
+            sshKeyPath: sshKeyPath ?? "",
+            sshAutoConnect,
+            telegramBotToken,
+            telegramEnabled,
+            telegramAutoStart,
+            telegramModel,
         };
     }
 
@@ -238,13 +372,43 @@ export function SettingsPage() {
             chatWidth: s.chatWidth ?? "standard",
             showStatusBar: s.showStatusBar ?? true,
             statusBarMetrics: (s.statusBarMetrics ?? ["balance", "context", "tokens", "cost"]).slice(),
+            webSearchProvider: s.webSearchProvider ?? "",
+            tavilyApiKey: s.tavilyApiKey ?? "",
+            braveApiKey: s.braveApiKey ?? "",
+            terminalFontSize: s.terminalFontSize ?? 13,
+            terminalShell: s.terminalShell ?? "",
+            proxyEnabled: s.proxyEnabled ?? false,
+            proxyType: s.proxyType ?? "http",
+            proxyHost: s.proxyHost ?? "",
+            proxyPort: s.proxyPort,
+            proxyUsername: s.proxyUsername ?? "",
+            proxyPassword: s.proxyPassword ?? "",
+            sshHost: s.sshHost ?? "",
+            sshPort: s.sshPort ?? 22,
+            sshUsername: s.sshUsername ?? "",
+            sshAuthType: s.sshAuthType ?? "password",
+            sshPassword: s.sshPassword ?? "",
+            sshKeyPath: s.sshKeyPath ?? "",
+            sshAutoConnect: s.sshAutoConnect ?? false,
+            telegramBotToken: s.telegramBotToken ?? "",
+            telegramModel: s.telegramModel ?? "",
+            telegramEnabled: s.telegramEnabled ?? false,
+            telegramAutoStart: s.telegramAutoStart ?? false,
         };
     }
 
     const currentSnapshot = getFormSnapshot();
+    const routingBudgetDirty =
+        routingEnabled !== (settings.routingEnabled ?? false) ||
+        routingStrategy !== ((settings.routingStrategy as "rules" | "llm") ?? "rules") ||
+        budgetPlanEnabled !== (settings.budgetPlanEnabled ?? false) ||
+        budgetPlanLimit !== (settings.budgetPlanLimit ?? 5) ||
+        budgetGlobalEnabled !== (settings.budgetGlobalEnabled ?? false) ||
+        budgetGlobalLimit !== (settings.budgetGlobalLimit ?? 10) ||
+        budgetGlobalPeriod !== ((settings.budgetGlobalPeriod as "daily" | "monthly") ?? "daily");
     const isDirty =
-        initialSnapshotRef.current !== null &&
-        !isSameSnapshot(currentSnapshot, initialSnapshotRef.current);
+        (initialSnapshotRef.current !== null && !isSameSnapshot(currentSnapshot, initialSnapshotRef.current)) ||
+        routingBudgetDirty;
 
     useEffect(() => {
         setApiKey(settings.api_key);
@@ -270,12 +434,54 @@ export function SettingsPage() {
         setChatWidth(settings.chatWidth ?? "standard");
         setShowStatusBar(settings.showStatusBar ?? true);
         setStatusBarMetrics(settings.statusBarMetrics ?? ["balance", "context", "tokens", "cost"]);
+        setWebSearchProvider(settings.webSearchProvider ?? "");
+        setTavilyApiKey(settings.tavilyApiKey ?? "");
+        setBraveApiKey(settings.braveApiKey ?? "");
+        setTerminalFontSize(settings.terminalFontSize ?? 13);
+        setTerminalShell(settings.terminalShell ?? "");
+        setProxyEnabled(settings.proxyEnabled ?? false);
+        setProxyType(settings.proxyType ?? "http");
+        setProxyHost(settings.proxyHost ?? "");
+        setProxyPort(settings.proxyPort);
+        setProxyUsername(settings.proxyUsername ?? "");
+        setProxyPassword(settings.proxyPassword ?? "");
+        setSshHost(settings.sshHost ?? "");
+        setSshPort(settings.sshPort ?? 22);
+        setSshUsername(settings.sshUsername ?? "");
+        setSshAuthType(settings.sshAuthType ?? "password");
+        setSshPassword(settings.sshPassword ?? "");
+        setSshKeyPath(settings.sshKeyPath ?? "");
+        setSshAutoConnect(settings.sshAutoConnect ?? false);
+        setRoutingEnabled(settings.routingEnabled ?? false);
+        setRoutingStrategy((settings.routingStrategy as "rules" | "llm") ?? "rules");
+        setBudgetPlanEnabled(settings.budgetPlanEnabled ?? false);
+        setBudgetPlanLimit(settings.budgetPlanLimit ?? 5);
+        setBudgetGlobalEnabled(settings.budgetGlobalEnabled ?? false);
+        setBudgetGlobalLimit(settings.budgetGlobalLimit ?? 10);
+        setBudgetGlobalPeriod((settings.budgetGlobalPeriod as "daily" | "monthly") ?? "daily");
         if (initialSnapshotRef.current === null) {
             initialSnapshotRef.current = formSnapshotFromSettings(settings);
         }
     }, [settings]);
 
+    const [isSaving, setIsSaving] = useState(false);
+
     const handleSave = async () => {
+        if (apiKey && apiKey !== settings.api_key) {
+            setIsSaving(true);
+            try {
+                const valid = await invoke<boolean>("validate_openrouter_key", { apiKey });
+                if (!valid) {
+                    notify.error(t("notifications.apiKeyInvalid"));
+                    setIsSaving(false);
+                    return;
+                }
+            } catch {
+                notify.warning(t("notifications.apiKeyCheckFailed"));
+            } finally {
+                setIsSaving(false);
+            }
+        }
         await saveSettings({
             api_key: apiKey,
             management_key: managementKey,
@@ -302,6 +508,35 @@ export function SettingsPage() {
             sttProvider: settings.sttProvider,
             sttLanguage: settings.sttLanguage,
             openaiApiKey: settings.openaiApiKey,
+            webSearchProvider: webSearchProvider || undefined,
+            tavilyApiKey: tavilyApiKey || undefined,
+            braveApiKey: braveApiKey || undefined,
+            terminalFontSize: terminalFontSize,
+            terminalShell: terminalShell || undefined,
+            proxyEnabled,
+            proxyType: proxyType || "http",
+            proxyHost: proxyHost || undefined,
+            proxyPort,
+            proxyUsername: proxyUsername || undefined,
+            proxyPassword: proxyPassword || undefined,
+            sshHost: sshHost || undefined,
+            sshPort: sshPort || 22,
+            sshUsername: sshUsername || undefined,
+            sshAuthType: sshAuthType || "password",
+            sshPassword: sshPassword || undefined,
+            sshKeyPath: sshKeyPath || undefined,
+            sshAutoConnect,
+            telegramBotToken: telegramBotToken || undefined,
+            telegramEnabled,
+            telegramAutoStart,
+            telegramModel: telegramModel || undefined,
+            routingEnabled,
+            routingStrategy: routingStrategy || "rules",
+            budgetPlanEnabled,
+            budgetPlanLimit,
+            budgetGlobalEnabled,
+            budgetGlobalLimit,
+            budgetGlobalPeriod,
         });
         initialSnapshotRef.current = getFormSnapshot();
         setView("chat");
@@ -380,14 +615,109 @@ export function SettingsPage() {
                         onStatusBarMetricsChange={setStatusBarMetrics}
                     />
                 );
+            case "modes":
+                return <ModesSection />;
+            case "routing":
+                return (
+                    <Stack gap="xl">
+                        <RoutingSection
+                            routingEnabled={routingEnabled}
+                            onRoutingEnabledChange={setRoutingEnabled}
+                            routingStrategy={routingStrategy}
+                            onRoutingStrategyChange={setRoutingStrategy}
+                            onSyncModels={() => useChatStore.getState().loadSettings()}
+                            lastSync={settings.modelCatalogLastSync ?? null}
+                        />
+                        <BudgetSection
+                            budgetPlanEnabled={budgetPlanEnabled}
+                            onBudgetPlanEnabledChange={setBudgetPlanEnabled}
+                            budgetPlanLimit={budgetPlanLimit}
+                            onBudgetPlanLimitChange={setBudgetPlanLimit}
+                            budgetGlobalEnabled={budgetGlobalEnabled}
+                            onBudgetGlobalEnabledChange={setBudgetGlobalEnabled}
+                            budgetGlobalLimit={budgetGlobalLimit}
+                            onBudgetGlobalLimitChange={setBudgetGlobalLimit}
+                            budgetGlobalPeriod={budgetGlobalPeriod}
+                            onBudgetGlobalPeriodChange={setBudgetGlobalPeriod}
+                        />
+                    </Stack>
+                );
             case "presets":
                 return <PresetsSection />;
             case "templates":
                 return <TemplatesSection />;
             case "mcp":
                 return <McpSection />;
+            case "filesystem":
+                return <FilesystemSection />;
+            case "webSearch":
+                return (
+                    <WebSearchSection
+                        webSearchProvider={webSearchProvider}
+                        onWebSearchProviderChange={setWebSearchProvider}
+                        tavilyApiKey={tavilyApiKey}
+                        onTavilyApiKeyChange={setTavilyApiKey}
+                        braveApiKey={braveApiKey}
+                        onBraveApiKeyChange={setBraveApiKey}
+                    />
+                );
+            case "proxy":
+                return (
+                    <VpnSection
+                        proxyEnabled={proxyEnabled}
+                        onProxyEnabledChange={setProxyEnabled}
+                        proxyType={proxyType}
+                        onProxyTypeChange={setProxyType}
+                        proxyHost={proxyHost}
+                        onProxyHostChange={setProxyHost}
+                        proxyPort={proxyPort}
+                        onProxyPortChange={setProxyPort}
+                        proxyUsername={proxyUsername}
+                        onProxyUsernameChange={setProxyUsername}
+                        proxyPassword={proxyPassword}
+                        onProxyPasswordChange={setProxyPassword}
+                        sshHost={sshHost}
+                        onSshHostChange={setSshHost}
+                        sshPort={sshPort}
+                        onSshPortChange={setSshPort}
+                        sshUsername={sshUsername}
+                        onSshUsernameChange={setSshUsername}
+                        sshAuthType={sshAuthType}
+                        onSshAuthTypeChange={setSshAuthType}
+                        sshPassword={sshPassword}
+                        onSshPasswordChange={setSshPassword}
+                        sshKeyPath={sshKeyPath}
+                        onSshKeyPathChange={setSshKeyPath}
+                        sshAutoConnect={sshAutoConnect}
+                        onSshAutoConnectChange={setSshAutoConnect}
+                    />
+                );
             case "audio":
                 return <AudioSection />;
+            case "terminal":
+                return (
+                    <TerminalSection
+                        terminalFontSize={terminalFontSize}
+                        onTerminalFontSizeChange={setTerminalFontSize}
+                        terminalShell={terminalShell}
+                        onTerminalShellChange={setTerminalShell}
+                    />
+                );
+            case "searchModel":
+                return <SearchModelSection />;
+            case "telegram":
+                return (
+                    <TelegramSection
+                        telegramBotToken={telegramBotToken}
+                        onTelegramBotTokenChange={setTelegramBotToken}
+                        telegramEnabled={telegramEnabled}
+                        onTelegramEnabledChange={setTelegramEnabled}
+                        telegramAutoStart={telegramAutoStart}
+                        onTelegramAutoStartChange={setTelegramAutoStart}
+                        telegramModel={telegramModel}
+                        onTelegramModelChange={setTelegramModel}
+                    />
+                );
             case "data":
                 return <DataSection />;
             case "about":
@@ -410,7 +740,7 @@ export function SettingsPage() {
                 <Button variant="subtle" onClick={() => setView("chat")}>
                     ← {t("common.back")}
                 </Button>
-                <Title order={2}>{t("settings.title")}</Title>
+                <Title order={2} c="brand">{t("settings.title")}</Title>
             </Group>
 
             <Box
@@ -425,6 +755,8 @@ export function SettingsPage() {
                         width: 200,
                         flexShrink: 0,
                         borderRight: "1px solid var(--mantine-color-default-border)",
+                        overflowY: "auto",
+                        minHeight: 0,
                     }}
                 >
                     <Stack gap={0} p="xs">
@@ -435,6 +767,7 @@ export function SettingsPage() {
                                 label={label}
                                 leftSection={icon}
                                 onClick={() => setActiveSection(section)}
+                                color="brand"
                             />
                         ))}
                     </Stack>
@@ -448,7 +781,7 @@ export function SettingsPage() {
                         {renderSection()}
                         {isDirty && (
                             <Group justify="flex-end">
-                                <Button onClick={handleSave}>{t("common.save")}</Button>
+                                <Button onClick={handleSave} loading={isSaving}>{t("common.save")}</Button>
                             </Group>
                         )}
                     </Stack>

@@ -322,4 +322,81 @@ mod tests {
         let chunks = chunk_document(&text, "headings", 1000, 0);
         assert!(chunks.len() >= 2);
     }
+
+    #[test]
+    fn chunk_russian_text_utf8_safe() {
+        let text = "Привет мир. Это тест русского текста. Юникод работает корректно. Ещё одно предложение для проверки.";
+        let chunks = chunk_text(text, 3, 1);
+        assert!(!chunks.is_empty());
+        for c in &chunks {
+            // Every chunk must be valid UTF-8 (String guarantees this, but verify content)
+            assert!(!c.text.is_empty());
+            assert!(c.text.is_char_boundary(c.text.len()));
+        }
+    }
+
+    #[test]
+    fn chunk_very_long_line_no_separators() {
+        let text = "a".repeat(10000);
+        // No whitespace → single "word" of 10000 chars
+        let chunks = chunk_text(&text, 100, 10);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].text, text);
+    }
+
+    #[test]
+    fn chunk_only_whitespace() {
+        let text = "   \n\n  \t  ";
+        let chunks = chunk_text(text, 100, 10);
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn chunk_size_one() {
+        let text = "one two three four five";
+        let chunks = chunk_text(text, 1, 0);
+        assert_eq!(chunks.len(), 5);
+        assert_eq!(chunks[0].text, "one");
+        assert_eq!(chunks[4].text, "five");
+    }
+
+    #[test]
+    fn find_word_offsets_russian() {
+        let text = "Привет мир";
+        let offsets = find_word_offsets(text);
+        assert_eq!(offsets.len(), 2);
+        // "Привет" is 12 bytes in UTF-8 (6 chars × 2 bytes each)
+        assert_eq!(offsets[0].0, 0);
+        assert_eq!(offsets[0].1, 12); // "Привет" ends at byte 12
+        assert_eq!(&text[offsets[0].0..offsets[0].1], "Привет");
+        assert_eq!(&text[offsets[1].0..offsets[1].1], "мир");
+    }
+
+    #[test]
+    fn find_word_offsets_empty() {
+        let offsets = find_word_offsets("");
+        assert!(offsets.is_empty());
+    }
+
+    #[test]
+    fn chunk_document_unknown_strategy_falls_back_to_tokens() {
+        let text = "word ".repeat(50);
+        let chunks = chunk_document(&text, "unknown_strategy", 20, 5);
+        assert!(!chunks.is_empty());
+        // Should use tokens strategy (default)
+        let meta = &chunks[0].metadata;
+        assert_eq!(meta["strategy"], "tokens");
+    }
+
+    #[test]
+    fn chunk_headings_no_headings_falls_back() {
+        let text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
+        let chunks = chunk_document(text, "headings", 1000, 0);
+        // No headings → falls back to paragraph-based chunking
+        assert!(!chunks.is_empty());
+        // Content should still be chunked (may use paragraphs internally)
+        let all_content: String = chunks.iter().map(|c| c.content.clone()).collect();
+        assert!(all_content.contains("First paragraph"));
+        assert!(all_content.contains("Third paragraph"));
+    }
 }

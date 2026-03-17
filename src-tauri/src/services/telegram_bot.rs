@@ -952,3 +952,85 @@ fn split_message(text: &str) -> Vec<String> {
 
     chunks
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_short_message_single() {
+        let text = "Hello world";
+        let chunks = split_message(text);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], "Hello world");
+    }
+
+    #[test]
+    fn test_split_exact_limit() {
+        let text = "a".repeat(MAX_MESSAGE_LENGTH);
+        let chunks = split_message(&text);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].len(), MAX_MESSAGE_LENGTH);
+    }
+
+    #[test]
+    fn test_split_long_message() {
+        let text = "a".repeat(MAX_MESSAGE_LENGTH * 3);
+        let chunks = split_message(&text);
+        assert!(chunks.len() >= 3);
+        for c in &chunks {
+            assert!(c.len() <= MAX_MESSAGE_LENGTH);
+        }
+    }
+
+    #[test]
+    fn test_split_preserves_content() {
+        let text = "Hello world. ".repeat(500); // ~6500 chars, will need splitting
+        let chunks = split_message(&text);
+        let joined: String = chunks.concat();
+        assert_eq!(joined, text);
+    }
+
+    #[test]
+    fn test_split_russian_utf8_safe() {
+        // "Привет " is 13 bytes (6 Cyrillic chars × 2 bytes + 1 space)
+        // Fill enough to exceed 4096 bytes
+        let text = "Привет ".repeat(500); // ~6500 bytes
+        let chunks = split_message(&text);
+        assert!(chunks.len() >= 2);
+        for c in &chunks {
+            assert!(c.len() <= MAX_MESSAGE_LENGTH);
+            // Verify valid UTF-8 (String guarantees this, but check char boundary)
+            assert!(c.is_char_boundary(c.len()));
+        }
+    }
+
+    #[test]
+    fn test_split_prefers_newline_boundary() {
+        // Create text with newlines before the 4096 limit
+        let mut text = String::new();
+        for i in 0..200 {
+            text.push_str(&format!("Line {}\n", i));
+        }
+        let chunks = split_message(&text);
+        // First chunk should end at a newline
+        if chunks.len() > 1 {
+            assert!(chunks[0].ends_with('\n'));
+        }
+    }
+
+    #[test]
+    fn test_split_no_newlines() {
+        let text = "a".repeat(MAX_MESSAGE_LENGTH + 100);
+        let chunks = split_message(&text);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].len(), MAX_MESSAGE_LENGTH);
+    }
+
+    #[test]
+    fn test_split_empty_string() {
+        let chunks = split_message("");
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], "");
+    }
+}

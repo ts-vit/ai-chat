@@ -217,3 +217,48 @@ pub async fn get_budget_status_command(
 ) -> Result<serde_json::Value, String> {
     get_budget_status(pool.inner(), &app, plan_id).await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_catalog_id_format() {
+        assert_eq!(catalog_id("openrouter", "anthropic/claude-sonnet-4"), "openrouter:anthropic/claude-sonnet-4");
+    }
+
+    #[test]
+    fn test_catalog_id_empty() {
+        assert_eq!(catalog_id("", ""), ":");
+    }
+
+    #[test]
+    fn test_catalog_id_ollama() {
+        assert_eq!(catalog_id("ollama", "qwen2.5:3b"), "ollama:qwen2.5:3b");
+    }
+
+    #[test]
+    fn test_provider_openrouter() {
+        assert_eq!(provider_from_base_url("https://openrouter.ai/api/v1"), "openrouter");
+    }
+
+    #[test]
+    fn test_provider_ollama_port() {
+        assert_eq!(provider_from_base_url("http://localhost:11434"), "ollama");
+    }
+
+    #[test]
+    fn test_provider_ollama_name() {
+        assert_eq!(provider_from_base_url("http://ollama.local/api"), "ollama");
+    }
+
+    #[test]
+    fn test_provider_custom_fallback() {
+        assert_eq!(provider_from_base_url("https://api.example.com/v1"), "custom");
+    }
+
+    #[test]
+    fn test_provider_case_insensitive() {
+        assert_eq!(provider_from_base_url("https://OPENROUTER.ai/api"), "openrouter");
+    }
+}

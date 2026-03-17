@@ -1785,3 +1785,76 @@ fn spawn_plan_task(
         }
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_short_unchanged() {
+        assert_eq!(truncate_str("Hello world", 100), "Hello world");
+    }
+
+    #[test]
+    fn test_truncate_exact_limit() {
+        let s = "Hello";
+        assert_eq!(truncate_str(s, 5), "Hello");
+    }
+
+    #[test]
+    fn test_truncate_long_text() {
+        let s = "Hello world, this is a long text";
+        let result = truncate_str(s, 11);
+        assert_eq!(result, "Hello world");
+    }
+
+    #[test]
+    fn test_truncate_russian_utf8_safe() {
+        // "Привет" = 12 bytes (6 Cyrillic chars × 2 bytes each)
+        let s = "Привет мир";
+        // Truncate at 13 bytes — should land on char boundary (after "Привет" + space)
+        let result = truncate_str(s, 13);
+        assert!(result.len() <= 13);
+        assert!(s.is_char_boundary(result.len()));
+        // Truncate at 14 — in the middle of 'м' (byte 13-14) → should go back to 13
+        let result2 = truncate_str(s, 14);
+        assert!(result2.len() <= 14);
+        assert!(s.is_char_boundary(result2.len()));
+    }
+
+    #[test]
+    fn test_truncate_emoji_utf8_safe() {
+        // 🎉 is 4 bytes
+        let s = "Hi 🎉🎊";
+        // Truncate at 5 — in the middle of 🎉 (bytes 3-6) → should go back to 3
+        let result = truncate_str(s, 5);
+        assert!(result.len() <= 5);
+        assert!(s.is_char_boundary(result.len()));
+        assert_eq!(result, "Hi ");
+    }
+
+    #[test]
+    fn test_truncate_empty() {
+        assert_eq!(truncate_str("", 100), "");
+    }
+
+    #[test]
+    fn test_strip_markdown_fences_json() {
+        assert_eq!(strip_markdown_fences("```json\n{\"key\": \"value\"}\n```"), "{\"key\": \"value\"}");
+    }
+
+    #[test]
+    fn test_strip_markdown_fences_plain() {
+        assert_eq!(strip_markdown_fences("```\nsome code\n```"), "some code");
+    }
+
+    #[test]
+    fn test_strip_markdown_fences_no_fences() {
+        assert_eq!(strip_markdown_fences("plain text"), "plain text");
+    }
+
+    #[test]
+    fn test_strip_markdown_fences_with_whitespace() {
+        assert_eq!(strip_markdown_fences("  ```json\n{}\n```  "), "{}");
+    }
+}

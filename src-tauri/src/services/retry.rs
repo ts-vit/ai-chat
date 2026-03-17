@@ -141,3 +141,89 @@ pub async fn retry_http_request(
         total_attempts, last_error
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::header::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn test_status_429_retryable() {
+        assert!(is_retryable_status(StatusCode::TOO_MANY_REQUESTS));
+    }
+
+    #[test]
+    fn test_status_500_502_503_504_retryable() {
+        assert!(is_retryable_status(StatusCode::INTERNAL_SERVER_ERROR));
+        assert!(is_retryable_status(StatusCode::BAD_GATEWAY));
+        assert!(is_retryable_status(StatusCode::SERVICE_UNAVAILABLE));
+        assert!(is_retryable_status(StatusCode::GATEWAY_TIMEOUT));
+    }
+
+    #[test]
+    fn test_status_401_not_retryable() {
+        assert!(!is_retryable_status(StatusCode::UNAUTHORIZED));
+    }
+
+    #[test]
+    fn test_status_400_not_retryable() {
+        assert!(!is_retryable_status(StatusCode::BAD_REQUEST));
+    }
+
+    #[test]
+    fn test_status_200_not_retryable() {
+        assert!(!is_retryable_status(StatusCode::OK));
+    }
+
+    #[test]
+    fn test_compute_delay_exponential() {
+        let d0 = compute_delay(0, None);
+        assert_eq!(d0.as_millis(), 1000); // BASE_DELAY_MS * 2^0 = 1000
+
+        let d1 = compute_delay(1, None);
+        assert_eq!(d1.as_millis(), 2000); // 1000 * 2^1
+
+        let d2 = compute_delay(2, None);
+        assert_eq!(d2.as_millis(), 4000); // 1000 * 2^2
+    }
+
+    #[test]
+    fn test_compute_delay_with_retry_after() {
+        let d = compute_delay(0, Some(5));
+        assert_eq!(d.as_millis(), 5000);
+    }
+
+    #[test]
+    fn test_compute_delay_capped_at_max() {
+        // attempt=20 → 1000 * 2^20 = 1_048_576_000 → capped at 30000
+        let d = compute_delay(20, None);
+        assert_eq!(d.as_millis(), MAX_DELAY_MS as u128);
+    }
+
+    #[test]
+    fn test_compute_delay_retry_after_capped() {
+        // retry_after = 60s → 60000ms, capped at 30000
+        let d = compute_delay(0, Some(60));
+        assert_eq!(d.as_millis(), MAX_DELAY_MS as u128);
+    }
+
+    #[test]
+    fn test_parse_retry_after_valid() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", HeaderValue::from_static("5"));
+        assert_eq!(parse_retry_after(&headers), Some(5));
+    }
+
+    #[test]
+    fn test_parse_retry_after_missing() {
+        let headers = HeaderMap::new();
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+
+    #[test]
+    fn test_parse_retry_after_invalid() {
+        let mut headers = HeaderMap::new();
+        headers.insert("retry-after", HeaderValue::from_static("not-a-number"));
+        assert_eq!(parse_retry_after(&headers), None);
+    }
+}

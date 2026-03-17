@@ -64,3 +64,39 @@ fn truncate_by_words(text: &str, max_words: usize) -> String {
     }
     words[..max_words].join(" ")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_by_words_short() {
+        let text = "one two three";
+        assert_eq!(truncate_by_words(text, 10), text);
+    }
+
+    #[test]
+    fn test_truncate_by_words_long() {
+        let text = "one two three four five six seven";
+        let result = truncate_by_words(text, 3);
+        assert_eq!(result, "one two three");
+    }
+
+    #[test]
+    fn test_truncate_by_words_russian() {
+        let text = "Привет мир это тест юникода";
+        let result = truncate_by_words(text, 2);
+        assert_eq!(result, "Привет мир");
+    }
+
+    #[test]
+    fn test_truncate_by_words_exact_limit() {
+        let text = "one two three";
+        assert_eq!(truncate_by_words(text, 3), text);
+    }
+
+    #[test]
+    fn test_truncate_by_words_empty() {
+        assert_eq!(truncate_by_words("", 10), "");
+    }
+}

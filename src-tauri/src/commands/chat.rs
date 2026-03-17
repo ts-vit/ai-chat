@@ -1046,3 +1046,81 @@ pub async fn stop_comparison_generation(stream_state: State<'_, StreamState>) ->
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dall_e_detected() {
+        assert!(is_image_generation_model("dall-e-3"));
+    }
+
+    #[test]
+    fn test_gpt_image_detected() {
+        assert!(is_image_generation_model("gpt-image-1"));
+    }
+
+    #[test]
+    fn test_flux_detected() {
+        assert!(is_image_generation_model("black-forest-labs/flux"));
+    }
+
+    #[test]
+    fn test_stable_diffusion_detected() {
+        assert!(is_image_generation_model("stable-diffusion-xl"));
+    }
+
+    #[test]
+    fn test_stabilityai_detected() {
+        assert!(is_image_generation_model("stabilityai/sd3"));
+    }
+
+    #[test]
+    fn test_regular_model_not_image() {
+        assert!(!is_image_generation_model("gpt-4o"));
+        assert!(!is_image_generation_model("claude-sonnet-4"));
+        assert!(!is_image_generation_model("llama-3.1-70b"));
+    }
+
+    #[test]
+    fn test_case_insensitive() {
+        assert!(is_image_generation_model("DALL-E-3"));
+        assert!(is_image_generation_model("Stable-Diffusion-XL"));
+    }
+
+    #[test]
+    fn test_image_suffix() {
+        assert!(is_image_generation_model("some-model-image"));
+    }
+
+    #[test]
+    fn test_image_infix() {
+        assert!(is_image_generation_model("some-image-model"));
+    }
+
+    #[test]
+    fn test_parse_tool_call_name() {
+        let name_map = std::collections::HashMap::new();
+        let (server, tool) = parse_tool_call_name("server1__tool_name", &name_map);
+        assert_eq!(server, "server1");
+        assert_eq!(tool, "tool_name");
+    }
+
+    #[test]
+    fn test_parse_tool_call_name_no_separator() {
+        let name_map = std::collections::HashMap::new();
+        let (server, tool) = parse_tool_call_name("just_tool", &name_map);
+        assert_eq!(server, "");
+        assert_eq!(tool, "just_tool");
+    }
+
+    #[test]
+    fn test_parse_tool_call_name_with_map() {
+        let mut name_map = std::collections::HashMap::new();
+        name_map.insert("mapped_name".to_string(), ("srv".to_string(), "tool".to_string()));
+        let (server, tool) = parse_tool_call_name("mapped_name", &name_map);
+        assert_eq!(server, "srv");
+        assert_eq!(tool, "tool");
+    }
+}

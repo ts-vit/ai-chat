@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:debug": "set RUST_LOG=debug&& tauri dev",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:rust": "cd src-tauri && cargo test",
+    "test:all": "npm run typecheck && npm run test:rust"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

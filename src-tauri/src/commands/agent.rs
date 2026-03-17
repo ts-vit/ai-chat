@@ -20,6 +20,9 @@ use crate::services::mcp_manager::McpManager;
 use crate::services::memory_vector_store::MemoryVectorStore;
 use crate::services::web_search;
 use crate::services::web_content;
+use crate::services::kb_vector_store::KbVectorStore;
+use crate::services::kb_search::{self, KbSearchConfig};
+use crate::services::rag_context;
 
 type Pool = sqlx::SqlitePool;
 
@@ -68,6 +71,7 @@ pub async fn send_agent_message(
     pool: State<'_, Pool>,
     mcp_manager: State<'_, Arc<McpManager>>,
     memory_store: State<'_, Arc<Option<MemoryVectorStore>>>,
+    kb_vector_store: State<'_, Arc<Option<KbVectorStore>>>,
     cancel_tokens: State<'_, AgentCancelTokens>,
     chat_id: String,
     content: String,
@@ -193,6 +197,7 @@ pub async fn send_agent_message(
     let pool_clone = pool.inner().clone();
     let mcp_mgr = mcp_manager.inner().clone();
     let mem_store = memory_store.inner().clone();
+    let kb_store = kb_vector_store.inner().clone();
     let app_clone = app.clone();
     let run_id_clone = run_id.clone();
     let assistant_msg_id = assistant_message_id.unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -205,6 +210,7 @@ pub async fn send_agent_message(
             pool_clone,
             mcp_mgr,
             mem_store,
+            kb_store,
             chat_id,
             run_id_clone,
             run_model,
@@ -294,6 +300,7 @@ pub async fn resume_agent_run(
     pool: State<'_, Pool>,
     mcp_manager: State<'_, Arc<McpManager>>,
     memory_store: State<'_, Arc<Option<MemoryVectorStore>>>,
+    kb_vector_store: State<'_, Arc<Option<KbVectorStore>>>,
     cancel_tokens: State<'_, AgentCancelTokens>,
     run_id: String,
 ) -> Result<(), String> {
@@ -332,6 +339,7 @@ pub async fn resume_agent_run(
     let pool_clone = pool.inner().clone();
     let mcp_mgr = mcp_manager.inner().clone();
     let mem_store = memory_store.inner().clone();
+    let kb_store_clone = kb_vector_store.inner().clone();
     let cancel_tokens_clone = cancel_tokens.inner().clone();
 
     let _ = app.emit("agent-run-started", AgentRunStartedPayload {
@@ -347,6 +355,7 @@ pub async fn resume_agent_run(
             pool_clone,
             mcp_mgr,
             mem_store,
+            kb_store_clone,
             chat_id,
             run_id_clone,
             model,
@@ -430,6 +439,7 @@ pub(crate) async fn agent_loop(
     pool: Pool,
     mcp_mgr: Arc<McpManager>,
     mem_store: Arc<Option<MemoryVectorStore>>,
+    kb_store: Arc<Option<KbVectorStore>>,
     chat_id: String,
     run_id: String,
     model: String,
@@ -492,6 +502,63 @@ pub(crate) async fn agent_loop(
         system_prompt
     };
 
+    // Resolve KB context for this chat
+    let kb_id: Option<String> = sqlx::query_scalar("SELECT kb_id FROM chats WHERE id = ?")
+        .bind(&chat_id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None)
+        .flatten();
+
+    // Build embedding provider for KB (if attached)
+    let kb_provider: Option<Box<dyn crate::services::embedding_provider::EmbeddingProvider>> = if let Some(ref kb_id_val) = kb_id {
+        let emb_model: String = sqlx::query_scalar("SELECT embedding_model FROM knowledge_bases WHERE id = ?")
+            .bind(kb_id_val)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "e5-small".to_string());
+        let api_key_emb = {
+            use tauri_plugin_store::StoreExt;
+            let store_settings = app.store("settings.json").ok();
+            store_settings.and_then(|s| {
+                match emb_model.as_str() {
+                    "openai" | "text-embedding-3-small" => s.get("embeddingOpenaiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+                    "gemini" | "gemini-embedding" => s.get("embeddingGeminiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+                    _ => None,
+                }
+            })
+        };
+        let http_client_emb = if emb_model != "e5-small" {
+            crate::services::http_client::build_http_client(&app, None).await.ok()
+        } else {
+            None
+        };
+        crate::services::embedding_provider::create_embedding_provider(&emb_model, api_key_emb.as_deref(), http_client_emb).ok()
+    } else {
+        None
+    };
+
+    // Inject RAG system instruction into system prompt if KB attached
+    let system_prompt = if let Some(ref kb_id_val) = kb_id {
+        let kb_row = sqlx::query("SELECT system_prompt FROM knowledge_bases WHERE id = ?")
+            .bind(kb_id_val)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+        if let Some(row) = kb_row {
+            let kb_sys: String = row.get("system_prompt");
+            let instruction = rag_context::build_rag_system_instruction(&kb_sys);
+            Some(format!("{}\n\n{}", instruction, system_prompt.unwrap_or_default()))
+        } else {
+            system_prompt
+        }
+    } else {
+        system_prompt
+    };
+
     // Read web search settings from store
     let (web_search_enabled, web_search_provider, ws_tavily_key, ws_brave_key) = {
         use tauri_plugin_store::StoreExt;
@@ -514,12 +581,27 @@ pub(crate) async fn agent_loop(
         system_prompt
     };
 
+    // Append KB search hint to system prompt
+    let system_prompt = if kb_id.is_some() {
+        let hint = "\n\nYou have access to a knowledge base via the kb_search tool. Use it to look up relevant information before answering questions that might be covered by the knowledge base documents. Always cite the source document when using information from the knowledge base.";
+        Some(system_prompt.unwrap_or_default() + hint)
+    } else {
+        system_prompt
+    };
+
     // Append orchestrator guidance (depth 0 only) — prefer direct tools over sub-agents for simple tasks
     let system_prompt = if depth == 0 {
-        let orchestrator_hint = "\n\nIMPORTANT: Use your direct tools for simple tasks. Do NOT spawn sub-agents for tasks you can do yourself:\n- Use web_search/web_read directly for internet searches\n- Use memory_save/memory_search directly for managing memory\n- Use workspace_write/workspace_read/workspace_list directly for artifacts\n\nOnly spawn sub-agents for complex multi-step tasks that benefit from parallel execution or a dedicated agent with specific skills/model.";
+        let orchestrator_hint = "\n\nIMPORTANT: Use your direct tools for simple tasks. Do NOT spawn sub-agents for tasks you can do yourself:\n- Use web_search/web_read directly for internet searches\n- Use memory_save/memory_search directly for managing memory\n- Use workspace_write/workspace_read/workspace_list directly for artifacts\n- Use kb_search directly for knowledge base lookups\n\nOnly spawn sub-agents for complex multi-step tasks that benefit from parallel execution or a dedicated agent with specific skills/model.";
         Some(system_prompt.unwrap_or_default() + orchestrator_hint)
     } else {
         system_prompt
+    };
+
+    // Inject current date so the agent knows today's date (for web searches, etc.)
+    let system_prompt = {
+        let date_str = chrono::Local::now().format("%Y-%m-%d %A").to_string();
+        let date_line = format!("\n\nCurrent date: {}.", date_str);
+        Some(system_prompt.unwrap_or_default() + &date_line)
     };
 
     let base = base_url
@@ -567,6 +649,9 @@ pub(crate) async fn agent_loop(
         }
         if web_search_enabled {
             builtin_tools.extend(web_search_tool_definitions());
+        }
+        if kb_id.is_some() {
+            builtin_tools.extend(kb_search_tool_definitions());
         }
         if let Some(ref mut tools) = tools_json {
             if let Some(arr) = tools.as_array_mut() {
@@ -635,7 +720,7 @@ pub(crate) async fn agent_loop(
         });
 
         // Build messages from DB
-        let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, scope_agent_run_id.as_deref(), project_id.as_deref()).await {
+        let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, scope_agent_run_id.as_deref(), project_id.as_deref(), kb_id.as_deref(), kb_store.as_ref().as_ref(), kb_provider.as_deref()).await {
             Ok(m) => m,
             Err(e) => {
                 let _ = app.emit("agent-stream-error", StreamErrorPayload { error: e.clone() });
@@ -826,12 +911,18 @@ pub(crate) async fn agent_loop(
                         res
                     } else if tool_call.name == "spawn_agent" || tool_call.name == "check_agent" || tool_call.name == "get_agent_result" || tool_call.name == "cancel_agent" {
                         handle_orchestrator_tool(
-                            app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), cancel_tokens.clone(),
+                            app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), kb_store.clone(), cancel_tokens.clone(),
                             chat_id.clone(), run_id.clone(), api_key.clone(), base.clone(),
                             model.clone(), depth, &tool_call.name, &args,
                         ).await
                     } else if tool_call.name == "web_search" || tool_call.name == "web_read" {
                         handle_web_search_tool(&app, &tool_call.name, &args, &web_search_provider, ws_tavily_key.as_deref(), ws_brave_key.as_deref()).await
+                    } else if tool_call.name == "kb_search" {
+                        if let Some(ref kb_id_val) = kb_id {
+                            handle_kb_search_tool(&pool, kb_store.as_ref().as_ref(), kb_id_val, &args, kb_provider.as_deref()).await
+                        } else {
+                            ("Knowledge base not attached to this chat.".to_string(), true)
+                        }
                     } else {
                         let result = mcp_mgr.call_tool(&server_id, &tool_name, args).await;
                         match result {
@@ -931,6 +1022,7 @@ async fn agent_loop_resume(
     pool: Pool,
     mcp_mgr: Arc<McpManager>,
     mem_store: Arc<Option<MemoryVectorStore>>,
+    kb_store: Arc<Option<KbVectorStore>>,
     chat_id: String,
     run_id: String,
     model: String,
@@ -948,6 +1040,44 @@ async fn agent_loop_resume(
     .fetch_optional(&pool)
     .await
     .unwrap_or(None);
+
+    // Resolve KB context for this chat
+    let kb_id: Option<String> = sqlx::query_scalar("SELECT kb_id FROM chats WHERE id = ?")
+        .bind(&chat_id)
+        .fetch_optional(&pool)
+        .await
+        .unwrap_or(None)
+        .flatten();
+
+    // Build embedding provider for KB (if attached)
+    let kb_provider: Option<Box<dyn crate::services::embedding_provider::EmbeddingProvider>> = if let Some(ref kb_id_val) = kb_id {
+        let emb_model: String = sqlx::query_scalar("SELECT embedding_model FROM knowledge_bases WHERE id = ?")
+            .bind(kb_id_val)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "e5-small".to_string());
+        let api_key_emb = {
+            use tauri_plugin_store::StoreExt;
+            let store_settings = app.store("settings.json").ok();
+            store_settings.and_then(|s| {
+                match emb_model.as_str() {
+                    "openai" | "text-embedding-3-small" => s.get("embeddingOpenaiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+                    "gemini" | "gemini-embedding" => s.get("embeddingGeminiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+                    _ => None,
+                }
+            })
+        };
+        let http_client_emb = if emb_model != "e5-small" {
+            crate::services::http_client::build_http_client(&app, None).await.ok()
+        } else {
+            None
+        };
+        crate::services::embedding_provider::create_embedding_provider(&emb_model, api_key_emb.as_deref(), http_client_emb).ok()
+    } else {
+        None
+    };
 
     // Read web search settings from store
     let (web_search_enabled, web_search_provider, ws_tavily_key, ws_brave_key) = {
@@ -971,10 +1101,25 @@ async fn agent_loop_resume(
         system_prompt
     };
 
+    // Append KB search hint to system prompt
+    let system_prompt = if kb_id.is_some() {
+        let hint = "\n\nYou have access to a knowledge base via the kb_search tool. Use it to look up relevant information before answering questions that might be covered by the knowledge base documents. Always cite the source document when using information from the knowledge base.";
+        Some(system_prompt.unwrap_or_default() + hint)
+    } else {
+        system_prompt
+    };
+
     // Append orchestrator guidance — resume is always depth 0 (sub-agents run in auto mode and never pause)
     let system_prompt = {
-        let orchestrator_hint = "\n\nIMPORTANT: Use your direct tools for simple tasks. Do NOT spawn sub-agents for tasks you can do yourself:\n- Use web_search/web_read directly for internet searches\n- Use memory_save/memory_search directly for managing memory\n- Use workspace_write/workspace_read/workspace_list directly for artifacts\n\nOnly spawn sub-agents for complex multi-step tasks that benefit from parallel execution or a dedicated agent with specific skills/model.";
+        let orchestrator_hint = "\n\nIMPORTANT: Use your direct tools for simple tasks. Do NOT spawn sub-agents for tasks you can do yourself:\n- Use web_search/web_read directly for internet searches\n- Use memory_save/memory_search directly for managing memory\n- Use workspace_write/workspace_read/workspace_list directly for artifacts\n- Use kb_search directly for knowledge base lookups\n\nOnly spawn sub-agents for complex multi-step tasks that benefit from parallel execution or a dedicated agent with specific skills/model.";
         Some(system_prompt.unwrap_or_default() + orchestrator_hint)
+    };
+
+    // Inject current date so the agent knows today's date (for web searches, etc.)
+    let system_prompt = {
+        let date_str = chrono::Local::now().format("%Y-%m-%d %A").to_string();
+        let date_line = format!("\n\nCurrent date: {}.", date_str);
+        Some(system_prompt.unwrap_or_default() + &date_line)
     };
 
     // For resume, we need the API key and base_url. Read from the chat's provider settings.
@@ -1019,12 +1164,15 @@ async fn agent_loop_resume(
         (None, std::collections::HashMap::new())
     };
 
-    // Inject built-in memory + workspace tools (+ web search if enabled)
+    // Inject built-in memory + workspace tools (+ web search + kb search if enabled)
     {
         let mut builtin_tools = memory_tool_definitions();
         builtin_tools.extend(workspace_tool_definitions());
         if web_search_enabled {
             builtin_tools.extend(web_search_tool_definitions());
+        }
+        if kb_id.is_some() {
+            builtin_tools.extend(kb_search_tool_definitions());
         }
         if let Some(ref mut tools) = tools_json {
             if let Some(arr) = tools.as_array_mut() {
@@ -1091,7 +1239,7 @@ async fn agent_loop_resume(
         iteration,
     });
 
-    let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, None, project_id.as_deref()).await {
+    let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, None, project_id.as_deref(), kb_id.as_deref(), kb_store.as_ref().as_ref(), kb_provider.as_deref()).await {
         Ok(m) => m,
         Err(e) => {
             finish_run(&app, &pool, &run_id, "failed", iteration, Some(e)).await;
@@ -1249,6 +1397,12 @@ async fn agent_loop_resume(
                     res
                 } else if tool_call.name == "web_search" || tool_call.name == "web_read" {
                     handle_web_search_tool(&app, &tool_call.name, &args, &web_search_provider, ws_tavily_key.as_deref(), ws_brave_key.as_deref()).await
+                } else if tool_call.name == "kb_search" {
+                    if let Some(ref kb_id_val) = kb_id {
+                        handle_kb_search_tool(&pool, kb_store.as_ref().as_ref(), kb_id_val, &args, kb_provider.as_deref()).await
+                    } else {
+                        ("Knowledge base not attached to this chat.".to_string(), true)
+                    }
                 } else {
                     let result = mcp_mgr.call_tool(&server_id, &tool_name, args).await;
                     match result {
@@ -1332,6 +1486,9 @@ async fn build_agent_messages(
     skill_content: &Option<String>,
     scope_agent_run_id: Option<&str>,
     project_id: Option<&str>,
+    kb_id: Option<&str>,
+    kb_vector_store: Option<&KbVectorStore>,
+    kb_provider: Option<&dyn crate::services::embedding_provider::EmbeddingProvider>,
 ) -> Result<Vec<serde_json::Value>, String> {
     // When scoped to a specific agent_run, only load pre-plan messages + this run's messages
     // (used for parallel plan task execution to isolate message contexts)
@@ -1467,6 +1624,36 @@ async fn build_agent_messages(
                     }
                     memory_block.push_str("Use memory_save tool to store new important facts.\n</agent_memory>");
                     messages.push(serde_json::json!({"role": "system", "content": memory_block}));
+                }
+            }
+        }
+    }
+
+    // Inject KB context if chat has an attached knowledge base
+    if let (Some(kb_id_val), Some(store)) = (kb_id, kb_vector_store) {
+        let last_user_text = raw.iter().rev().find(|(r, _)| r == "user").map(|(_, c)| c.as_str()).unwrap_or("");
+        if !last_user_text.is_empty() {
+            let kb_row = sqlx::query("SELECT name, retrieval_top_k, retrieval_min_score FROM knowledge_bases WHERE id = ?")
+                .bind(kb_id_val)
+                .fetch_optional(pool)
+                .await
+                .ok()
+                .flatten();
+            if let Some(row) = kb_row {
+                let kb_name: String = row.get("name");
+                let top_k: i64 = row.get("retrieval_top_k");
+                let min_score: f64 = row.get("retrieval_min_score");
+                let config = KbSearchConfig {
+                    top_k: top_k as usize,
+                    min_score: min_score as f32,
+                    ..Default::default()
+                };
+                let provider_ref = kb_provider.unwrap_or(&crate::services::embedding_local::LocalOnnxProvider);
+                if let Ok(results) = kb_search::search_kb(pool, store, kb_id_val, last_user_text, &config, provider_ref).await {
+                    if !results.is_empty() {
+                        let kb_context = rag_context::build_rag_context(&results, &kb_name);
+                        messages.push(serde_json::json!({"role": "system", "content": kb_context}));
+                    }
                 }
             }
         }
@@ -1959,6 +2146,88 @@ async fn handle_web_search_tool(
     }
 }
 
+fn kb_search_tool_definitions() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "kb_search",
+                "description": "Search the knowledge base attached to this chat for relevant information. Use this to find facts, documentation, procedures, or any information stored in the knowledge base. Returns the most relevant text chunks with source references.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "The search query — what information are you looking for"
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "description": "Number of results to return (default: 5, max: 20)"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }),
+    ]
+}
+
+async fn handle_kb_search_tool(
+    pool: &Pool,
+    kb_vector_store: Option<&KbVectorStore>,
+    kb_id: &str,
+    args: &serde_json::Value,
+    kb_provider: Option<&dyn crate::services::embedding_provider::EmbeddingProvider>,
+) -> (String, bool) {
+    let query = match args.get("query").and_then(|v| v.as_str()) {
+        Some(q) if !q.is_empty() => q,
+        _ => return ("Error: query is required".to_string(), true),
+    };
+    let top_k = args.get("top_k").and_then(|v| v.as_i64()).unwrap_or(5) as usize;
+    let top_k = top_k.min(20);
+
+    let store = match kb_vector_store {
+        Some(s) => s,
+        None => return ("Knowledge base search is not available (vector store not initialized).".to_string(), true),
+    };
+
+    let min_score: f64 = sqlx::query_scalar("SELECT retrieval_min_score FROM knowledge_bases WHERE id = ?")
+        .bind(kb_id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(0.3);
+
+    let config = KbSearchConfig {
+        top_k,
+        min_score: min_score as f32,
+        ..Default::default()
+    };
+
+    let provider_ref: &dyn crate::services::embedding_provider::EmbeddingProvider = kb_provider.unwrap_or(&crate::services::embedding_local::LocalOnnxProvider);
+    match kb_search::search_kb(pool, store, kb_id, query, &config, provider_ref).await {
+        Ok(results) => {
+            if results.is_empty() {
+                ("No relevant information found in the knowledge base.".to_string(), false)
+            } else {
+                let mut output = format!("Found {} relevant results:\n\n", results.len());
+                for (i, r) in results.iter().enumerate() {
+                    output.push_str(&format!(
+                        "{}. [{}] (relevance: {:.2})\n{}\n\n",
+                        i + 1,
+                        r.document_name,
+                        r.score,
+                        r.content
+                    ));
+                }
+                (output.trim_end().to_string(), false)
+            }
+        }
+        Err(e) => (format!("Knowledge base search failed: {}", e), true),
+    }
+}
+
 fn orchestrator_tool_definitions() -> Vec<serde_json::Value> {
     vec![
         serde_json::json!({
@@ -2032,6 +2301,7 @@ async fn handle_orchestrator_tool(
     pool: Pool,
     mcp_mgr: Arc<McpManager>,
     mem_store: Arc<Option<MemoryVectorStore>>,
+    kb_store: Arc<Option<KbVectorStore>>,
     cancel_tokens: AgentCancelTokens,
     chat_id: String,
     run_id: String,
@@ -2054,7 +2324,7 @@ async fn handle_orchestrator_tool(
             // spawn_sub_agent creates its own tokio::spawn internally, so we just
             // need to set up the run record and return the ID synchronously-ish.
             match spawn_sub_agent_sync(
-                app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), cancel_tokens.clone(),
+                app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), kb_store.clone(), cancel_tokens.clone(),
                 config, run_id.clone(), chat_id.clone(),
                 api_key.clone(), base_url.clone(), parent_model.clone(),
             ).await {
@@ -2154,6 +2424,7 @@ fn spawn_sub_agent_sync(
     pool: Pool,
     mcp_mgr: Arc<McpManager>,
     mem_store: Arc<Option<MemoryVectorStore>>,
+    kb_store: Arc<Option<KbVectorStore>>,
     cancel_tokens: AgentCancelTokens,
     config: crate::services::sub_agent::SpawnAgentConfig,
     parent_run_id: String,
@@ -2276,6 +2547,7 @@ fn spawn_sub_agent_sync(
     let pool_clone = pool.clone();
     let mcp_clone = mcp_mgr;
     let mem_clone = mem_store;
+    let kb_clone = kb_store;
     let cancel_tokens_clone = cancel_tokens;
     let sub_run_id_clone = sub_run_id.clone();
     let app_clone = app;
@@ -2288,6 +2560,7 @@ fn spawn_sub_agent_sync(
             pool_clone.clone(),
             mcp_clone,
             mem_clone,
+            kb_clone,
             chat_id_clone.clone(),
             sub_run_id_clone.clone(),
             run_model,

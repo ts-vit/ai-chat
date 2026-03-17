@@ -19,6 +19,7 @@ import { SkillsPage } from "./components/SkillsPage";
 import { PlansPage } from "./components/PlansPage";
 import { ProjectDashboardPage } from "./components/ProjectDashboardPage";
 import { SchedulerPage } from "./components/SchedulerPage";
+import { KnowledgeBasesPage } from "./components/KnowledgeBasesPage";
 import { PlanPanel } from "./components/PlanPanel";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { TerminalPanel } from "./components/TerminalPanel";
@@ -207,7 +208,7 @@ function App() {
         </>
     );
 
-    if (currentView === "settings" || currentView === "snippets" || currentView === "search" || currentView === "comparisons" || currentView === "promptLibrary" || currentView === "memory" || currentView === "skills" || currentView === "plans" || currentView === "projectDashboard" || currentView === "scheduler") {
+    if (currentView === "settings" || currentView === "snippets" || currentView === "search" || currentView === "comparisons" || currentView === "promptLibrary" || currentView === "memory" || currentView === "skills" || currentView === "plans" || currentView === "projectDashboard" || currentView === "scheduler" || currentView === "knowledgeBases") {
         const PageComponent = {
             settings: SettingsPage,
             snippets: SnippetsPage,
@@ -219,6 +220,7 @@ function App() {
             plans: PlansPage,
             projectDashboard: ProjectDashboardPage,
             scheduler: SchedulerPage,
+            knowledgeBases: KnowledgeBasesPage,
         }[currentView];
         return (
             <Box style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
@@ -243,9 +245,11 @@ function App() {
                 <AppHeader
                     activeChat={undefined}
                     activeComparison={activeComparison}
-                    effectiveLeftWidth={effectiveLeftWidth}
-                    isNarrow={isNarrow}
-                    isVeryNarrow={isVeryNarrow}
+                    onNewChat={() => handleNewChat()}
+                    onToggleSidebar={() => setLeftSidebarOpen((o) => !o)}
+                    leftSidebarOpen={leftSidebarOpen}
+                    terminalOpen={terminalOpen}
+                    onToggleTerminal={toggleTerminal}
                 />
                 <Box
                     style={{
@@ -259,9 +263,6 @@ function App() {
                         style={{ width: effectiveLeftWidth }}
                         compact={sidebarCompact}
                         onNewChat={handleNewChat}
-                        onToggleSidebar={() => setLeftSidebarOpen((o) => !o)}
-                        terminalOpen={terminalOpen}
-                        onToggleTerminal={toggleTerminal}
                     />
                     {!sidebarCompact && (
                         <ResizeHandle
@@ -311,18 +312,17 @@ function App() {
             />
             <AppHeader
                 activeChat={activeChat}
-                effectiveLeftWidth={effectiveLeftWidth}
-                isNarrow={isNarrow}
-                isVeryNarrow={isVeryNarrow}
+                onNewChat={() => handleNewChat()}
+                onToggleSidebar={() => setLeftSidebarOpen((o) => !o)}
+                leftSidebarOpen={leftSidebarOpen}
+                terminalOpen={terminalOpen}
+                onToggleTerminal={toggleTerminal}
             />
             <Box style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
                 <Sidebar
                     style={{ width: effectiveLeftWidth }}
                     compact={sidebarCompact}
                     onNewChat={handleNewChat}
-                    onToggleSidebar={() => setLeftSidebarOpen((o) => !o)}
-                    terminalOpen={terminalOpen}
-                    onToggleTerminal={toggleTerminal}
                 />
                 {!sidebarCompact && (
                     <ResizeHandle

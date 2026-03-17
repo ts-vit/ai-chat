@@ -126,6 +126,14 @@ use commands::scheduler::{
     delete_scheduled_task, toggle_scheduled_task, run_scheduled_task_now,
     get_scheduler_status,
 };
+use commands::knowledge_base::{
+    list_knowledge_bases, get_knowledge_base, create_knowledge_base,
+    update_knowledge_base, delete_knowledge_base, list_kb_documents,
+    add_kb_document, remove_kb_document, add_kb_documents_bulk, get_kb_stats,
+    index_kb_document, index_all_kb_documents, reindex_knowledge_base,
+    search_knowledge_base, attach_kb_to_chat, detach_kb_from_chat, get_chat_kb,
+    export_knowledge_base, import_knowledge_base,
+};
 use services::telegram_bot::TelegramBotManager;
 use services::scheduler::SchedulerManager;
 use services::audio_recorder::AudioRecorder;
@@ -140,6 +148,7 @@ use services::embedding_engine::EmbeddingEngine;
 use services::model_manager;
 use services::vector_store::VectorStore;
 use services::memory_vector_store::MemoryVectorStore;
+use services::kb_vector_store::KbVectorStore;
 
 const DB_MIGRATIONS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS chats (
@@ -415,6 +424,57 @@ const DB_MIGRATIONS: &[&str] = &[
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
     )",
+    "CREATE TABLE IF NOT EXISTS knowledge_bases (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        embedding_model TEXT NOT NULL DEFAULT 'e5-small',
+        chunking_strategy TEXT NOT NULL DEFAULT 'tokens',
+        chunk_size INTEGER NOT NULL DEFAULT 512,
+        chunk_overlap INTEGER NOT NULL DEFAULT 50,
+        retrieval_top_k INTEGER NOT NULL DEFAULT 5,
+        retrieval_min_score REAL NOT NULL DEFAULT 0.7,
+        system_prompt TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'active',
+        document_count INTEGER NOT NULL DEFAULT 0,
+        total_chunks INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    )",
+    "CREATE TABLE IF NOT EXISTS kb_documents (
+        id TEXT PRIMARY KEY,
+        kb_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        source_type TEXT NOT NULL DEFAULT 'file',
+        source_path TEXT,
+        source_url TEXT,
+        mime_type TEXT NOT NULL DEFAULT 'text/plain',
+        file_size INTEGER NOT NULL DEFAULT 0,
+        chunk_count INTEGER NOT NULL DEFAULT 0,
+        indexing_status TEXT NOT NULL DEFAULT 'pending',
+        indexing_error TEXT,
+        content_hash TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE
+    )",
+    "CREATE TABLE IF NOT EXISTS kb_chunks (
+        id TEXT PRIMARY KEY,
+        kb_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL,
+        start_offset INTEGER,
+        end_offset INTEGER,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (kb_id) REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+        FOREIGN KEY (document_id) REFERENCES kb_documents(id) ON DELETE CASCADE
+    )",
+    "CREATE INDEX IF NOT EXISTS idx_kb_documents_kb_id ON kb_documents(kb_id)",
+    "CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_id ON kb_chunks(document_id)",
+    "CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb_id ON kb_chunks(kb_id)",
 ];
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -870,6 +930,38 @@ pub fn run() {
             };
             app.manage(Arc::new(memory_store));
 
+            // KB Vector Store (LanceDB) — same db_path as main VectorStore
+            let kb_store: Option<KbVectorStore> = match app.path().app_data_dir() {
+                Ok(data_dir) => {
+                    let db_path = data_dir.join("lancedb");
+                    match tauri::async_runtime::block_on(KbVectorStore::new(db_path.to_string_lossy().as_ref())) {
+                        Ok(s) => Some(s),
+                        Err(e) => {
+                            eprintln!("KbVectorStore init failed: {}", e);
+                            None
+                        }
+                    }
+                }
+                Err(_) => None,
+            };
+            app.manage(Arc::new(kb_store));
+
+            // KB FTS5 table
+            let _ = tauri::async_runtime::block_on(
+                services::kb_fts::ensure_kb_fts_table(&pool)
+            );
+
+            // KB RAG migrations
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE chats ADD COLUMN kb_id TEXT").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE messages ADD COLUMN rag_sources TEXT").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN embedding_dimensions INTEGER NOT NULL DEFAULT 384").execute(&pool)
+            );
+
             let mcp_manager = Arc::new(McpManager::new());
             app.manage(mcp_manager.clone());
 
@@ -1293,6 +1385,25 @@ pub fn run() {
             toggle_scheduled_task,
             run_scheduled_task_now,
             get_scheduler_status,
+            list_knowledge_bases,
+            get_knowledge_base,
+            create_knowledge_base,
+            update_knowledge_base,
+            delete_knowledge_base,
+            list_kb_documents,
+            add_kb_document,
+            remove_kb_document,
+            add_kb_documents_bulk,
+            get_kb_stats,
+            index_kb_document,
+            index_all_kb_documents,
+            reindex_knowledge_base,
+            search_knowledge_base,
+            attach_kb_to_chat,
+            detach_kb_from_chat,
+            get_chat_kb,
+            export_knowledge_base,
+            import_knowledge_base,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

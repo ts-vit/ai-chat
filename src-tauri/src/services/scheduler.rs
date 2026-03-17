@@ -275,6 +275,7 @@ async fn execute_task(app: &AppHandle, pool: &Pool, task: &ScheduledTask) -> Res
     // Get managed state
     let mcp_mgr: Arc<McpManager> = app.state::<Arc<McpManager>>().inner().clone();
     let mem_store: Arc<Option<MemoryVectorStore>> = app.state::<Arc<Option<MemoryVectorStore>>>().inner().clone();
+    let kb_store: Arc<Option<crate::services::kb_vector_store::KbVectorStore>> = app.state::<Arc<Option<crate::services::kb_vector_store::KbVectorStore>>>().inner().clone();
     let cancel_tokens: AgentCancelTokens = app.state::<AgentCancelTokens>().inner().clone();
 
     let run_cancel_token = CancellationToken::new();
@@ -303,6 +304,7 @@ async fn execute_task(app: &AppHandle, pool: &Pool, task: &ScheduledTask) -> Res
             pool_clone.clone(),
             mcp_mgr,
             mem_store,
+            kb_store,
             chat_id_for_spawn,
             run_id_for_spawn,
             model,

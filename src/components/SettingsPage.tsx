@@ -7,8 +7,10 @@ import {
     Button,
     Group,
     NavLink,
+    PasswordInput,
     ScrollArea,
     Stack,
+    Text,
     Title,
 } from "@mantine/core";
 import {
@@ -31,6 +33,7 @@ import {
     IconBrain,
     IconApps,
     IconBrandTelegram,
+    IconVectorTriangle,
 } from "@tabler/icons-react";
 import { useChatStore } from "../store/chatStore";
 import { notify } from "../utils/notify";
@@ -75,6 +78,7 @@ export type SettingsSection =
     | "terminal"
     | "searchModel"
     | "telegram"
+    | "embedding"
     | "data"
     | "about";
 
@@ -95,6 +99,7 @@ const getNavItems = (t: (key: string) => string): { section: SettingsSection; la
     { section: "audio", label: t("settings.nav.audio"), icon: <IconMicrophone size={18} stroke={1.5} /> },
     { section: "telegram", label: t("telegram.title"), icon: <IconBrandTelegram size={18} stroke={1.5} /> },
     { section: "terminal", label: t("settings.nav.terminal"), icon: <IconTerminal2 size={18} stroke={1.5} /> },
+    { section: "embedding", label: t("settings.nav.embedding"), icon: <IconVectorTriangle size={18} stroke={1.5} /> },
     { section: "searchModel", label: t("settings.nav.searchModel"), icon: <IconBrain size={18} stroke={1.5} /> },
     { section: "data", label: t("settings.nav.data"), icon: <IconDatabase size={18} stroke={1.5} /> },
     { section: "about", label: t("settings.nav.about"), icon: <IconInfoCircle size={18} stroke={1.5} /> },
@@ -143,6 +148,8 @@ interface FormSnapshot {
     telegramEnabled: boolean;
     telegramAutoStart: boolean;
     telegramModel: string;
+    embeddingOpenaiKey: string;
+    embeddingGeminiKey: string;
 }
 
 function normalizedCustomProviders(obj: Record<string, string[]>): Record<string, string[]> {
@@ -190,7 +197,9 @@ function isSameSnapshot(a: FormSnapshot, b: FormSnapshot | null): boolean {
         a.telegramBotToken !== b.telegramBotToken ||
         a.telegramEnabled !== b.telegramEnabled ||
         a.telegramAutoStart !== b.telegramAutoStart ||
-        a.telegramModel !== b.telegramModel
+        a.telegramModel !== b.telegramModel ||
+        a.embeddingOpenaiKey !== b.embeddingOpenaiKey ||
+        a.embeddingGeminiKey !== b.embeddingGeminiKey
     ) {
         return false;
     }
@@ -302,6 +311,8 @@ export function SettingsPage() {
     const [telegramEnabled, setTelegramEnabled] = useState(settings.telegramEnabled ?? false);
     const [telegramAutoStart, setTelegramAutoStart] = useState(settings.telegramAutoStart ?? false);
     const [telegramModel, setTelegramModel] = useState(settings.telegramModel ?? "");
+    const [embeddingOpenaiKey, setEmbeddingOpenaiKey] = useState(settings.embeddingOpenaiKey ?? "");
+    const [embeddingGeminiKey, setEmbeddingGeminiKey] = useState(settings.embeddingGeminiKey ?? "");
 
     const initialSnapshotRef = useRef<FormSnapshot | null>(null);
 
@@ -348,6 +359,8 @@ export function SettingsPage() {
             telegramEnabled,
             telegramAutoStart,
             telegramModel,
+            embeddingOpenaiKey: embeddingOpenaiKey ?? "",
+            embeddingGeminiKey: embeddingGeminiKey ?? "",
         };
     }
 
@@ -394,6 +407,8 @@ export function SettingsPage() {
             telegramModel: s.telegramModel ?? "",
             telegramEnabled: s.telegramEnabled ?? false,
             telegramAutoStart: s.telegramAutoStart ?? false,
+            embeddingOpenaiKey: s.embeddingOpenaiKey ?? "",
+            embeddingGeminiKey: s.embeddingGeminiKey ?? "",
         };
     }
 
@@ -452,6 +467,8 @@ export function SettingsPage() {
         setSshPassword(settings.sshPassword ?? "");
         setSshKeyPath(settings.sshKeyPath ?? "");
         setSshAutoConnect(settings.sshAutoConnect ?? false);
+        setEmbeddingOpenaiKey(settings.embeddingOpenaiKey ?? "");
+        setEmbeddingGeminiKey(settings.embeddingGeminiKey ?? "");
         setRoutingEnabled(settings.routingEnabled ?? false);
         setRoutingStrategy((settings.routingStrategy as "rules" | "llm") ?? "rules");
         setBudgetPlanEnabled(settings.budgetPlanEnabled ?? false);
@@ -530,6 +547,8 @@ export function SettingsPage() {
             telegramEnabled,
             telegramAutoStart,
             telegramModel: telegramModel || undefined,
+            embeddingOpenaiKey: embeddingOpenaiKey || undefined,
+            embeddingGeminiKey: embeddingGeminiKey || undefined,
             routingEnabled,
             routingStrategy: routingStrategy || "rules",
             budgetPlanEnabled,
@@ -717,6 +736,25 @@ export function SettingsPage() {
                         telegramModel={telegramModel}
                         onTelegramModelChange={setTelegramModel}
                     />
+                );
+            case "embedding":
+                return (
+                    <Stack gap="lg">
+                        <Title order={4}>{t("settings.embeddingKeys")}</Title>
+                        <Text size="sm" c="dimmed">{t("settings.embeddingKeysHint")}</Text>
+                        <PasswordInput
+                            label={t("settings.embeddingOpenaiKey")}
+                            placeholder="sk-..."
+                            value={embeddingOpenaiKey}
+                            onChange={(e) => setEmbeddingOpenaiKey(e.currentTarget.value)}
+                        />
+                        <PasswordInput
+                            label={t("settings.embeddingGeminiKey")}
+                            placeholder="AI..."
+                            value={embeddingGeminiKey}
+                            onChange={(e) => setEmbeddingGeminiKey(e.currentTarget.value)}
+                        />
+                    </Stack>
                 );
             case "data":
                 return <DataSection />;

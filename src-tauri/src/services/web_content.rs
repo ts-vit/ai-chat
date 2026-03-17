@@ -48,7 +48,7 @@ async fn fetch_raw_fallback(client: &reqwest::Client, url: &str, max_words: usiz
     Ok(truncate_by_words(&text, max_words))
 }
 
-fn strip_html_tags(html: &str) -> String {
+pub fn strip_html_tags(html: &str) -> String {
     let re_tags = regex::Regex::new(r"<(script|style|noscript)[^>]*>[\s\S]*?</\1>").unwrap();
     let cleaned = re_tags.replace_all(html, " ");
     let re_tag = regex::Regex::new(r"<[^>]+>").unwrap();

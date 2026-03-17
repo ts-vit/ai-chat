@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActionIcon, Badge, Box, Button, Code, Collapse, Group, Modal, Paper, Popover, Spoiler, Stack, Text, Textarea, ThemeIcon, Tooltip, UnstyledButton } from "@mantine/core";
-import { IconBrain, IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconCopy, IconCurrencyDollar, IconEdit, IconFile, IconFileText, IconListCheck, IconLoader2, IconPackage, IconPlayerStop, IconTool, IconUsers, IconVolume, IconWorldSearch, IconX } from "@tabler/icons-react";
+import { IconBook2, IconBrain, IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconCopy, IconCurrencyDollar, IconEdit, IconFile, IconFileText, IconListCheck, IconLoader2, IconPackage, IconPlayerStop, IconTool, IconUsers, IconVolume, IconWorldSearch, IconX } from "@tabler/icons-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -14,6 +14,7 @@ import { notify } from "../utils/notify";
 import { formatRelativeTime } from "../utils/formatDate";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { WebSourcesBlock } from "./WebSourcesBlock";
+import { RagSourcesBlock } from "./RagSourcesBlock";
 import type { AgentTask, ContentBlock, ContentBlockText, MessageWithSiblings, WebSource } from "../types";
 
 const SOURCE_LINK_PREFIX = "__source__";
@@ -23,6 +24,7 @@ const COMPACT_BUILTIN_TOOLS = new Set([
     'memory_save', 'memory_search',
     'workspace_write', 'workspace_read', 'workspace_list',
     'spawn_agent', 'check_agent', 'get_agent_result', 'cancel_agent',
+    'kb_search',
 ]);
 
 interface CompactToolInfo {
@@ -90,6 +92,15 @@ function getCompactToolInfo(
                 return { icon: IconUsers, text: t('chat.toolResultSubAgentResult'), color: 'blue' };
             case 'cancel_agent':
                 return { icon: IconUsers, text: t('chat.toolResultSubAgentCancelled'), color: 'yellow' };
+            case 'kb_search': {
+                const count = (resultText.match(/^\d+\./gm) || []).length;
+                const noResults = count === 0 || resultText.includes('No relevant information');
+                return {
+                    icon: IconBook2,
+                    text: `${t('chat.toolResultKbSearch')} ${noResults ? t('chat.toolResultKbSearchNoResults') : t('chat.toolResultKbSearchResults', { count })}`,
+                    color: noResults ? 'yellow' : 'gray',
+                };
+            }
         }
     } catch { /* fallback below */ }
     return { icon: IconTool, text: toolName, color: 'gray' };
@@ -171,7 +182,8 @@ function SourceRefBadge({
     );
 }
 
-function tryParseContentBlocks(content: string): ContentBlock[] | null {
+function tryParseContentBlocks(content: string | null | undefined): ContentBlock[] | null {
+    if (!content) return null;
     const trimmed = content.trimStart();
     if (!trimmed.startsWith("[")) return null;
     try {
@@ -627,11 +639,11 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                 {msg.role === "tool" ? (
                                     (() => {
                                         let toolName = "tool";
-                                        let resultText = msg.content;
+                                        let resultText = msg.content ?? "";
                                         let argsStr = "";
                                         let isError = false;
                                         try {
-                                            const parsed = JSON.parse(msg.content);
+                                            const parsed = JSON.parse(msg.content ?? "");
                                             if (parsed && typeof parsed === "object") {
                                                 toolName = parsed.tool_name || "tool";
                                                 resultText = parsed.result ?? msg.content;
@@ -732,7 +744,7 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                     renderUserMessageBody(msg.content, msg.webSources)
                                 ) : isStreaming &&
                                   index === messages.length - 1 &&
-                                  !msg.content.trim() &&
+                                  !(msg.content ?? "").trim() &&
                                   activeToolCalls.length === 0 ? (
                                     <Box
                                         className="typing-indicator"
@@ -808,6 +820,9 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                 )}
                                 {msg.role === "assistant" && msg.webSources && msg.webSources.length > 0 && (
                                     <WebSourcesBlock sources={msg.webSources} />
+                                )}
+                                {msg.role === "assistant" && msg.ragSources && msg.ragSources.length > 0 && (
+                                    <RagSourcesBlock sources={msg.ragSources} />
                                 )}
                             </Paper>
                         )}

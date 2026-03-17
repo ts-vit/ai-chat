@@ -21,32 +21,17 @@ import {
 import { ColorSwatch } from "@mantine/core";
 import {
     IconArchive,
-    IconArrowsExchange,
     IconBriefcase,
     IconCheck,
     IconChevronDown,
     IconChevronRight,
     IconFolderFilled,
-    IconFolderPlus,
-    IconLayoutSidebarLeftCollapse,
-    IconLayoutSidebarLeftExpand,
-    IconBook2,
-    IconBrain,
-    IconList,
     IconMessages,
-    IconMoon,
     IconPencil,
     IconPlus,
-    IconSearch,
-    IconSettings,
-    IconSun,
-    IconTerminal2,
     IconTrash,
-    IconSubtask,
     IconTarget,
     IconLayoutBoard,
-    IconWand,
-    IconCalendarEvent,
 } from "@tabler/icons-react";
 import { FOLDER_COLORS } from "../constants/folderColors";
 import { useChatStore } from "../store/chatStore";
@@ -61,9 +46,6 @@ interface SidebarProps {
     style?: React.CSSProperties;
     compact?: boolean;
     onNewChat: (projectId?: string) => void;
-    onToggleSidebar: () => void;
-    terminalOpen?: boolean;
-    onToggleTerminal?: () => void;
 }
 
 function ChatRow({
@@ -153,9 +135,9 @@ function ChatRow({
     );
 }
 
-export function Sidebar({ width = 260, style, compact = false, onNewChat, onToggleSidebar, terminalOpen, onToggleTerminal }: SidebarProps) {
+export function Sidebar({ width = 260, style, compact = false, onNewChat }: SidebarProps) {
     const { t } = useTranslation();
-    const { colorScheme, toggleColorScheme } = useMantineColorScheme();
+    const { colorScheme } = useMantineColorScheme();
 
     const folderDropHighlightBg = useCallback(
         (folderColor: string | null) => {
@@ -175,7 +157,6 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat, onTogg
         folders,
         projects,
         activeChatId,
-        currentView,
         deleteChat,
         setActiveChat,
         setView,
@@ -884,79 +865,8 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat, onTogg
                 ...style,
             }}
         >
-            {compact ? (
+            {compact && (
                 <Stack gap={4} align="center" px={4} py="xs" style={{ flex: 1 }}>
-                    <Tooltip label={t("sidebar.newChat")} position="right">
-                        <ActionIcon variant="subtle" size="lg" onClick={() => onNewChat()}>
-                            <IconPlus size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={isAssistantMode ? t("project.new") : t("sidebar.newFolder")} position="right">
-                        <ActionIcon variant="subtle" size="lg" onClick={() => isAssistantMode ? setCreateProjectModalOpen(true) : setCreateFolderModalOpen(true)}>
-                            {isAssistantMode ? <IconBriefcase size={20} stroke={1.5} /> : <IconFolderPlus size={20} stroke={1.5} />}
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.comparisons")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "comparisons" ? "brand" : undefined} onClick={() => setView("comparisons")}>
-                            <IconArrowsExchange size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("common.search")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "search" ? "brand" : undefined} onClick={() => setView("search")}>
-                            <IconSearch size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.snippets")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "snippets" ? "brand" : undefined} onClick={() => setView("snippets")}>
-                            <IconList size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.promptLibrary")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "promptLibrary" ? "brand" : undefined} onClick={() => setView("promptLibrary")}>
-                            <IconBook2 size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.memory")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "memory" ? "brand" : undefined} onClick={() => setView("memory")}>
-                            <IconBrain size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.skills")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "skills" ? "brand" : undefined} onClick={() => setView("skills")}>
-                            <IconWand size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.plans")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "plans" ? "brand" : undefined} onClick={() => setView("plans")}>
-                            <IconSubtask size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("scheduler.title")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "scheduler" ? "brand" : undefined} onClick={() => setView("scheduler")}>
-                            <IconCalendarEvent size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.toggleTheme")} position="right">
-                        <ActionIcon variant="subtle" size="lg" onClick={() => toggleColorScheme()}>
-                            {colorScheme === "dark" ? (
-                                <IconSun size={20} stroke={1.5} />
-                            ) : (
-                                <IconMoon size={20} stroke={1.5} />
-                            )}
-                        </ActionIcon>
-                    </Tooltip>
-                    {onToggleTerminal && (
-                        <Tooltip label={t("terminal.tooltip")} position="right">
-                            <ActionIcon variant="subtle" size="lg" color={terminalOpen ? "brand" : undefined} onClick={onToggleTerminal}>
-                                <IconTerminal2 size={20} stroke={1.5} />
-                            </ActionIcon>
-                        </Tooltip>
-                    )}
-                    <Tooltip label={t("sidebar.settings")} position="right">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "settings" ? "brand" : undefined} onClick={() => setView("settings")}>
-                            <IconSettings size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
                     <Popover
                         position="right-start"
                         width={260}
@@ -976,87 +886,7 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat, onTogg
                         </Popover.Target>
                         <Popover.Dropdown>{popoverContent}</Popover.Dropdown>
                     </Popover>
-                    <Box style={{ flex: 1 }} />
-                    <Tooltip label={t("sidebar.expand")} position="right">
-                        <ActionIcon variant="subtle" size="lg" onClick={onToggleSidebar}>
-                            <IconLayoutSidebarLeftExpand size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
                 </Stack>
-            ) : (
-                <Group gap={4} justify="center" px="sm" py="xs">
-                    <Tooltip label={t("sidebar.newChat")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" onClick={() => onNewChat()}>
-                            <IconPlus size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={isAssistantMode ? t("project.new") : t("sidebar.newFolder")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" onClick={() => isAssistantMode ? setCreateProjectModalOpen(true) : setCreateFolderModalOpen(true)}>
-                            {isAssistantMode ? <IconBriefcase size={20} stroke={1.5} /> : <IconFolderPlus size={20} stroke={1.5} />}
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.comparisons")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "comparisons" ? "brand" : undefined} onClick={() => setView("comparisons")}>
-                            <IconArrowsExchange size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("common.search")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "search" ? "brand" : undefined} onClick={() => setView("search")}>
-                            <IconSearch size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.snippets")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "snippets" ? "brand" : undefined} onClick={() => setView("snippets")}>
-                            <IconList size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.promptLibrary")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "promptLibrary" ? "brand" : undefined} onClick={() => setView("promptLibrary")}>
-                            <IconBook2 size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.memory")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "memory" ? "brand" : undefined} onClick={() => setView("memory")}>
-                            <IconBrain size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.skills")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "skills" ? "brand" : undefined} onClick={() => setView("skills")}>
-                            <IconWand size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.plans")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "plans" ? "brand" : undefined} onClick={() => setView("plans")}>
-                            <IconSubtask size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("scheduler.title")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "scheduler" ? "brand" : undefined} onClick={() => setView("scheduler")}>
-                            <IconCalendarEvent size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label={t("sidebar.toggleTheme")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" onClick={() => toggleColorScheme()}>
-                            {colorScheme === "dark" ? (
-                                <IconSun size={20} stroke={1.5} />
-                            ) : (
-                                <IconMoon size={20} stroke={1.5} />
-                            )}
-                        </ActionIcon>
-                    </Tooltip>
-                    {onToggleTerminal && (
-                        <Tooltip label={t("terminal.tooltip")} position="bottom">
-                            <ActionIcon variant="subtle" size="lg" color={terminalOpen ? "brand" : undefined} onClick={onToggleTerminal}>
-                                <IconTerminal2 size={20} stroke={1.5} />
-                            </ActionIcon>
-                        </Tooltip>
-                    )}
-                    <Tooltip label={t("sidebar.settings")} position="bottom">
-                        <ActionIcon variant="subtle" size="lg" color={currentView === "settings" ? "brand" : undefined} onClick={() => setView("settings")}>
-                            <IconSettings size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                </Group>
             )}
 
             <CreateFolderModal
@@ -1347,15 +1177,6 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat, onTogg
                     </Group>
                 </Stack>
             </Modal>
-            {!compact && (
-                <Box px="sm" py="xs" style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}>
-                    <Tooltip label={t("sidebar.collapse")} position="right">
-                        <ActionIcon variant="subtle" size="lg" onClick={onToggleSidebar} w="100%">
-                            <IconLayoutSidebarLeftCollapse size={20} stroke={1.5} />
-                        </ActionIcon>
-                    </Tooltip>
-                </Box>
-            )}
         </Box>
     );
 }

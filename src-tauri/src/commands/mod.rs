@@ -33,3 +33,4 @@ pub mod workspace;
 pub mod projects;
 pub mod telegram;
 pub mod scheduler;
+pub mod knowledge_base;

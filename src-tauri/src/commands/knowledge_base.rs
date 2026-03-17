@@ -1,0 +1,1244 @@
+use sqlx::Row;
+use std::collections::HashMap;
+use std::io::{Read as IoRead, Write as IoWrite};
+use std::sync::Arc;
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+use uuid::Uuid;
+use std::path::PathBuf;
+use zip::write::SimpleFileOptions;
+use zip::ZipWriter;
+use zip::ZipArchive;
+use serde::{Deserialize, Serialize};
+
+use tauri_plugin_store::StoreExt;
+use crate::models::knowledge_base::{KbDocument, KbStats, KnowledgeBase};
+use crate::services::kb_vector_store::KbVectorStore;
+use crate::services::kb_indexer;
+use crate::services::kb_search::{self, KbSearchConfig, KbSearchResultItem};
+use crate::services::embedding_provider;
+use crate::services::http_client::build_http_client;
+
+type Pool = sqlx::SqlitePool;
+type KbStore = Arc<Option<KbVectorStore>>;
+
+fn unix_now() -> Result<i64, String> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())
+        .map(|d| d.as_secs() as i64)
+}
+
+fn get_kb_documents_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("kb_documents");
+    Ok(dir)
+}
+
+fn detect_mime_type(extension: &str) -> &'static str {
+    match extension.to_lowercase().as_str() {
+        "txt" => "text/plain",
+        "md" | "markdown" => "text/markdown",
+        "html" | "htm" => "text/html",
+        "pdf" => "application/pdf",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "json" => "application/json",
+        "csv" => "text/csv",
+        "xml" => "application/xml",
+        "rst" => "text/x-rst",
+        _ => "text/plain",
+    }
+}
+
+fn map_kb_row(row: sqlx::sqlite::SqliteRow) -> KnowledgeBase {
+    KnowledgeBase {
+        id: row.get("id"),
+        name: row.get("name"),
+        description: row.get("description"),
+        embedding_model: row.get("embedding_model"),
+        embedding_dimensions: row.try_get("embedding_dimensions").unwrap_or(384),
+        chunking_strategy: row.get("chunking_strategy"),
+        chunk_size: row.get("chunk_size"),
+        chunk_overlap: row.get("chunk_overlap"),
+        retrieval_top_k: row.get("retrieval_top_k"),
+        retrieval_min_score: row.get("retrieval_min_score"),
+        system_prompt: row.get("system_prompt"),
+        version: row.get("version"),
+        status: row.get("status"),
+        document_count: row.get("document_count"),
+        total_chunks: row.get("total_chunks"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+fn map_doc_row(row: sqlx::sqlite::SqliteRow) -> KbDocument {
+    KbDocument {
+        id: row.get("id"),
+        kb_id: row.get("kb_id"),
+        name: row.get("name"),
+        source_type: row.get("source_type"),
+        source_path: row.get("source_path"),
+        source_url: row.get("source_url"),
+        mime_type: row.get("mime_type"),
+        file_size: row.get("file_size"),
+        chunk_count: row.get("chunk_count"),
+        indexing_status: row.get("indexing_status"),
+        indexing_error: row.get("indexing_error"),
+        content_hash: row.get("content_hash"),
+        created_at: row.get("created_at"),
+        updated_at: row.get("updated_at"),
+    }
+}
+
+// --- KB CRUD ---
+
+#[tauri::command]
+pub async fn list_knowledge_bases(pool: State<'_, Pool>) -> Result<Vec<KnowledgeBase>, String> {
+    let rows = sqlx::query(
+        "SELECT id, name, description, embedding_model, embedding_dimensions, chunking_strategy, chunk_size, chunk_overlap, \
+         retrieval_top_k, retrieval_min_score, system_prompt, version, status, document_count, \
+         total_chunks, created_at, updated_at FROM knowledge_bases ORDER BY created_at DESC",
+    )
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows.into_iter().map(map_kb_row).collect())
+}
+
+#[tauri::command]
+pub async fn get_knowledge_base(pool: State<'_, Pool>, id: String) -> Result<KnowledgeBase, String> {
+    let row = sqlx::query(
+        "SELECT id, name, description, embedding_model, embedding_dimensions, chunking_strategy, chunk_size, chunk_overlap, \
+         retrieval_top_k, retrieval_min_score, system_prompt, version, status, document_count, \
+         total_chunks, created_at, updated_at FROM knowledge_bases WHERE id = ?",
+    )
+    .bind(&id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(map_kb_row(row))
+}
+
+#[tauri::command]
+pub async fn create_knowledge_base(
+    pool: State<'_, Pool>,
+    name: String,
+    description: String,
+    embedding_model: Option<String>,
+) -> Result<KnowledgeBase, String> {
+    let id = Uuid::new_v4().to_string();
+    let now = unix_now()?;
+    let emb_model = embedding_model.unwrap_or_else(|| "e5-small".to_string());
+    let emb_dims = crate::services::embedding_provider::default_dimensions(&emb_model) as i64;
+
+    sqlx::query(
+        "INSERT INTO knowledge_bases (id, name, description, embedding_model, embedding_dimensions, \
+         chunking_strategy, chunk_size, chunk_overlap, retrieval_top_k, retrieval_min_score, \
+         system_prompt, version, status, document_count, total_chunks, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, 'tokens', 512, 50, 5, 0.7, '', 1, 'active', 0, 0, ?, ?)",
+    )
+    .bind(&id)
+    .bind(&name)
+    .bind(&description)
+    .bind(&emb_model)
+    .bind(emb_dims)
+    .bind(now)
+    .bind(now)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(KnowledgeBase {
+        id,
+        name,
+        description,
+        embedding_model: emb_model,
+        embedding_dimensions: emb_dims,
+        chunking_strategy: "tokens".to_string(),
+        chunk_size: 512,
+        chunk_overlap: 50,
+        retrieval_top_k: 5,
+        retrieval_min_score: 0.7,
+        system_prompt: String::new(),
+        version: 1,
+        status: "active".to_string(),
+        document_count: 0,
+        total_chunks: 0,
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+#[tauri::command]
+pub async fn update_knowledge_base(
+    pool: State<'_, Pool>,
+    id: String,
+    name: String,
+    description: String,
+    embedding_model: Option<String>,
+    embedding_dimensions: Option<i64>,
+    chunking_strategy: String,
+    chunk_size: i64,
+    chunk_overlap: i64,
+    retrieval_top_k: i64,
+    retrieval_min_score: f64,
+    system_prompt: String,
+) -> Result<(), String> {
+    let now = unix_now()?;
+
+    sqlx::query(
+        "UPDATE knowledge_bases SET name = ?, description = ?, embedding_model = COALESCE(?, embedding_model), \
+         embedding_dimensions = COALESCE(?, embedding_dimensions), chunking_strategy = ?, \
+         chunk_size = ?, chunk_overlap = ?, retrieval_top_k = ?, retrieval_min_score = ?, \
+         system_prompt = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(&name)
+    .bind(&description)
+    .bind(&embedding_model)
+    .bind(embedding_dimensions)
+    .bind(&chunking_strategy)
+    .bind(chunk_size)
+    .bind(chunk_overlap)
+    .bind(retrieval_top_k)
+    .bind(retrieval_min_score)
+    .bind(&system_prompt)
+    .bind(now)
+    .bind(&id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_knowledge_base(
+    pool: State<'_, Pool>,
+    kb_store: State<'_, KbStore>,
+    app_handle: AppHandle,
+    id: String,
+) -> Result<(), String> {
+    // Clean up vector and FTS indexes
+    if let Some(store) = kb_store.as_ref() {
+        let _ = kb_indexer::delete_kb_index(pool.inner(), store, &id).await;
+    }
+
+    // Delete files from disk
+    let kb_dir = get_kb_documents_dir(&app_handle)?.join(&id);
+    if kb_dir.exists() {
+        std::fs::remove_dir_all(&kb_dir).map_err(|e| e.to_string())?;
+    }
+
+    // Delete KB row (CASCADE deletes documents and chunks)
+    sqlx::query("DELETE FROM knowledge_bases WHERE id = ?")
+        .bind(&id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+// --- Document management ---
+
+#[tauri::command]
+pub async fn list_kb_documents(
+    pool: State<'_, Pool>,
+    kb_id: String,
+) -> Result<Vec<KbDocument>, String> {
+    let rows = sqlx::query(
+        "SELECT id, kb_id, name, source_type, source_path, source_url, mime_type, file_size, \
+         chunk_count, indexing_status, indexing_error, content_hash, created_at, updated_at \
+         FROM kb_documents WHERE kb_id = ? ORDER BY created_at DESC",
+    )
+    .bind(&kb_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(rows.into_iter().map(map_doc_row).collect())
+}
+
+#[tauri::command]
+pub async fn add_kb_document(
+    pool: State<'_, Pool>,
+    kb_store: State<'_, KbStore>,
+    app_handle: AppHandle,
+    kb_id: String,
+    file_path: String,
+) -> Result<KbDocument, String> {
+    let source = std::path::Path::new(&file_path);
+    if !source.exists() {
+        return Err(format!("File not found: {}", file_path));
+    }
+
+    let file_name = source
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let extension = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    let mime_type = detect_mime_type(extension).to_string();
+
+    let doc_id = Uuid::new_v4().to_string();
+    let now = unix_now()?;
+
+    // Create target directory and copy file
+    let doc_dir = get_kb_documents_dir(&app_handle)?
+        .join(&kb_id)
+        .join(&doc_id);
+    std::fs::create_dir_all(&doc_dir).map_err(|e| e.to_string())?;
+
+    let target = doc_dir.join(&file_name);
+    std::fs::copy(source, &target).map_err(|e| e.to_string())?;
+
+    // Get file size
+    let metadata = std::fs::metadata(&target).map_err(|e| e.to_string())?;
+    let file_size = metadata.len() as i64;
+
+    // Compute SHA256 hash
+    use sha2::{Digest, Sha256};
+    let file_bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
+    let hash = format!("{:x}", Sha256::digest(&file_bytes));
+
+    // Store relative path
+    let relative_path = format!("kb_documents/{}/{}/{}", kb_id, doc_id, file_name);
+
+    // Insert document record
+    sqlx::query(
+        "INSERT INTO kb_documents (id, kb_id, name, source_type, source_path, mime_type, \
+         file_size, chunk_count, indexing_status, content_hash, created_at, updated_at) \
+         VALUES (?, ?, ?, 'file', ?, ?, ?, 0, 'pending', ?, ?, ?)",
+    )
+    .bind(&doc_id)
+    .bind(&kb_id)
+    .bind(&file_name)
+    .bind(&relative_path)
+    .bind(&mime_type)
+    .bind(file_size)
+    .bind(&hash)
+    .bind(now)
+    .bind(now)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Update document_count
+    sqlx::query(
+        "UPDATE knowledge_bases SET document_count = document_count + 1, updated_at = ? WHERE id = ?",
+    )
+    .bind(now)
+    .bind(&kb_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let doc = KbDocument {
+        id: doc_id,
+        kb_id: kb_id.clone(),
+        name: file_name,
+        source_type: "file".to_string(),
+        source_path: Some(relative_path),
+        source_url: None,
+        mime_type,
+        file_size,
+        chunk_count: 0,
+        indexing_status: "pending".to_string(),
+        indexing_error: None,
+        content_hash: Some(hash),
+        created_at: now,
+        updated_at: now,
+    };
+
+    // Auto-index in background
+    if let Some(store) = kb_store.as_ref() {
+        let pool_c = pool.inner().clone();
+        let app_handle_c = app_handle.clone();
+        let kb_id_c = kb_id.clone();
+        let doc_c = doc.clone();
+        let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+        // Need KB data for chunking settings
+        let kb_row = sqlx::query(
+            "SELECT id, name, description, embedding_model, embedding_dimensions, chunking_strategy, \
+             chunk_size, chunk_overlap, retrieval_top_k, retrieval_min_score, system_prompt, \
+             version, status, document_count, total_chunks, created_at, updated_at \
+             FROM knowledge_bases WHERE id = ?",
+        )
+        .bind(&kb_id_c)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+        let kb = map_kb_row(kb_row);
+        let provider = build_provider_for_kb(&app_handle, &kb).await?;
+        let store_ref = KbVectorStore::new(
+            app_data_dir.join("lancedb").to_string_lossy().as_ref()
+        ).await.map_err(|e| format!("{}", e))?;
+        tokio::spawn(async move {
+            if let Err(e) = kb_indexer::index_document(
+                &pool_c, &store_ref, &kb, &doc_c, &app_handle_c, &app_data_dir, provider.as_ref(),
+            ).await {
+                log::error!("[add_kb_document] Auto-index failed: {}", e);
+            }
+        });
+    }
+
+    Ok(doc)
+}
+
+#[tauri::command]
+pub async fn remove_kb_document(
+    pool: State<'_, Pool>,
+    kb_store: State<'_, KbStore>,
+    app_handle: AppHandle,
+    kb_id: String,
+    document_id: String,
+) -> Result<(), String> {
+    // Get chunk count before deletion for counter update
+    let chunk_count: i64 = sqlx::query_scalar(
+        "SELECT chunk_count FROM kb_documents WHERE id = ? AND kb_id = ?",
+    )
+    .bind(&document_id)
+    .bind(&kb_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Clean up vector and FTS indexes
+    if let Some(store) = kb_store.as_ref() {
+        let _ = kb_indexer::delete_document_index(pool.inner(), store, &kb_id, &document_id).await;
+    }
+
+    // Delete files from disk
+    let doc_dir = get_kb_documents_dir(&app_handle)?
+        .join(&kb_id)
+        .join(&document_id);
+    if doc_dir.exists() {
+        std::fs::remove_dir_all(&doc_dir).map_err(|e| e.to_string())?;
+    }
+
+    // Delete document row (CASCADE deletes chunks)
+    sqlx::query("DELETE FROM kb_documents WHERE id = ? AND kb_id = ?")
+        .bind(&document_id)
+        .bind(&kb_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Update counters
+    let now = unix_now()?;
+    sqlx::query(
+        "UPDATE knowledge_bases SET document_count = MAX(document_count - 1, 0), \
+         total_chunks = MAX(total_chunks - ?, 0), updated_at = ? WHERE id = ?",
+    )
+    .bind(chunk_count)
+    .bind(now)
+    .bind(&kb_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn add_kb_documents_bulk(
+    pool: State<'_, Pool>,
+    kb_store: State<'_, KbStore>,
+    app_handle: AppHandle,
+    kb_id: String,
+    file_paths: Vec<String>,
+) -> Result<Vec<KbDocument>, String> {
+    let mut documents = Vec::new();
+
+    for file_path in &file_paths {
+        let source = std::path::Path::new(file_path);
+        if !source.exists() {
+            log::warn!("[add_kb_documents_bulk] File not found, skipping: {}", file_path);
+            continue;
+        }
+
+        let file_name = source
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        let extension = source
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+
+        let mime_type = detect_mime_type(extension).to_string();
+        let doc_id = Uuid::new_v4().to_string();
+        let now = unix_now()?;
+
+        // Create target directory and copy file
+        let doc_dir = get_kb_documents_dir(&app_handle)?
+            .join(&kb_id)
+            .join(&doc_id);
+        std::fs::create_dir_all(&doc_dir).map_err(|e| e.to_string())?;
+
+        let target = doc_dir.join(&file_name);
+        std::fs::copy(source, &target).map_err(|e| e.to_string())?;
+
+        let metadata = std::fs::metadata(&target).map_err(|e| e.to_string())?;
+        let file_size = metadata.len() as i64;
+
+        use sha2::{Digest, Sha256};
+        let file_bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
+        let hash = format!("{:x}", Sha256::digest(&file_bytes));
+
+        let relative_path = format!("kb_documents/{}/{}/{}", kb_id, doc_id, file_name);
+
+        sqlx::query(
+            "INSERT INTO kb_documents (id, kb_id, name, source_type, source_path, mime_type, \
+             file_size, chunk_count, indexing_status, content_hash, created_at, updated_at) \
+             VALUES (?, ?, ?, 'file', ?, ?, ?, 0, 'pending', ?, ?, ?)",
+        )
+        .bind(&doc_id)
+        .bind(&kb_id)
+        .bind(&file_name)
+        .bind(&relative_path)
+        .bind(&mime_type)
+        .bind(file_size)
+        .bind(&hash)
+        .bind(now)
+        .bind(now)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+        documents.push(KbDocument {
+            id: doc_id,
+            kb_id: kb_id.clone(),
+            name: file_name,
+            source_type: "file".to_string(),
+            source_path: Some(relative_path),
+            source_url: None,
+            mime_type,
+            file_size,
+            chunk_count: 0,
+            indexing_status: "pending".to_string(),
+            indexing_error: None,
+            content_hash: Some(hash),
+            created_at: now,
+            updated_at: now,
+        });
+    }
+
+    // Update document_count in one shot
+    let count = documents.len() as i64;
+    if count > 0 {
+        let now = unix_now()?;
+        sqlx::query(
+            "UPDATE knowledge_bases SET document_count = document_count + ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(count)
+        .bind(now)
+        .bind(&kb_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    }
+
+    // Auto-index all new documents in background
+    if !documents.is_empty() && kb_store.as_ref().is_some() {
+        let pool_c = pool.inner().clone();
+        let app_handle_c = app_handle.clone();
+        let kb_id_c = kb_id.clone();
+        let docs_c = documents.clone();
+        let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+        let kb_row = sqlx::query(
+            "SELECT id, name, description, embedding_model, embedding_dimensions, chunking_strategy, \
+             chunk_size, chunk_overlap, retrieval_top_k, retrieval_min_score, system_prompt, \
+             version, status, document_count, total_chunks, created_at, updated_at \
+             FROM knowledge_bases WHERE id = ?",
+        )
+        .bind(&kb_id_c)
+        .fetch_one(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+        let kb = map_kb_row(kb_row);
+        let provider = build_provider_for_kb(&app_handle, &kb).await?;
+        let store_ref = KbVectorStore::new(
+            app_data_dir.join("lancedb").to_string_lossy().as_ref()
+        ).await.map_err(|e| format!("{}", e))?;
+        tokio::spawn(async move {
+            for doc in &docs_c {
+                if let Err(e) = kb_indexer::index_document(
+                    &pool_c, &store_ref, &kb, doc, &app_handle_c, &app_data_dir, provider.as_ref(),
+                ).await {
+                    log::error!("[add_kb_documents_bulk] Auto-index failed for {}: {}", doc.id, e);
+                }
+            }
+        });
+    }
+
+    Ok(documents)
+}
+
+#[tauri::command]
+pub async fn get_kb_stats(pool: State<'_, Pool>, kb_id: String) -> Result<KbStats, String> {
+    let row = sqlx::query(
+        "SELECT \
+         COUNT(*) as document_count, \
+         COALESCE(SUM(chunk_count), 0) as total_chunks, \
+         COALESCE(SUM(CASE WHEN indexing_status = 'indexed' THEN 1 ELSE 0 END), 0) as indexed_documents, \
+         COALESCE(SUM(CASE WHEN indexing_status = 'pending' THEN 1 ELSE 0 END), 0) as pending_documents, \
+         COALESCE(SUM(CASE WHEN indexing_status = 'failed' THEN 1 ELSE 0 END), 0) as failed_documents, \
+         COALESCE(SUM(file_size), 0) as total_file_size \
+         FROM kb_documents WHERE kb_id = ?",
+    )
+    .bind(&kb_id)
+    .fetch_one(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(KbStats {
+        document_count: row.get("document_count"),
+        total_chunks: row.get("total_chunks"),
+        indexed_documents: row.get("indexed_documents"),
+        pending_documents: row.get("pending_documents"),
+        failed_documents: row.get("failed_documents"),
+        total_file_size: row.get("total_file_size"),
+    })
+}
+
+// --- Indexing commands ---
+
+#[tauri::command]
+pub async fn index_kb_document(
+    pool: State<'_, Pool>,
+    kb_store: State<'_, KbStore>,
+    app_handle: AppHandle,
+    kb_id: String,
+    document_id: String,
+) -> Result<(), String> {
+    let store = kb_store.as_ref().as_ref().ok_or("KB vector store not available")?;
+
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let kb = fetch_kb(pool.inner(), &kb_id).await?;
+    let doc = fetch_doc(pool.inner(), &document_id).await?;
+
+    // Delete existing index data for re-indexing
+    let _ = kb_indexer::delete_document_index(pool.inner(), store, &kb_id, &document_id).await;
+
+    // Reset chunk count on the document
+    let now = unix_now()?;
+    let old_chunks: i64 = doc.chunk_count;
+    sqlx::query("UPDATE kb_documents SET chunk_count = 0, indexing_status = 'pending', updated_at = ? WHERE id = ?")
+        .bind(now)
+        .bind(&document_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE knowledge_bases SET total_chunks = MAX(total_chunks - ?, 0), updated_at = ? WHERE id = ?")
+        .bind(old_chunks)
+        .bind(now)
+        .bind(&kb_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Spawn indexing in background
+    let pool_c = pool.inner().clone();
+    let app_handle_c = app_handle.clone();
+    let provider = build_provider_for_kb(&app_handle, &kb).await?;
+    let store_ref = KbVectorStore::new(
+        app_data_dir.join("lancedb").to_string_lossy().as_ref()
+    ).await.map_err(|e| format!("{}", e))?;
+    tokio::spawn(async move {
+        if let Err(e) = kb_indexer::index_document(
+            &pool_c, &store_ref, &kb, &doc, &app_handle_c, &app_data_dir, provider.as_ref(),
+        ).await {
+            log::error!("[index_kb_document] failed: {}", e);
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn index_all_kb_documents(
+    pool: State<'_, Pool>,
+    kb_store: State<'_, KbStore>,
+    app_handle: AppHandle,
+    kb_id: String,
+) -> Result<(), String> {
+    let _store = kb_store.as_ref().as_ref().ok_or("KB vector store not available")?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+    let kb = fetch_kb(pool.inner(), &kb_id).await?;
+
+    // Get all pending documents
+    let rows = sqlx::query(
+        "SELECT id, kb_id, name, source_type, source_path, source_url, mime_type, file_size, \
+         chunk_count, indexing_status, indexing_error, content_hash, created_at, updated_at \
+         FROM kb_documents WHERE kb_id = ? AND indexing_status = 'pending' ORDER BY created_at ASC",
+    )
+    .bind(&kb_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let docs: Vec<KbDocument> = rows.into_iter().map(map_doc_row).collect();
+    if docs.is_empty() {
+        return Ok(());
+    }
+
+    let pool_c = pool.inner().clone();
+    let app_handle_c = app_handle.clone();
+    let provider = build_provider_for_kb(&app_handle, &kb).await?;
+    let store_ref = KbVectorStore::new(
+        app_data_dir.join("lancedb").to_string_lossy().as_ref()
+    ).await.map_err(|e| format!("{}", e))?;
+    tokio::spawn(async move {
+        for doc in &docs {
+            if let Err(e) = kb_indexer::index_document(
+                &pool_c, &store_ref, &kb, doc, &app_handle_c, &app_data_dir, provider.as_ref(),
+            ).await {
+                log::error!("[index_all_kb_documents] failed for {}: {}", doc.id, e);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reindex_knowledge_base(
+    pool: State<'_, Pool>,
+    kb_store: State<'_, KbStore>,
+    app_handle: AppHandle,
+    kb_id: String,
+) -> Result<(), String> {
+    let store = kb_store.as_ref().as_ref().ok_or("KB vector store not available")?;
+    let app_data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+
+    // Delete all existing index data
+    let _ = kb_indexer::delete_kb_index(pool.inner(), store, &kb_id).await;
+
+    // Delete all chunks from SQLite
+    sqlx::query("DELETE FROM kb_chunks WHERE kb_id = ?")
+        .bind(&kb_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Reset all documents to pending
+    let now = unix_now()?;
+    sqlx::query(
+        "UPDATE kb_documents SET indexing_status = 'pending', chunk_count = 0, indexing_error = NULL, updated_at = ? WHERE kb_id = ?",
+    )
+    .bind(now)
+    .bind(&kb_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Reset KB total_chunks and increment version
+    sqlx::query(
+        "UPDATE knowledge_bases SET total_chunks = 0, version = version + 1, updated_at = ? WHERE id = ?",
+    )
+    .bind(now)
+    .bind(&kb_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Fetch KB and all docs, then index
+    let kb = fetch_kb(pool.inner(), &kb_id).await?;
+    let rows = sqlx::query(
+        "SELECT id, kb_id, name, source_type, source_path, source_url, mime_type, file_size, \
+         chunk_count, indexing_status, indexing_error, content_hash, created_at, updated_at \
+         FROM kb_documents WHERE kb_id = ? ORDER BY created_at ASC",
+    )
+    .bind(&kb_id)
+    .fetch_all(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+    let docs: Vec<KbDocument> = rows.into_iter().map(map_doc_row).collect();
+
+    let pool_c = pool.inner().clone();
+    let app_handle_c = app_handle.clone();
+    let provider = build_provider_for_kb(&app_handle, &kb).await?;
+    let store_ref = KbVectorStore::new(
+        app_data_dir.join("lancedb").to_string_lossy().as_ref()
+    ).await.map_err(|e| format!("{}", e))?;
+    tokio::spawn(async move {
+        for doc in &docs {
+            if let Err(e) = kb_indexer::index_document(
+                &pool_c, &store_ref, &kb, doc, &app_handle_c, &app_data_dir, provider.as_ref(),
+            ).await {
+                log::error!("[reindex_knowledge_base] failed for {}: {}", doc.id, e);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+// --- Search & RAG commands ---
+
+#[tauri::command]
+pub async fn search_knowledge_base(
+    pool: State<'_, Pool>,
+    kb_store: State<'_, KbStore>,
+    app_handle: AppHandle,
+    kb_id: String,
+    query: String,
+    top_k: Option<i64>,
+) -> Result<Vec<KbSearchResultItem>, String> {
+    let store = kb_store.as_ref().as_ref().ok_or("KB vector store not available")?;
+    let kb = fetch_kb(pool.inner(), &kb_id).await?;
+    let provider = build_provider_for_kb(&app_handle, &kb).await?;
+
+    let config = KbSearchConfig {
+        top_k: top_k.unwrap_or(kb.retrieval_top_k) as usize,
+        min_score: kb.retrieval_min_score as f32,
+        ..Default::default()
+    };
+
+    kb_search::search_kb(pool.inner(), store, &kb_id, &query, &config, provider.as_ref()).await
+}
+
+#[tauri::command]
+pub async fn attach_kb_to_chat(
+    pool: State<'_, Pool>,
+    chat_id: String,
+    kb_id: String,
+) -> Result<(), String> {
+    sqlx::query("UPDATE chats SET kb_id = ? WHERE id = ?")
+        .bind(&kb_id)
+        .bind(&chat_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn detach_kb_from_chat(
+    pool: State<'_, Pool>,
+    chat_id: String,
+) -> Result<(), String> {
+    sqlx::query("UPDATE chats SET kb_id = NULL WHERE id = ?")
+        .bind(&chat_id)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_chat_kb(
+    pool: State<'_, Pool>,
+    chat_id: String,
+) -> Result<Option<KnowledgeBase>, String> {
+    let row = sqlx::query(
+        "SELECT kb.id, kb.name, kb.description, kb.embedding_model, kb.embedding_dimensions, \
+         kb.chunking_strategy, kb.chunk_size, kb.chunk_overlap, kb.retrieval_top_k, \
+         kb.retrieval_min_score, kb.system_prompt, kb.version, kb.status, kb.document_count, \
+         kb.total_chunks, kb.created_at, kb.updated_at \
+         FROM knowledge_bases kb JOIN chats c ON c.kb_id = kb.id WHERE c.id = ?",
+    )
+    .bind(&chat_id)
+    .fetch_optional(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(row.map(map_kb_row))
+}
+
+// --- Export / Import ---
+
+#[derive(Debug, Serialize, Deserialize)]
+struct KbManifest {
+    format_version: u32,
+    exported_at: i64,
+    app_version: String,
+    knowledge_base: KbManifestKb,
+    documents: Vec<KbManifestDoc>,
+    stats: KbManifestStats,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct KbManifestKb {
+    id: String,
+    name: String,
+    description: String,
+    embedding_model: String,
+    chunking_strategy: String,
+    chunk_size: i64,
+    chunk_overlap: i64,
+    retrieval_top_k: i64,
+    retrieval_min_score: f64,
+    version: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct KbManifestDoc {
+    id: String,
+    name: String,
+    mime_type: String,
+    file_size: i64,
+    file_path: String,
+    content_hash: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct KbManifestStats {
+    document_count: i64,
+    total_chunks: i64,
+}
+
+#[tauri::command]
+pub async fn export_knowledge_base(
+    pool: State<'_, Pool>,
+    app_handle: AppHandle,
+    kb_id: String,
+) -> Result<String, String> {
+    let kb = fetch_kb(pool.inner(), &kb_id).await?;
+    let docs = {
+        let rows = sqlx::query(
+            "SELECT id, kb_id, name, source_type, source_path, source_url, mime_type, file_size, \
+             chunk_count, indexing_status, indexing_error, content_hash, created_at, updated_at \
+             FROM kb_documents WHERE kb_id = ? ORDER BY created_at ASC",
+        )
+        .bind(&kb_id)
+        .fetch_all(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+        rows.into_iter().map(map_doc_row).collect::<Vec<_>>()
+    };
+
+    // Show save dialog
+    let kb_name = kb.name.clone();
+    let path = tokio::task::spawn_blocking({
+        let app = app_handle.clone();
+        move || {
+            app.dialog()
+                .file()
+                .add_filter("UNI AI Knowledge Base", &["zip"])
+                .set_file_name(&format!("{}.uni-kb.zip", kb_name))
+                .blocking_save_file()
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| "Export cancelled".to_string())?;
+
+    let zip_path = path.into_path().map_err(|e| e.to_string())?;
+
+    // Build manifest
+    let kb_docs_dir = get_kb_documents_dir(&app_handle)?;
+
+    // Handle duplicate filenames
+    let mut name_counts: HashMap<String, u32> = HashMap::new();
+    let mut manifest_docs = Vec::new();
+    let mut doc_file_mapping: Vec<(PathBuf, String)> = Vec::new(); // (source_path, zip_entry_name)
+
+    for doc in &docs {
+        let base_name = doc.name.clone();
+        let count = name_counts.entry(base_name.clone()).or_insert(0);
+        let zip_name = if *count == 0 {
+            base_name.clone()
+        } else {
+            let stem = std::path::Path::new(&base_name)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&base_name);
+            let ext = std::path::Path::new(&base_name)
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|e| format!(".{}", e))
+                .unwrap_or_default();
+            format!("{}_{}{}", stem, count, ext)
+        };
+        *count += 1;
+
+        let source_path = kb_docs_dir.join(&kb_id).join(&doc.id).join(&doc.name);
+        doc_file_mapping.push((source_path, zip_name.clone()));
+
+        manifest_docs.push(KbManifestDoc {
+            id: doc.id.clone(),
+            name: doc.name.clone(),
+            mime_type: doc.mime_type.clone(),
+            file_size: doc.file_size,
+            file_path: format!("documents/{}", zip_name),
+            content_hash: doc.content_hash.clone(),
+        });
+    }
+
+    let manifest = KbManifest {
+        format_version: 1,
+        exported_at: unix_now()?,
+        app_version: "0.1.0".to_string(),
+        knowledge_base: KbManifestKb {
+            id: kb.id.clone(),
+            name: kb.name.clone(),
+            description: kb.description.clone(),
+            embedding_model: kb.embedding_model.clone(),
+            chunking_strategy: kb.chunking_strategy.clone(),
+            chunk_size: kb.chunk_size,
+            chunk_overlap: kb.chunk_overlap,
+            retrieval_top_k: kb.retrieval_top_k,
+            retrieval_min_score: kb.retrieval_min_score,
+            version: kb.version,
+        },
+        documents: manifest_docs,
+        stats: KbManifestStats {
+            document_count: docs.len() as i64,
+            total_chunks: kb.total_chunks,
+        },
+    };
+
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
+
+    // Create ZIP
+    let file = std::fs::File::create(&zip_path).map_err(|e| e.to_string())?;
+    let mut zip = ZipWriter::new(file);
+    let opts = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    // Add manifest.json
+    zip.start_file("manifest.json", opts).map_err(|e| e.to_string())?;
+    zip.write_all(manifest_json.as_bytes()).map_err(|e| e.to_string())?;
+
+    // Add documents
+    for (source_path, zip_name) in &doc_file_mapping {
+        if source_path.exists() {
+            let content = std::fs::read(source_path).map_err(|e| e.to_string())?;
+            zip.start_file(format!("documents/{}", zip_name), opts).map_err(|e| e.to_string())?;
+            zip.write_all(&content).map_err(|e| e.to_string())?;
+        }
+    }
+
+    // Add system prompt if set
+    if !kb.system_prompt.is_empty() {
+        zip.start_file("prompts/system_prompt.txt", opts).map_err(|e| e.to_string())?;
+        zip.write_all(kb.system_prompt.as_bytes()).map_err(|e| e.to_string())?;
+    }
+
+    zip.finish().map_err(|e| e.to_string())?;
+
+    Ok(zip_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn import_knowledge_base(
+    pool: State<'_, Pool>,
+    app_handle: AppHandle,
+    zip_path: String,
+) -> Result<KnowledgeBase, String> {
+    let file = std::fs::File::open(&zip_path).map_err(|e| e.to_string())?;
+    let mut archive = ZipArchive::new(file).map_err(|e| e.to_string())?;
+
+    // Read manifest
+    let manifest: KbManifest = {
+        let mut manifest_file = archive
+            .by_name("manifest.json")
+            .map_err(|_| "Invalid KB package: missing manifest.json".to_string())?;
+        let mut buf = String::new();
+        manifest_file.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+        serde_json::from_str(&buf).map_err(|e| format!("Invalid manifest: {}", e))?
+    };
+
+    if manifest.format_version != 1 {
+        return Err(format!("Unsupported format version: {}", manifest.format_version));
+    }
+
+    // Read system prompt if present
+    let system_prompt = {
+        match archive.by_name("prompts/system_prompt.txt") {
+            Ok(mut f) => {
+                let mut buf = String::new();
+                f.read_to_string(&mut buf).map_err(|e| e.to_string())?;
+                buf
+            }
+            Err(_) => String::new(),
+        }
+    };
+
+    // Create new KB
+    let new_kb_id = Uuid::new_v4().to_string();
+    let now = unix_now()?;
+    let mkb = &manifest.knowledge_base;
+
+    sqlx::query(
+        "INSERT INTO knowledge_bases (id, name, description, embedding_model, chunking_strategy, \
+         chunk_size, chunk_overlap, retrieval_top_k, retrieval_min_score, system_prompt, version, \
+         status, document_count, total_chunks, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', 0, 0, ?, ?)",
+    )
+    .bind(&new_kb_id)
+    .bind(&mkb.name)
+    .bind(&mkb.description)
+    .bind(&mkb.embedding_model)
+    .bind(&mkb.chunking_strategy)
+    .bind(mkb.chunk_size)
+    .bind(mkb.chunk_overlap)
+    .bind(mkb.retrieval_top_k)
+    .bind(mkb.retrieval_min_score)
+    .bind(&system_prompt)
+    .bind(now)
+    .bind(now)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Extract documents
+    let kb_docs_dir = get_kb_documents_dir(&app_handle)?;
+    let mut imported_count: i64 = 0;
+
+    for mdoc in &manifest.documents {
+        let new_doc_id = Uuid::new_v4().to_string();
+        let doc_dir = kb_docs_dir.join(&new_kb_id).join(&new_doc_id);
+        std::fs::create_dir_all(&doc_dir).map_err(|e| e.to_string())?;
+
+        // Extract file from ZIP
+        let target_path = doc_dir.join(&mdoc.name);
+        let file_size = match archive.by_name(&mdoc.file_path) {
+            Ok(mut entry) => {
+                let mut content = Vec::new();
+                entry.read_to_end(&mut content).map_err(|e| e.to_string())?;
+                let size = content.len() as i64;
+                std::fs::write(&target_path, &content).map_err(|e| e.to_string())?;
+                size
+            }
+            Err(_) => {
+                log::warn!("[import_kb] Document not found in ZIP: {}", mdoc.file_path);
+                continue;
+            }
+        };
+
+        let relative_path = format!("kb_documents/{}/{}/{}", new_kb_id, new_doc_id, mdoc.name);
+
+        // Compute hash of extracted file
+        use sha2::{Digest, Sha256};
+        let file_bytes = std::fs::read(&target_path).map_err(|e| e.to_string())?;
+        let hash = format!("{:x}", Sha256::digest(&file_bytes));
+
+        sqlx::query(
+            "INSERT INTO kb_documents (id, kb_id, name, source_type, source_path, mime_type, \
+             file_size, chunk_count, indexing_status, content_hash, created_at, updated_at) \
+             VALUES (?, ?, ?, 'file', ?, ?, ?, 0, 'pending', ?, ?, ?)",
+        )
+        .bind(&new_doc_id)
+        .bind(&new_kb_id)
+        .bind(&mdoc.name)
+        .bind(&relative_path)
+        .bind(&mdoc.mime_type)
+        .bind(file_size)
+        .bind(&hash)
+        .bind(now)
+        .bind(now)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| e.to_string())?;
+
+        imported_count += 1;
+    }
+
+    // Update document_count
+    sqlx::query(
+        "UPDATE knowledge_bases SET document_count = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(imported_count)
+    .bind(now)
+    .bind(&new_kb_id)
+    .execute(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(KnowledgeBase {
+        id: new_kb_id,
+        name: mkb.name.clone(),
+        description: mkb.description.clone(),
+        embedding_model: mkb.embedding_model.clone(),
+        embedding_dimensions: crate::services::embedding_provider::default_dimensions(&mkb.embedding_model) as i64,
+        chunking_strategy: mkb.chunking_strategy.clone(),
+        chunk_size: mkb.chunk_size,
+        chunk_overlap: mkb.chunk_overlap,
+        retrieval_top_k: mkb.retrieval_top_k,
+        retrieval_min_score: mkb.retrieval_min_score,
+        system_prompt,
+        version: 1,
+        status: "active".to_string(),
+        document_count: imported_count,
+        total_chunks: 0,
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+// --- Helpers ---
+
+/// Read embedding API key from settings store based on model_id
+fn read_embedding_api_key(app: &AppHandle, model_id: &str) -> Option<String> {
+    let store = app.store("settings.json").ok()?;
+    match model_id {
+        "openai" | "text-embedding-3-small" => store
+            .get("embeddingOpenaiKey")
+            .and_then(|v| v.as_str().map(String::from))
+            .filter(|s| !s.is_empty()),
+        "gemini" | "gemini-embedding" => store
+            .get("embeddingGeminiKey")
+            .and_then(|v| v.as_str().map(String::from))
+            .filter(|s| !s.is_empty()),
+        _ => None,
+    }
+}
+
+/// Build an embedding provider from KB settings
+async fn build_provider_for_kb(
+    app: &AppHandle,
+    kb: &KnowledgeBase,
+) -> Result<Box<dyn crate::services::embedding_provider::EmbeddingProvider>, String> {
+    let api_key = read_embedding_api_key(app, &kb.embedding_model);
+    let client = if kb.embedding_model != "e5-small" {
+        Some(build_http_client(app, None).await?)
+    } else {
+        None
+    };
+    embedding_provider::create_embedding_provider(
+        &kb.embedding_model,
+        api_key.as_deref(),
+        client,
+    )
+}
+
+async fn fetch_kb(pool: &Pool, kb_id: &str) -> Result<KnowledgeBase, String> {
+    let row = sqlx::query(
+        "SELECT id, name, description, embedding_model, embedding_dimensions, chunking_strategy, chunk_size, chunk_overlap, \
+         retrieval_top_k, retrieval_min_score, system_prompt, version, status, document_count, \
+         total_chunks, created_at, updated_at FROM knowledge_bases WHERE id = ?",
+    )
+    .bind(kb_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(map_kb_row(row))
+}
+
+async fn fetch_doc(pool: &Pool, doc_id: &str) -> Result<KbDocument, String> {
+    let row = sqlx::query(
+        "SELECT id, kb_id, name, source_type, source_path, source_url, mime_type, file_size, \
+         chunk_count, indexing_status, indexing_error, content_hash, created_at, updated_at \
+         FROM kb_documents WHERE id = ?",
+    )
+    .bind(doc_id)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(map_doc_row(row))
+}

@@ -33,12 +33,16 @@ import type {
     SubAgentInfo,
     ProjectSummary,
     ScheduledTask,
+    KnowledgeBase,
+    KbDocument,
+    KbSearchResultItem,
 } from "../types";
 import { createSnippetsSlice } from "./slices/snippetsSlice";
 import { createSettingsSlice } from "./slices/settingsSlice";
 import { createUiSlice } from "./slices/uiSlice";
 import { createAgentSlice } from "./slices/agentSlice";
 import { createChatSlice } from "./slices/chatSlice";
+import { createKbSlice } from "./slices/kbSlice";
 
 export interface ChatState {
     chats: Chat[];
@@ -71,8 +75,8 @@ export interface ChatState {
     revokeTelegramUser: () => Promise<void>;
     validateTelegramToken: (token: string) => Promise<{ username: string; firstName: string }>;
 
-    currentView: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler";
-    setView: (view: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler") => void;
+    currentView: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases";
+    setView: (view: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases") => void;
     openProjectDashboard: (projectId: string) => void;
     scrollTargetId: string | null;
     setScrollTargetId: (id: string | null) => void;
@@ -331,6 +335,29 @@ export interface ChatState {
     initPlanListeners: () => Promise<void>;
     initWorkspaceListeners: () => Promise<void>;
     initSubAgentListeners: () => Promise<void>;
+
+    // Knowledge Bases
+    knowledgeBases: KnowledgeBase[];
+    activeKbId: string | null;
+    kbDocuments: KbDocument[];
+    loadKnowledgeBases: () => Promise<void>;
+    createKnowledgeBase: (name: string, description: string, embeddingModel?: string) => Promise<KnowledgeBase | null>;
+    updateKnowledgeBase: (id: string, updates: Partial<KnowledgeBase>) => Promise<void>;
+    deleteKnowledgeBase: (id: string) => Promise<void>;
+    setActiveKbId: (id: string | null) => void;
+    loadKbDocuments: (kbId: string) => Promise<void>;
+    addKbDocuments: (kbId: string, filePaths: string[]) => Promise<void>;
+    removeKbDocument: (kbId: string, documentId: string) => Promise<void>;
+    indexKbDocument: (kbId: string, documentId: string) => Promise<void>;
+    indexAllKbDocuments: (kbId: string) => Promise<void>;
+    reindexKnowledgeBase: (kbId: string) => Promise<void>;
+    chatKbId: string | null;
+    attachKbToChat: (chatId: string, kbId: string) => Promise<void>;
+    detachKbFromChat: (chatId: string) => Promise<void>;
+    loadChatKb: (chatId: string) => Promise<void>;
+    searchKnowledgeBase: (kbId: string, query: string, topK?: number) => Promise<KbSearchResultItem[]>;
+    exportKnowledgeBase: (kbId: string) => Promise<void>;
+    importKnowledgeBase: (zipPath: string) => Promise<void>;
 }
 
 
@@ -340,4 +367,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
     ...createSettingsSlice(set, get),
     ...createUiSlice(set, get),
     ...createAgentSlice(set, get),
+    ...createKbSlice(set, get),
 }));

@@ -18,6 +18,7 @@ import type {
     ToolResultEvent,
     ToolCallInfo,
     WebSource,
+    RagSource,
     StreamRetryPayload,
     ProjectSummary,
 } from "../../types";
@@ -327,6 +328,8 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
             get().loadPlanForChat(id);
             get().loadWorkspaceArtifacts(id);
         }
+        // Load attached KB
+        get().loadChatKb(id);
     },
 
     loadChats: async () => {
@@ -877,7 +880,7 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                     }
                     invoke("update_message_content", {
                         id: assistantMsg.id,
-                        content: contentToSave,
+                        content: contentToSave ?? "",
                     }).catch(console.error);
                     set((state) => ({
                         isStreaming: false,
@@ -919,6 +922,28 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                                     : c
                             ),
                         }));
+                    }
+                    // Handle RAG sources from KB
+                    if (event.payload.ragSources) {
+                        try {
+                            const ragSources: RagSource[] = JSON.parse(event.payload.ragSources);
+                            if (ragSources.length > 0) {
+                                set((state) => ({
+                                    chats: state.chats.map((c) =>
+                                        c.id === activeChatId
+                                            ? {
+                                                  ...c,
+                                                  messages: c.messages.map((msg) =>
+                                                      msg.id === assistantMsg.id
+                                                          ? { ...msg, ragSources }
+                                                          : msg
+                                                  ),
+                                              }
+                                            : c
+                                    ),
+                                }));
+                            }
+                        } catch { /* ignore parse errors */ }
                     }
                 })
             );
@@ -1314,7 +1339,7 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                     }
                     invoke("update_message_content", {
                         id: assistantMsg.id,
-                        content: contentToSaveEdit,
+                        content: contentToSaveEdit ?? "",
                     }).catch(console.error);
                     set((state) => ({
                         isStreaming: false,
@@ -1337,6 +1362,28 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                     get().loadBalance();
                     invoke("index_message", { messageId: newUserMsg.id }).catch(console.error);
                     invoke("index_message", { messageId: assistantMsg.id }).catch(console.error);
+                    // Handle RAG sources from KB
+                    if (event.payload.ragSources) {
+                        try {
+                            const ragSources: RagSource[] = JSON.parse(event.payload.ragSources);
+                            if (ragSources.length > 0) {
+                                set((state) => ({
+                                    chats: state.chats.map((c) =>
+                                        c.id === activeChatId
+                                            ? {
+                                                  ...c,
+                                                  messages: c.messages.map((m) =>
+                                                      m.id === assistantMsg.id
+                                                          ? { ...m, ragSources }
+                                                          : m
+                                                  ),
+                                              }
+                                            : c
+                                    ),
+                                }));
+                            }
+                        } catch { /* ignore parse errors */ }
+                    }
                 })
             );
 

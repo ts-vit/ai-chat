@@ -19,7 +19,7 @@ import {
     Tooltip,
     UnstyledButton,
 } from "@mantine/core";
-import { IconAdjustments, IconArrowUp, IconCheck, IconCode, IconDownload, IconFile, IconFileText, IconMessage2, IconMicrophone, IconPaperclip, IconPlayerStop, IconPlus, IconSubtask, IconWand, IconWorldSearch, IconX } from "@tabler/icons-react";
+import { IconAdjustments, IconArrowUp, IconCheck, IconCode, IconDatabase, IconDownload, IconFile, IconFileText, IconMessage2, IconMicrophone, IconPaperclip, IconPlayerStop, IconPlus, IconSubtask, IconWand, IconWorldSearch, IconX } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "../store/chatStore";
 import { getUniqueVariableNames } from "./VariablesModal";
@@ -104,6 +104,10 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
     const generatePlan = useChatStore((s) => s.generatePlan);
     const planGenerating = useChatStore((s) => s.planGenerating);
     const activeChatId = useChatStore((s) => s.activeChatId);
+    const knowledgeBases = useChatStore((s) => s.knowledgeBases);
+    const chatKbId = useChatStore((s) => s.chatKbId);
+    const attachKbToChat = useChatStore((s) => s.attachKbToChat);
+    const detachKbFromChat = useChatStore((s) => s.detachKbFromChat);
 
     const enabledSkills = useMemo(() => skills.filter((s) => s.enabled), [skills]);
     const activeChatSkills = chatSkills;
@@ -828,6 +832,46 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                                 {skill.name} ×
                             </Badge>
                         ))}
+
+                        {/* KB selector */}
+                        {activeChat && !isRecording && knowledgeBases.length > 0 && (
+                            <Menu position="top-start" shadow="md" width={220}>
+                                <Menu.Target>
+                                    <Tooltip label={t("kb.selectKb")}>
+                                        <UnstyledButton>
+                                            <Group gap={4} wrap="nowrap">
+                                                <IconDatabase size={16} stroke={1.5} style={{ color: chatKbId ? "var(--mantine-color-brand-filled)" : "var(--mantine-color-dimmed)" }} />
+                                                <Text size="xs" c={chatKbId ? "brand" : "dimmed"} truncate="end" style={{ maxWidth: 120 }}>
+                                                    {chatKbId
+                                                        ? knowledgeBases.find((kb) => kb.id === chatKbId)?.name ?? t("kb.activeKb")
+                                                        : t("kb.noKbAttached")}
+                                                </Text>
+                                            </Group>
+                                        </UnstyledButton>
+                                    </Tooltip>
+                                </Menu.Target>
+                                <Menu.Dropdown>
+                                    <Menu.Item
+                                        onClick={() => activeChat && detachKbFromChat(activeChat.id)}
+                                        fw={!chatKbId ? 600 : undefined}
+                                        c={!chatKbId ? "brand" : undefined}
+                                    >
+                                        {t("kb.noneOption")}
+                                    </Menu.Item>
+                                    <Menu.Divider />
+                                    {knowledgeBases.map((kb) => (
+                                        <Menu.Item
+                                            key={kb.id}
+                                            onClick={() => activeChat && attachKbToChat(activeChat.id, kb.id)}
+                                            fw={chatKbId === kb.id ? 600 : undefined}
+                                            color={chatKbId === kb.id ? "brand" : undefined}
+                                        >
+                                            {kb.name}
+                                        </Menu.Item>
+                                    ))}
+                                </Menu.Dropdown>
+                            </Menu>
+                        )}
 
                         {showInjectionsHint && (
                             <Tooltip label={t("messageInput.injectionsTooltip")}>

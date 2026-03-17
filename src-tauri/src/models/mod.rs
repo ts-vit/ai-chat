@@ -10,3 +10,4 @@ pub mod plan;
 pub mod workspace;
 pub mod project;
 pub mod scheduler;
+pub mod knowledge_base;

@@ -630,6 +630,7 @@ pub async fn start_plan_execution(
     pool: State<'_, Pool>,
     mcp_manager: State<'_, Arc<McpManager>>,
     memory_store: State<'_, Arc<Option<MemoryVectorStore>>>,
+    kb_vector_store: State<'_, Arc<Option<crate::services::kb_vector_store::KbVectorStore>>>,
     cancel_tokens: State<'_, AgentCancelTokens>,
     plan_id: String,
     model: String,
@@ -745,6 +746,7 @@ pub async fn start_plan_execution(
         pool.inner().clone(),
         mcp_manager.inner().clone(),
         memory_store.inner().clone(),
+        kb_vector_store.inner().clone(),
         cancel_tokens.inner().clone(),
         plan.chat_id.clone(),
         run_id,
@@ -774,6 +776,7 @@ pub async fn execute_single_task(
     pool: State<'_, Pool>,
     mcp_manager: State<'_, Arc<McpManager>>,
     memory_store: State<'_, Arc<Option<MemoryVectorStore>>>,
+    kb_vector_store: State<'_, Arc<Option<crate::services::kb_vector_store::KbVectorStore>>>,
     cancel_tokens: State<'_, AgentCancelTokens>,
     task_id: String,
     model: String,
@@ -905,6 +908,7 @@ pub async fn execute_single_task(
         pool.inner().clone(),
         mcp_manager.inner().clone(),
         memory_store.inner().clone(),
+        kb_vector_store.inner().clone(),
         cancel_tokens.inner().clone(),
         plan.chat_id.clone(),
         run_id,
@@ -1225,6 +1229,7 @@ fn spawn_plan_task(
     pool: Pool,
     mcp_manager: Arc<McpManager>,
     memory_store: Arc<Option<MemoryVectorStore>>,
+    kb_store: Arc<Option<crate::services::kb_vector_store::KbVectorStore>>,
     cancel_tokens: AgentCancelTokens,
     chat_id: String,
     run_id: String,
@@ -1254,6 +1259,7 @@ fn spawn_plan_task(
             pool.clone(),
             mcp_manager.clone(),
             memory_store.clone(),
+            kb_store.clone(),
             chat_id.clone(),
             run_id.clone(),
             model.clone(),
@@ -1578,6 +1584,7 @@ fn spawn_plan_task(
                     pool.clone(),
                     mcp_manager.clone(),
                     memory_store.clone(),
+                    kb_store.clone(),
                     plan.chat_id.clone(),
                     next_run_id.clone(),
                     model.clone(),
@@ -1648,6 +1655,7 @@ fn spawn_plan_task(
                     let h_pool = pool.clone();
                     let h_mcp = mcp_manager.clone();
                     let h_mem = memory_store.clone();
+                    let h_kb = kb_store.clone();
                     let h_chat_id = plan.chat_id.clone();
                     let h_model = model.clone();
                     let h_base_url = base_url.clone();
@@ -1664,6 +1672,7 @@ fn spawn_plan_task(
                             h_pool,
                             h_mcp,
                             h_mem,
+                            h_kb,
                             h_chat_id,
                             h_run_id.clone(),
                             h_model,

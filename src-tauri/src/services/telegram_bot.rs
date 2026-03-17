@@ -27,7 +27,7 @@ Key behaviors:
 - Proactively save important information using memory_save (dates, facts, decisions, reminders, preferences)
 - When searching memory, be thorough — the user relies on you to remember things
 - Keep responses under 2000 characters when possible (Telegram messages should be digestible)
-- Use Telegram-compatible formatting: <b>bold</b>, <i>italic</i>, <code>code</code>, <pre>code blocks</pre>
+- Use Markdown formatting: **bold**, *italic*, `code`, ```code blocks```
 
 When you see [CONTEXT_LIMIT_WARNING]:
 - Immediately inform the user that the conversation context is almost full
@@ -635,6 +635,7 @@ async fn handle_agent_message(
     // Get managed state for agent_loop
     let mcp_mgr: Arc<McpManager> = app.state::<Arc<McpManager>>().inner().clone();
     let mem_store: Arc<Option<MemoryVectorStore>> = app.state::<Arc<Option<MemoryVectorStore>>>().inner().clone();
+    let kb_store: Arc<Option<crate::services::kb_vector_store::KbVectorStore>> = app.state::<Arc<Option<crate::services::kb_vector_store::KbVectorStore>>>().inner().clone();
     let cancel_tokens: AgentCancelTokens = app.state::<AgentCancelTokens>().inner().clone();
 
     // Create cancel token for this run
@@ -660,6 +661,7 @@ async fn handle_agent_message(
             pool_clone,
             mcp_mgr,
             mem_store,
+            kb_store,
             chat_id,
             run_id,
             model,

@@ -16,6 +16,9 @@ use crate::models::mcp::McpTool;
 use crate::services::http_client::build_http_client;
 use crate::services::mcp_manager::McpManager;
 use crate::services::retry::{retry_http_request, RetryResult};
+use crate::services::kb_vector_store::KbVectorStore;
+use crate::services::kb_search::{self, KbSearchConfig};
+use crate::services::rag_context;
 
 pub(crate) const MAX_TOOL_ITERATIONS: usize = 10;
 
@@ -149,8 +152,11 @@ pub struct StreamPayload {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamDonePayload {
     pub full_content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rag_sources: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -210,6 +216,7 @@ pub async fn send_message(
     stream_state: State<'_, StreamState>,
     pool: State<'_, sqlx::SqlitePool>,
     mcp_manager: State<'_, Arc<McpManager>>,
+    kb_vector_store: State<'_, Arc<Option<KbVectorStore>>>,
     chat_id: String,
     base_url: Option<String>,
     api_key: String,
@@ -270,7 +277,126 @@ pub async fn send_message(
         (model.clone(), false, None, None, None, None, None, None, None, None, None, None, None)
     };
 
-    let messages = maybe_flatten_system(messages, &model);
+    let mut messages = maybe_flatten_system(messages, &model);
+
+    // RAG: retrieve KB context if chat has an attached knowledge base
+    let rag_sources_json: Option<String> = if !chat_id.is_empty() {
+        let kb_id: Option<String> = sqlx::query_scalar("SELECT kb_id FROM chats WHERE id = ?")
+            .bind(&chat_id)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?
+            .flatten();
+
+        if let (Some(ref kb_id_val), Some(store)) = (&kb_id, kb_vector_store.as_ref().as_ref()) {
+            // Load KB settings
+            let kb_row = sqlx::query(
+                "SELECT name, embedding_model, retrieval_top_k, retrieval_min_score, system_prompt \
+                 FROM knowledge_bases WHERE id = ?",
+            )
+            .bind(kb_id_val)
+            .fetch_optional(pool.inner())
+            .await
+            .map_err(|e| e.to_string())?;
+
+            if let Some(kb_row) = kb_row {
+                let kb_name: String = kb_row.get("name");
+                let embedding_model: String = kb_row.try_get("embedding_model").unwrap_or_else(|_| "e5-small".to_string());
+                let top_k: i64 = kb_row.get("retrieval_top_k");
+                let min_score: f64 = kb_row.get("retrieval_min_score");
+                let kb_system_prompt: String = kb_row.get("system_prompt");
+
+                // Get last user message text as search query
+                let user_query = messages.iter().rev()
+                    .find(|m| m.role == "user")
+                    .map(|m| m.content.clone())
+                    .unwrap_or_default();
+
+                if !user_query.is_empty() {
+                    let config = KbSearchConfig {
+                        top_k: top_k as usize,
+                        min_score: min_score as f32,
+                        ..Default::default()
+                    };
+
+                    // Build embedding provider for KB search
+                    let api_key = {
+                        use tauri_plugin_store::StoreExt;
+                        let store_settings = app.store("settings.json").ok();
+                        store_settings.and_then(|s| {
+                            match embedding_model.as_str() {
+                                "openai" | "text-embedding-3-small" => s.get("embeddingOpenaiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+                                "gemini" | "gemini-embedding" => s.get("embeddingGeminiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+                                _ => None,
+                            }
+                        })
+                    };
+                    let http_client = if embedding_model != "e5-small" {
+                        Some(crate::services::http_client::build_http_client(&app, None).await?)
+                    } else {
+                        None
+                    };
+                    let provider = crate::services::embedding_provider::create_embedding_provider(
+                        &embedding_model, api_key.as_deref(), http_client,
+                    )?;
+
+                    match kb_search::search_kb(pool.inner(), store, kb_id_val, &user_query, &config, provider.as_ref()).await {
+                        Ok(results) if !results.is_empty() => {
+                            // Build RAG context
+                            let rag_ctx = rag_context::build_rag_context(&results, &kb_name);
+                            let rag_instruction = rag_context::build_rag_system_instruction(&kb_system_prompt);
+
+                            // Prepend RAG instruction to system prompt (first message if system)
+                            if let Some(first) = messages.first_mut() {
+                                if first.role == "system" {
+                                    first.content = format!("{}\n\n{}", rag_instruction, first.content);
+                                } else {
+                                    messages.insert(0, Message {
+                                        role: "system".to_string(),
+                                        content: rag_instruction,
+                                    });
+                                }
+                            }
+
+                            // Insert KB context as system message before the last user message
+                            let last_user_idx = messages.iter().rposition(|m| m.role == "user");
+                            if let Some(idx) = last_user_idx {
+                                messages.insert(idx, Message {
+                                    role: "system".to_string(),
+                                    content: rag_ctx,
+                                });
+                            }
+
+                            // Serialize sources for the assistant message
+                            let sources: Vec<serde_json::Value> = results.iter().map(|r| {
+                                serde_json::json!({
+                                    "documentId": r.document_id,
+                                    "documentName": r.document_name,
+                                    "chunkIndex": r.chunk_index,
+                                    "content": if r.content.len() > 200 {
+                                        format!("{}...", &r.content.chars().take(200).collect::<String>())
+                                    } else {
+                                        r.content.clone()
+                                    },
+                                    "score": r.score
+                                })
+                            }).collect();
+                            Some(serde_json::to_string(&sources).unwrap_or_default())
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     let is_image = db_is_image_model
         || is_image_generation_model(&model)
@@ -542,12 +668,15 @@ pub async fn send_message(
     let assistant_msg_id = assistant_message_id.clone();
     let image_index = Arc::new(Mutex::new(0u32));
     let chat_id_stream = chat_id.clone();
+    let rag_sources_cancel = rag_sources_json.clone();
+    let rag_sources_stream = rag_sources_json.clone();
 
     let stream_result = tokio::select! {
         _ = token.cancelled() => {
             let fc = full_content_cancel.lock().await.clone();
             let _ = app.emit("chat-stream-done", StreamDonePayload {
                 full_content: fc,
+                rag_sources: rag_sources_cancel,
             });
             log::debug!("send_message: cancelled for chat_id={}", chat_id);
             *stream_state.chat_cancel_token.lock().await = None;
@@ -555,6 +684,7 @@ pub async fn send_message(
         }
         r = async move {
             let tool_name_map = tool_name_map;
+            let rag_sources_json = rag_sources_stream;
             let mut done_emitted = false;
 
             'tool_loop: for _iteration in 0..MAX_TOOL_ITERATIONS {
@@ -858,7 +988,7 @@ pub async fn send_message(
                 let fc = full_content.lock().await.clone();
                 let _ = app_stream.emit(
                     "chat-stream-done",
-                    StreamDonePayload { full_content: fc },
+                    StreamDonePayload { full_content: fc, rag_sources: rag_sources_json.clone() },
                 );
                 log::debug!(
                     "send_message: stream completed for chat_id={}",
@@ -872,7 +1002,7 @@ pub async fn send_message(
                 let fc = full_content.lock().await.clone();
                 let _ = app_stream.emit(
                     "chat-stream-done",
-                    StreamDonePayload { full_content: fc },
+                    StreamDonePayload { full_content: fc, rag_sources: rag_sources_json.clone() },
                 );
                 if !token_check.is_cancelled() {
                     log::warn!(
@@ -888,6 +1018,16 @@ pub async fn send_message(
     };
 
     *stream_state.chat_cancel_token.lock().await = None;
+
+    // Store RAG sources on assistant message if available
+    if let (Some(ref msg_id), Some(ref sources)) = (&assistant_message_id, &rag_sources_json) {
+        let _ = sqlx::query("UPDATE messages SET rag_sources = ? WHERE id = ?")
+            .bind(sources)
+            .bind(msg_id)
+            .execute(pool.inner())
+            .await;
+    }
+
     stream_result
 }
 

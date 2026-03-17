@@ -74,6 +74,8 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     store.set("telegramEnabled", serde_json::to_value(settings.telegram_enabled).map_err(|e| e.to_string())?);
     store.set("telegramAutoStart", serde_json::to_value(settings.telegram_auto_start).map_err(|e| e.to_string())?);
     store.set("telegramModel", serde_json::to_value(&settings.telegram_model).map_err(|e| e.to_string())?);
+    store.set("embeddingOpenaiKey", serde_json::to_value(&settings.embedding_openai_key).map_err(|e| e.to_string())?);
+    store.set("embeddingGeminiKey", serde_json::to_value(&settings.embedding_gemini_key).map_err(|e| e.to_string())?);
 
     store.save().map_err(|e| e.to_string())?;
 
@@ -188,6 +190,8 @@ pub async fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
         telegram_enabled: store.get("telegramEnabled").and_then(|v| v.as_bool()).unwrap_or(false),
         telegram_auto_start: store.get("telegramAutoStart").and_then(|v| v.as_bool()).unwrap_or(false),
         telegram_model: store.get("telegramModel").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        embedding_openai_key: store.get("embeddingOpenaiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
+        embedding_gemini_key: store.get("embeddingGeminiKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()),
     };
 
     Ok(settings)

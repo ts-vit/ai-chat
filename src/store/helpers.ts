@@ -8,6 +8,7 @@ import type {
     Message,
     MessageWithSiblings,
     ModeStateMap,
+    RagSource,
     WebSource,
 } from "../types";
 
@@ -51,6 +52,7 @@ export interface DbMessageResponse {
     cost?: number;
     has_attachments?: number;
     webSources?: string;
+    ragSources?: string;
     agentStep?: number;
     agentRunId?: string;
 }
@@ -120,6 +122,15 @@ export function stripMarkdownForTts(content: string): string {
 
 // ── Message mappers ─────────────────────────────────────────
 
+export function parseRagSources(raw: string | undefined | null): RagSource[] | undefined {
+    if (!raw) return undefined;
+    try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed as RagSource[];
+    } catch { /* ignore */ }
+    return undefined;
+}
+
 export function parseWebSources(raw: string | undefined | null): WebSource[] | undefined {
     if (!raw) return undefined;
     try {
@@ -142,6 +153,7 @@ export function dbMessageToMessage(m: DbMessageResponse): Message {
         cost: m.cost,
         hasAttachments: m.has_attachments ? true : undefined,
         webSources: parseWebSources(m.webSources),
+        ragSources: parseRagSources(m.ragSources),
         agentStep: m.agentStep,
         agentRunId: m.agentRunId,
     };

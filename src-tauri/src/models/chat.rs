@@ -419,6 +419,10 @@ pub struct AppSettings {
     pub telegram_auto_start: bool,
     #[serde(default, rename = "telegramModel")]
     pub telegram_model: Option<String>,
+    #[serde(default, rename = "embeddingOpenaiKey")]
+    pub embedding_openai_key: Option<String>,
+    #[serde(default, rename = "embeddingGeminiKey")]
+    pub embedding_gemini_key: Option<String>,
 }
 
 fn default_ollama_url() -> String {
@@ -510,6 +514,8 @@ impl Default for AppSettings {
             telegram_enabled: false,
             telegram_auto_start: false,
             telegram_model: None,
+            embedding_openai_key: None,
+            embedding_gemini_key: None,
         }
     }
 }

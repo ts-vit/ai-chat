@@ -29,6 +29,7 @@ export interface Message {
     webSources?: WebSource[];
     agentStep?: number;
     agentRunId?: string;
+    ragSources?: RagSource[];
 }
 
 // Превью соседней ветки
@@ -225,6 +226,8 @@ export interface AppSettings {
     telegramEnabled?: boolean;
     telegramAutoStart?: boolean;
     telegramModel?: string;
+    embeddingOpenaiKey?: string;
+    embeddingGeminiKey?: string;
 }
 
 export interface TelegramStatus {
@@ -252,6 +255,7 @@ export interface StreamPayload {
 
 export interface StreamDonePayload {
     full_content: string;
+    ragSources?: string | null;
 }
 
 export interface StreamErrorPayload {
@@ -733,4 +737,68 @@ export interface SchedulerStatus {
     running: boolean;
     taskCount: number;
     nextTaskAt: number | null;
+}
+
+export interface KnowledgeBase {
+    id: string;
+    name: string;
+    description: string;
+    embeddingModel: string;
+    embeddingDimensions: number;
+    chunkingStrategy: string;
+    chunkSize: number;
+    chunkOverlap: number;
+    retrievalTopK: number;
+    retrievalMinScore: number;
+    systemPrompt: string;
+    version: number;
+    status: string;
+    documentCount: number;
+    totalChunks: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface KbDocument {
+    id: string;
+    kbId: string;
+    name: string;
+    sourceType: string;
+    sourcePath: string | null;
+    sourceUrl: string | null;
+    mimeType: string;
+    fileSize: number;
+    chunkCount: number;
+    indexingStatus: string;
+    indexingError: string | null;
+    contentHash: string | null;
+    createdAt: number;
+    updatedAt: number;
+}
+
+export interface KbStats {
+    documentCount: number;
+    totalChunks: number;
+    indexedDocuments: number;
+    pendingDocuments: number;
+    failedDocuments: number;
+    totalFileSize: number;
+}
+
+export interface KbSearchResultItem {
+    chunkId: string;
+    documentId: string;
+    documentName: string;
+    content: string;
+    chunkIndex: number;
+    score: number;
+    metadata: Record<string, unknown>;
+}
+
+export interface RagSource {
+    documentId: string;
+    documentName: string;
+    chunkIndex: number;
+    content: string;
+    score: number;
 }

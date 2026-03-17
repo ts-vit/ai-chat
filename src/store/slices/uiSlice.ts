@@ -24,7 +24,7 @@ import type { ChatState } from "../chatStore";
 
 export interface UiSlice {
     // State
-    currentView: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler";
+    currentView: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases";
     activeMode: string;
     modeState: ModeStateMap;
     modeSettings: ModeSettingRow[];

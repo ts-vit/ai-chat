@@ -21,7 +21,7 @@ use crate::services::memory_vector_store::MemoryVectorStore;
 use crate::services::web_search;
 use crate::services::web_content;
 use crate::services::kb_vector_store::KbVectorStore;
-use crate::services::kb_search::{self, KbSearchConfig};
+use crate::services::kb_search::KbSearchConfig;
 use crate::services::rag_context;
 
 type Pool = sqlx::SqlitePool;
@@ -540,6 +540,73 @@ pub(crate) async fn agent_loop(
         None
     };
 
+    // Build query processing config for KB search (if KB attached)
+    let kb_query_config: Option<crate::services::query_processor::QueryProcessingConfig> = if kb_id.is_some() {
+        let (qr, qd, qv) = if let Some(ref kb_id_val) = kb_id {
+            let row = sqlx::query("SELECT query_rewriting_enabled, query_decomposition_enabled, query_max_variants, reranker_type, reranker_overfetch_factor FROM knowledge_bases WHERE id = ?")
+                .bind(kb_id_val)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten();
+            match row {
+                Some(r) => {
+                    use sqlx::Row;
+                    (
+                        r.try_get::<bool, _>("query_rewriting_enabled").unwrap_or(true),
+                        r.try_get::<bool, _>("query_decomposition_enabled").unwrap_or(false),
+                        r.try_get::<i64, _>("query_max_variants").unwrap_or(3),
+                    )
+                }
+                None => (true, false, 3),
+            }
+        } else {
+            (true, false, 3)
+        };
+        Some(crate::commands::knowledge_base::build_query_config_from_kb(
+            qr, qd, qv,
+            Some(model.clone()),
+            Some(api_key.clone()),
+            base_url.clone(),
+        ))
+    } else {
+        None
+    };
+
+    // Build reranker config for KB search (if KB attached)
+    let kb_reranker_config: Option<crate::services::kb_search_orchestrator::RerankerConfig> = if kb_id.is_some() {
+        let (rt, rof) = if let Some(ref kb_id_val) = kb_id {
+            let row = sqlx::query("SELECT reranker_type, reranker_overfetch_factor FROM knowledge_bases WHERE id = ?")
+                .bind(kb_id_val)
+                .fetch_optional(&pool)
+                .await
+                .ok()
+                .flatten();
+            match row {
+                Some(r) => {
+                    use sqlx::Row;
+                    (
+                        r.try_get::<String, _>("reranker_type").unwrap_or("none".to_string()),
+                        r.try_get::<i64, _>("reranker_overfetch_factor").unwrap_or(4),
+                    )
+                }
+                None => ("none".to_string(), 4),
+            }
+        } else {
+            ("none".to_string(), 4)
+        };
+        let (ck, jk) = {
+            use tauri_plugin_store::StoreExt;
+            let store_settings = app.store("settings.json").ok();
+            let ck = store_settings.as_ref().and_then(|s| s.get("rerankerCohereKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
+            let jk = store_settings.as_ref().and_then(|s| s.get("rerankerJinaKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
+            (ck, jk)
+        };
+        Some(crate::commands::knowledge_base::build_reranker_config_from_kb(&rt, rof, &ck, &jk))
+    } else {
+        None
+    };
+
     // Inject RAG system instruction into system prompt if KB attached
     let system_prompt = if let Some(ref kb_id_val) = kb_id {
         let kb_row = sqlx::query("SELECT system_prompt FROM knowledge_bases WHERE id = ?")
@@ -720,7 +787,7 @@ pub(crate) async fn agent_loop(
         });
 
         // Build messages from DB
-        let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, scope_agent_run_id.as_deref(), project_id.as_deref(), kb_id.as_deref(), kb_store.as_ref().as_ref(), kb_provider.as_deref()).await {
+        let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, scope_agent_run_id.as_deref(), project_id.as_deref(), kb_id.as_deref(), kb_store.as_ref().as_ref(), kb_provider.as_deref(), &client, kb_query_config.as_ref(), kb_reranker_config.as_ref()).await {
             Ok(m) => m,
             Err(e) => {
                 let _ = app.emit("agent-stream-error", StreamErrorPayload { error: e.clone() });
@@ -919,7 +986,7 @@ pub(crate) async fn agent_loop(
                         handle_web_search_tool(&app, &tool_call.name, &args, &web_search_provider, ws_tavily_key.as_deref(), ws_brave_key.as_deref()).await
                     } else if tool_call.name == "kb_search" {
                         if let Some(ref kb_id_val) = kb_id {
-                            handle_kb_search_tool(&pool, kb_store.as_ref().as_ref(), kb_id_val, &args, kb_provider.as_deref()).await
+                            handle_kb_search_tool(&pool, kb_store.as_ref().as_ref(), kb_id_val, &args, kb_provider.as_deref(), &client, kb_query_config.as_ref(), kb_reranker_config.as_ref()).await
                         } else {
                             ("Knowledge base not attached to this chat.".to_string(), true)
                         }
@@ -1079,6 +1146,58 @@ async fn agent_loop_resume(
         None
     };
 
+    // Build query processing config for KB search (will be populated after api_key is resolved)
+    // Placeholder — actual config built after credentials are available (line ~1160)
+    let kb_query_config_fields: Option<(bool, bool, i64)> = if let Some(ref kb_id_val) = kb_id {
+        let row = sqlx::query("SELECT query_rewriting_enabled, query_decomposition_enabled, query_max_variants FROM knowledge_bases WHERE id = ?")
+            .bind(kb_id_val)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+        match row {
+            Some(r) => {
+                use sqlx::Row;
+                Some((
+                    r.try_get::<bool, _>("query_rewriting_enabled").unwrap_or(true),
+                    r.try_get::<bool, _>("query_decomposition_enabled").unwrap_or(false),
+                    r.try_get::<i64, _>("query_max_variants").unwrap_or(3),
+                ))
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+
+    // Build reranker config for KB search (if KB attached)
+    let kb_reranker_config: Option<crate::services::kb_search_orchestrator::RerankerConfig> = if let Some(ref kb_id_val) = kb_id {
+        let row = sqlx::query("SELECT reranker_type, reranker_overfetch_factor FROM knowledge_bases WHERE id = ?")
+            .bind(kb_id_val)
+            .fetch_optional(&pool)
+            .await
+            .ok()
+            .flatten();
+        match row {
+            Some(r) => {
+                use sqlx::Row;
+                let rt: String = r.try_get("reranker_type").unwrap_or("none".to_string());
+                let rof: i64 = r.try_get("reranker_overfetch_factor").unwrap_or(4);
+                let (ck, jk) = {
+                    use tauri_plugin_store::StoreExt;
+                    let store_settings = app.store("settings.json").ok();
+                    let ck = store_settings.as_ref().and_then(|s| s.get("rerankerCohereKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
+                    let jk = store_settings.as_ref().and_then(|s| s.get("rerankerJinaKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
+                    (ck, jk)
+                };
+                Some(crate::commands::knowledge_base::build_reranker_config_from_kb(&rt, rof, &ck, &jk))
+            }
+            None => None,
+        }
+    } else {
+        None
+    };
+
     // Read web search settings from store
     let (web_search_enabled, web_search_provider, ws_tavily_key, ws_brave_key) = {
         use tauri_plugin_store::StoreExt;
@@ -1132,6 +1251,17 @@ async fn agent_loop_resume(
             return;
         }
     };
+
+    // Build query processing config now that api_key is available
+    let kb_query_config: Option<crate::services::query_processor::QueryProcessingConfig> =
+        kb_query_config_fields.map(|(qr, qd, qv)| {
+            crate::commands::knowledge_base::build_query_config_from_kb(
+                qr, qd, qv,
+                Some(model.clone()),
+                Some(api_key.clone()),
+                base_url.clone(),
+            )
+        });
 
     let base = base_url
         .filter(|s| !s.is_empty())
@@ -1239,7 +1369,7 @@ async fn agent_loop_resume(
         iteration,
     });
 
-    let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, None, project_id.as_deref(), kb_id.as_deref(), kb_store.as_ref().as_ref(), kb_provider.as_deref()).await {
+    let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, None, project_id.as_deref(), kb_id.as_deref(), kb_store.as_ref().as_ref(), kb_provider.as_deref(), &client, kb_query_config.as_ref(), kb_reranker_config.as_ref()).await {
         Ok(m) => m,
         Err(e) => {
             finish_run(&app, &pool, &run_id, "failed", iteration, Some(e)).await;
@@ -1399,7 +1529,7 @@ async fn agent_loop_resume(
                     handle_web_search_tool(&app, &tool_call.name, &args, &web_search_provider, ws_tavily_key.as_deref(), ws_brave_key.as_deref()).await
                 } else if tool_call.name == "kb_search" {
                     if let Some(ref kb_id_val) = kb_id {
-                        handle_kb_search_tool(&pool, kb_store.as_ref().as_ref(), kb_id_val, &args, kb_provider.as_deref()).await
+                        handle_kb_search_tool(&pool, kb_store.as_ref().as_ref(), kb_id_val, &args, kb_provider.as_deref(), &client, kb_query_config.as_ref(), kb_reranker_config.as_ref()).await
                     } else {
                         ("Knowledge base not attached to this chat.".to_string(), true)
                     }
@@ -1489,6 +1619,9 @@ async fn build_agent_messages(
     kb_id: Option<&str>,
     kb_vector_store: Option<&KbVectorStore>,
     kb_provider: Option<&dyn crate::services::embedding_provider::EmbeddingProvider>,
+    http_client: &reqwest::Client,
+    kb_query_config: Option<&crate::services::query_processor::QueryProcessingConfig>,
+    kb_reranker_config: Option<&crate::services::kb_search_orchestrator::RerankerConfig>,
 ) -> Result<Vec<serde_json::Value>, String> {
     // When scoped to a specific agent_run, only load pre-plan messages + this run's messages
     // (used for parallel plan task execution to isolate message contexts)
@@ -1633,7 +1766,9 @@ async fn build_agent_messages(
     if let (Some(kb_id_val), Some(store)) = (kb_id, kb_vector_store) {
         let last_user_text = raw.iter().rev().find(|(r, _)| r == "user").map(|(_, c)| c.as_str()).unwrap_or("");
         if !last_user_text.is_empty() {
-            let kb_row = sqlx::query("SELECT name, retrieval_top_k, retrieval_min_score FROM knowledge_bases WHERE id = ?")
+            let kb_row = sqlx::query("SELECT name, retrieval_top_k, retrieval_min_score, \
+                 context_token_budget, context_sentence_extraction, context_redundancy_removal \
+                 FROM knowledge_bases WHERE id = ?")
                 .bind(kb_id_val)
                 .fetch_optional(pool)
                 .await
@@ -1649,10 +1784,30 @@ async fn build_agent_messages(
                     ..Default::default()
                 };
                 let provider_ref = kb_provider.unwrap_or(&crate::services::embedding_local::LocalOnnxProvider);
-                if let Ok(results) = kb_search::search_kb(pool, store, kb_id_val, last_user_text, &config, provider_ref).await {
-                    if !results.is_empty() {
-                        let kb_context = rag_context::build_rag_context(&results, &kb_name);
+                let default_qc = crate::services::query_processor::QueryProcessingConfig::default();
+                let qc = kb_query_config.unwrap_or(&default_qc);
+                let default_rc = crate::services::kb_search_orchestrator::RerankerConfig::default();
+                let rc = kb_reranker_config.unwrap_or(&default_rc);
+                if let Ok(orchestrated) = crate::services::kb_search_orchestrator::search_kb_orchestrated(
+                    pool, store, kb_id_val, last_user_text, &config, qc, rc, http_client, provider_ref,
+                ).await {
+                    if !orchestrated.results.is_empty() {
+                        let mut query_trace = orchestrated.query_trace;
+                        let ctx_budget: i64 = row.try_get("context_token_budget").unwrap_or(4000);
+                        let ctx_sentence: bool = row.try_get::<bool, _>("context_sentence_extraction").unwrap_or(true);
+                        let ctx_redundancy: bool = row.try_get::<bool, _>("context_redundancy_removal").unwrap_or(true);
+                        let opt_config = crate::commands::knowledge_base::build_optimization_config_from_kb(
+                            ctx_budget, ctx_sentence, ctx_redundancy,
+                        );
+                        let (optimized, opt_trace) = crate::services::context_optimizer::optimize_context(
+                            last_user_text, &orchestrated.results, &opt_config,
+                        );
+                        query_trace.optimization = Some(opt_trace);
+                        let kb_context = rag_context::build_rag_context_optimized(&optimized, &kb_name);
                         messages.push(serde_json::json!({"role": "system", "content": kb_context}));
+
+                        // Note: trace is captured in query_trace but not stored on agent messages
+                        // since assistant_msg_id is not available in build_agent_messages context
                     }
                 }
             }
@@ -2178,6 +2333,9 @@ async fn handle_kb_search_tool(
     kb_id: &str,
     args: &serde_json::Value,
     kb_provider: Option<&dyn crate::services::embedding_provider::EmbeddingProvider>,
+    http_client: &reqwest::Client,
+    query_config: Option<&crate::services::query_processor::QueryProcessingConfig>,
+    reranker_config: Option<&crate::services::kb_search_orchestrator::RerankerConfig>,
 ) -> (String, bool) {
     let query = match args.get("query").and_then(|v| v.as_str()) {
         Some(q) if !q.is_empty() => q,
@@ -2206,8 +2364,17 @@ async fn handle_kb_search_tool(
     };
 
     let provider_ref: &dyn crate::services::embedding_provider::EmbeddingProvider = kb_provider.unwrap_or(&crate::services::embedding_local::LocalOnnxProvider);
-    match kb_search::search_kb(pool, store, kb_id, query, &config, provider_ref).await {
-        Ok(results) => {
+
+    let default_qc = crate::services::query_processor::QueryProcessingConfig::default();
+    let qc = query_config.unwrap_or(&default_qc);
+    let default_rc = crate::services::kb_search_orchestrator::RerankerConfig::default();
+    let rc = reranker_config.unwrap_or(&default_rc);
+
+    match crate::services::kb_search_orchestrator::search_kb_orchestrated(
+        pool, store, kb_id, query, &config, qc, rc, http_client, provider_ref,
+    ).await {
+        Ok(orchestrated) => {
+            let results = orchestrated.results;
             if results.is_empty() {
                 ("No relevant information found in the knowledge base.".to_string(), false)
             } else {

@@ -17,6 +17,7 @@ import type {
     ContentBlock,
     ModeSettingRow,
     ModeStateMap,
+    RagMode,
     ToolCallInfo,
 } from "../../types";
 import { resolveProvider, _initModeState, _initActiveMode } from "../helpers";
@@ -29,6 +30,7 @@ export interface UiSlice {
     modeState: ModeStateMap;
     modeSettings: ModeSettingRow[];
     telegramStatus: { running: boolean; botUsername: string | null; authorizedUser: string | null };
+    ragMode: RagMode;
 
     // Comparison state
     comparisons: Comparison[];
@@ -64,6 +66,9 @@ export interface UiSlice {
     sendComparisonMessage: (content: string) => Promise<void>;
     stopComparisonGeneration: () => Promise<void>;
 
+    // Actions — RAG Mode
+    setRagMode: (mode: RagMode) => void;
+
     // Actions — Telegram
     startTelegramBot: () => Promise<void>;
     stopTelegramBot: () => Promise<void>;
@@ -84,6 +89,7 @@ export const createUiSlice = (set: Set, get: Get): UiSlice => ({
     modeState: _initModeState,
     modeSettings: [],
     telegramStatus: { running: false, botUsername: null, authorizedUser: null },
+    ragMode: "auto" as RagMode,
 
     comparisons: [],
     activeComparisonId: _initModeState[_initActiveMode]?.activeComparisonId ?? null,
@@ -96,6 +102,7 @@ export const createUiSlice = (set: Set, get: Get): UiSlice => ({
     // ── View & Navigation ─────────────────────────────────
 
     setView: (view) => set({ currentView: view }),
+    setRagMode: (mode) => set({ ragMode: mode }),
 
     openProjectDashboard: (projectId: string) => set({ activeProjectId: projectId, currentView: "projectDashboard" }),
 

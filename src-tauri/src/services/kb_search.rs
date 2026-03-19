@@ -32,7 +32,7 @@ impl Default for KbSearchConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KbSearchResultItem {
     pub chunk_id: String,
@@ -77,13 +77,29 @@ pub async fn search_kb(
         return Ok(Vec::new());
     }
 
+    let query_embedding = provider.embed_query(query).await?;
+    search_kb_with_embedding(pool, kb_vector_store, kb_id, &query_embedding, query, config).await
+}
+
+/// Search with a pre-computed query embedding (used by orchestrator for multi-variant search)
+pub async fn search_kb_with_embedding(
+    pool: &SqlitePool,
+    kb_vector_store: &KbVectorStore,
+    kb_id: &str,
+    query_embedding: &[f32],
+    query_text: &str,
+    config: &KbSearchConfig,
+) -> Result<Vec<KbSearchResultItem>, String> {
+    if query_text.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
     let over_fetch = config.top_k * 2;
 
-    // 1. Semantic search via provider (handles prefixes internally)
+    // 1. Semantic search with provided embedding
     let semantic_results: HashMap<String, (f64, String, i32)> = {
-        let query_embedding = provider.embed_query(query).await?;
         let results = kb_vector_store
-            .search(kb_id, &query_embedding, over_fetch, 0.0)
+            .search(kb_id, query_embedding, over_fetch, 0.0)
             .await
             .map_err(|e| e.to_string())?;
         let mut map = HashMap::new();
@@ -101,7 +117,7 @@ pub async fn search_kb(
     };
 
     // 2. FTS search
-    let fts_results = kb_fts::search_kb_fts(pool, kb_id, query, over_fetch).await.unwrap_or_default();
+    let fts_results = kb_fts::search_kb_fts(pool, kb_id, query_text, over_fetch).await.unwrap_or_default();
     let fts_scores = normalize_fts_ranks(&fts_results);
     let fts_by_id: HashMap<String, f64> = fts_scores.into_iter().collect();
 

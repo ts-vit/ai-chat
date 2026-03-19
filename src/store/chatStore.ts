@@ -75,6 +75,8 @@ export interface ChatState {
     revokeTelegramUser: () => Promise<void>;
     validateTelegramToken: (token: string) => Promise<{ username: string; firstName: string }>;
 
+    ragMode: import("../types").RagMode;
+    setRagMode: (mode: import("../types").RagMode) => void;
     currentView: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases";
     setView: (view: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases") => void;
     openProjectDashboard: (projectId: string) => void;

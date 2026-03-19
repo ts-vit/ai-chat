@@ -150,7 +150,7 @@ use services::vector_store::VectorStore;
 use services::memory_vector_store::MemoryVectorStore;
 use services::kb_vector_store::KbVectorStore;
 
-const DB_MIGRATIONS: &[&str] = &[
+pub(crate) const DB_MIGRATIONS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS chats (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -477,6 +477,77 @@ const DB_MIGRATIONS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb_id ON kb_chunks(kb_id)",
 ];
 
+pub(crate) const ALTER_QUERIES: &[&str] = &[
+    "ALTER TABLE messages ADD COLUMN model TEXT DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
+    "ALTER TABLE messages ADD COLUMN completion_tokens INTEGER DEFAULT 0",
+    "ALTER TABLE messages ADD COLUMN cost REAL DEFAULT 0.0",
+    "ALTER TABLE chats ADD COLUMN system_prompt TEXT DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chats ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'openrouter'",
+    "ALTER TABLE chats ADD COLUMN model TEXT DEFAULT ''",
+    "ALTER TABLE messages ADD COLUMN fts_indexed INTEGER DEFAULT 0",
+    "ALTER TABLE chats ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL",
+    "ALTER TABLE chats ADD COLUMN is_image_model INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chats ADD COLUMN temperature REAL",
+    "ALTER TABLE chats ADD COLUMN max_tokens INTEGER",
+    "ALTER TABLE chats ADD COLUMN top_p REAL",
+    "ALTER TABLE chats ADD COLUMN top_k INTEGER",
+    "ALTER TABLE chats ADD COLUMN frequency_penalty REAL",
+    "ALTER TABLE chats ADD COLUMN presence_penalty REAL",
+    "ALTER TABLE messages ADD COLUMN web_sources TEXT DEFAULT NULL",
+    "ALTER TABLE snippets ADD COLUMN show_on_welcome INTEGER DEFAULT 0",
+    "ALTER TABLE comparison_messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE custom_providers ADD COLUMN api_key TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE chats ADD COLUMN image_size TEXT",
+    "ALTER TABLE chats ADD COLUMN image_quality TEXT",
+    "ALTER TABLE chats ADD COLUMN image_style TEXT",
+    "ALTER TABLE chats ADD COLUMN image_n INTEGER",
+    "ALTER TABLE chats ADD COLUMN negative_prompt TEXT",
+    "ALTER TABLE chats ADD COLUMN active_child_map TEXT DEFAULT '{}'",
+    "ALTER TABLE chats ADD COLUMN branch_migrated INTEGER DEFAULT 0",
+    "ALTER TABLE mcp_servers ADD COLUMN server_type TEXT DEFAULT 'stdio'",
+    "ALTER TABLE mcp_servers ADD COLUMN config TEXT DEFAULT '{}'",
+    "ALTER TABLE chats ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'",
+    "ALTER TABLE folders ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'",
+    "ALTER TABLE chats ADD COLUMN agent_max_iterations INTEGER NOT NULL DEFAULT 25",
+    "ALTER TABLE chats ADD COLUMN agent_auto_mode INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE messages ADD COLUMN agent_step INTEGER",
+    "ALTER TABLE messages ADD COLUMN agent_run_id TEXT",
+    "ALTER TABLE chats ADD COLUMN auto_skill_detection INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE agent_plans ADD COLUMN replan_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE agent_runs ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
+    "ALTER TABLE agent_runs ADD COLUMN completion_tokens INTEGER DEFAULT 0",
+    "ALTER TABLE agent_runs ADD COLUMN cost REAL DEFAULT 0.0",
+    "ALTER TABLE agent_runs ADD COLUMN assigned_model TEXT",
+    "ALTER TABLE agent_tasks ADD COLUMN category TEXT",
+    "ALTER TABLE agent_tasks ADD COLUMN assigned_model TEXT",
+    "ALTER TABLE agent_runs ADD COLUMN parent_run_id TEXT",
+    "ALTER TABLE agent_runs ADD COLUMN orchestrator_chat_id TEXT",
+    "ALTER TABLE agent_runs ADD COLUMN spawn_config TEXT",
+    "ALTER TABLE agent_runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chats ADD COLUMN project_id TEXT",
+    "ALTER TABLE agent_memory ADD COLUMN project_id TEXT",
+    "ALTER TABLE agent_plans ADD COLUMN project_id TEXT",
+    "ALTER TABLE chats ADD COLUMN is_telegram_chat INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE chats ADD COLUMN scheduled_task_id TEXT",
+    // KB RAG migrations
+    "ALTER TABLE chats ADD COLUMN kb_id TEXT",
+    "ALTER TABLE messages ADD COLUMN rag_sources TEXT",
+    "ALTER TABLE knowledge_bases ADD COLUMN embedding_dimensions INTEGER NOT NULL DEFAULT 384",
+    "ALTER TABLE knowledge_bases ADD COLUMN min_chunk_size INTEGER NOT NULL DEFAULT 50",
+    "ALTER TABLE knowledge_bases ADD COLUMN query_rewriting_enabled INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE knowledge_bases ADD COLUMN query_decomposition_enabled INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE knowledge_bases ADD COLUMN query_max_variants INTEGER NOT NULL DEFAULT 3",
+    // KB Reranking migrations
+    "ALTER TABLE knowledge_bases ADD COLUMN reranker_type TEXT NOT NULL DEFAULT 'none'",
+    "ALTER TABLE knowledge_bases ADD COLUMN reranker_overfetch_factor INTEGER NOT NULL DEFAULT 4",
+    // KB Context Optimization migrations
+    "ALTER TABLE knowledge_bases ADD COLUMN context_token_budget INTEGER NOT NULL DEFAULT 4000",
+    "ALTER TABLE knowledge_bases ADD COLUMN context_sentence_extraction INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE knowledge_bases ADD COLUMN context_redundancy_removal INTEGER NOT NULL DEFAULT 1",
+];
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::Builder::from_env(
@@ -513,62 +584,7 @@ pub fn run() {
                 tauri::async_runtime::block_on(sqlx::query(*sql).execute(&pool))
                     .map_err(|e| e.to_string())?;
             }
-            let alter_queries = [
-                "ALTER TABLE messages ADD COLUMN model TEXT DEFAULT ''",
-                "ALTER TABLE messages ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
-                "ALTER TABLE messages ADD COLUMN completion_tokens INTEGER DEFAULT 0",
-                "ALTER TABLE messages ADD COLUMN cost REAL DEFAULT 0.0",
-                "ALTER TABLE chats ADD COLUMN system_prompt TEXT DEFAULT ''",
-                "ALTER TABLE messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE chats ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'openrouter'",
-                "ALTER TABLE chats ADD COLUMN model TEXT DEFAULT ''",
-                "ALTER TABLE messages ADD COLUMN fts_indexed INTEGER DEFAULT 0",
-                "ALTER TABLE chats ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL",
-                "ALTER TABLE chats ADD COLUMN is_image_model INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE chats ADD COLUMN temperature REAL",
-                "ALTER TABLE chats ADD COLUMN max_tokens INTEGER",
-                "ALTER TABLE chats ADD COLUMN top_p REAL",
-                "ALTER TABLE chats ADD COLUMN top_k INTEGER",
-                "ALTER TABLE chats ADD COLUMN frequency_penalty REAL",
-                "ALTER TABLE chats ADD COLUMN presence_penalty REAL",
-                "ALTER TABLE messages ADD COLUMN web_sources TEXT DEFAULT NULL",
-                "ALTER TABLE snippets ADD COLUMN show_on_welcome INTEGER DEFAULT 0",
-                "ALTER TABLE comparison_messages ADD COLUMN has_attachments INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE custom_providers ADD COLUMN api_key TEXT NOT NULL DEFAULT ''",
-                "ALTER TABLE chats ADD COLUMN image_size TEXT",
-                "ALTER TABLE chats ADD COLUMN image_quality TEXT",
-                "ALTER TABLE chats ADD COLUMN image_style TEXT",
-                "ALTER TABLE chats ADD COLUMN image_n INTEGER",
-                "ALTER TABLE chats ADD COLUMN negative_prompt TEXT",
-                "ALTER TABLE chats ADD COLUMN active_child_map TEXT DEFAULT '{}'",
-                "ALTER TABLE chats ADD COLUMN branch_migrated INTEGER DEFAULT 0",
-                "ALTER TABLE mcp_servers ADD COLUMN server_type TEXT DEFAULT 'stdio'",
-                "ALTER TABLE mcp_servers ADD COLUMN config TEXT DEFAULT '{}'",
-                "ALTER TABLE chats ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'",
-                "ALTER TABLE folders ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'",
-                "ALTER TABLE chats ADD COLUMN agent_max_iterations INTEGER NOT NULL DEFAULT 25",
-                "ALTER TABLE chats ADD COLUMN agent_auto_mode INTEGER NOT NULL DEFAULT 1",
-                "ALTER TABLE messages ADD COLUMN agent_step INTEGER",
-                "ALTER TABLE messages ADD COLUMN agent_run_id TEXT",
-                "ALTER TABLE chats ADD COLUMN auto_skill_detection INTEGER NOT NULL DEFAULT 1",
-                "ALTER TABLE agent_plans ADD COLUMN replan_count INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE agent_runs ADD COLUMN prompt_tokens INTEGER DEFAULT 0",
-                "ALTER TABLE agent_runs ADD COLUMN completion_tokens INTEGER DEFAULT 0",
-                "ALTER TABLE agent_runs ADD COLUMN cost REAL DEFAULT 0.0",
-                "ALTER TABLE agent_runs ADD COLUMN assigned_model TEXT",
-                "ALTER TABLE agent_tasks ADD COLUMN category TEXT",
-                "ALTER TABLE agent_tasks ADD COLUMN assigned_model TEXT",
-                "ALTER TABLE agent_runs ADD COLUMN parent_run_id TEXT",
-                "ALTER TABLE agent_runs ADD COLUMN orchestrator_chat_id TEXT",
-                "ALTER TABLE agent_runs ADD COLUMN spawn_config TEXT",
-                "ALTER TABLE agent_runs ADD COLUMN depth INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE chats ADD COLUMN project_id TEXT",
-                "ALTER TABLE agent_memory ADD COLUMN project_id TEXT",
-                "ALTER TABLE agent_plans ADD COLUMN project_id TEXT",
-                "ALTER TABLE chats ADD COLUMN is_telegram_chat INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE chats ADD COLUMN scheduled_task_id TEXT",
-            ];
-            for sql in alter_queries {
+            for sql in ALTER_QUERIES {
                 let _ = tauri::async_runtime::block_on(sqlx::query(sql).execute(&pool));
             }
 
@@ -960,6 +976,27 @@ pub fn run() {
             );
             let _ = tauri::async_runtime::block_on(
                 sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN embedding_dimensions INTEGER NOT NULL DEFAULT 384").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN min_chunk_size INTEGER NOT NULL DEFAULT 50").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN query_rewriting_enabled INTEGER NOT NULL DEFAULT 1").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN query_decomposition_enabled INTEGER NOT NULL DEFAULT 0").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN query_max_variants INTEGER NOT NULL DEFAULT 3").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN context_token_budget INTEGER NOT NULL DEFAULT 4000").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN context_sentence_extraction INTEGER NOT NULL DEFAULT 1").execute(&pool)
+            );
+            let _ = tauri::async_runtime::block_on(
+                sqlx::query("ALTER TABLE knowledge_bases ADD COLUMN context_redundancy_removal INTEGER NOT NULL DEFAULT 1").execute(&pool)
             );
 
             let mcp_manager = Arc::new(McpManager::new());
@@ -1408,3 +1445,8 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod test_db;
+#[cfg(test)]
+mod tests;

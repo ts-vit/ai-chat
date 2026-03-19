@@ -9,6 +9,7 @@ import type {
     MessageWithSiblings,
     ModeStateMap,
     RagSource,
+    RagTrace,
     WebSource,
 } from "../types";
 
@@ -122,11 +123,19 @@ export function stripMarkdownForTts(content: string): string {
 
 // ── Message mappers ─────────────────────────────────────────
 
-export function parseRagSources(raw: string | undefined | null): RagSource[] | undefined {
+export function parseRagData(raw: string | undefined | null): { sources?: RagSource[]; trace?: RagTrace } | undefined {
     if (!raw) return undefined;
     try {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed as RagSource[];
+        // Old format: plain array of sources
+        if (Array.isArray(parsed)) {
+            return parsed.length > 0 ? { sources: parsed as RagSource[] } : undefined;
+        }
+        // New format: { sources: [...], trace: {...} }
+        if (parsed && parsed.sources) {
+            const sources = parsed.sources.length > 0 ? (parsed.sources as RagSource[]) : undefined;
+            return sources ? { sources, trace: parsed.trace as RagTrace | undefined } : undefined;
+        }
     } catch { /* ignore */ }
     return undefined;
 }
@@ -141,6 +150,7 @@ export function parseWebSources(raw: string | undefined | null): WebSource[] | u
 }
 
 export function dbMessageToMessage(m: DbMessageResponse): Message {
+    const ragData = parseRagData(m.ragSources);
     return {
         id: m.id,
         role: m.role as Message["role"],
@@ -153,7 +163,8 @@ export function dbMessageToMessage(m: DbMessageResponse): Message {
         cost: m.cost,
         hasAttachments: m.has_attachments ? true : undefined,
         webSources: parseWebSources(m.webSources),
-        ragSources: parseRagSources(m.ragSources),
+        ragSources: ragData?.sources,
+        ragTrace: ragData?.trace,
         agentStep: m.agentStep,
         agentRunId: m.agentRunId,
     };

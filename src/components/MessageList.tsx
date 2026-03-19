@@ -15,9 +15,13 @@ import { formatRelativeTime } from "../utils/formatDate";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { WebSourcesBlock } from "./WebSourcesBlock";
 import { RagSourcesBlock } from "./RagSourcesBlock";
-import type { AgentTask, ContentBlock, ContentBlockText, MessageWithSiblings, WebSource } from "../types";
+import { RagDebugPanel } from "./RagDebugPanel";
+import type { AgentTask, ContentBlock, ContentBlockText, MessageWithSiblings, RagSource, WebSource } from "../types";
+import { tryParseContentBlocks } from "../utils/contentParsing";
+import { extractCitationIndices } from "../utils/citationParser";
 
 const SOURCE_LINK_PREFIX = "__source__";
+const KB_SOURCE_LINK_PREFIX = "__kbsource__";
 
 const COMPACT_BUILTIN_TOOLS = new Set([
     'web_search', 'web_read',
@@ -112,10 +116,11 @@ function formatMessageCost(cost: number): string {
 }
 
 /** Replace [N], [N,M], [Source N] with markdown links that we intercept in custom `a` component. Only in non-code segments. */
-function replaceSourceRefsInMarkdown(content: string, sourceCount: number): string {
+function replaceSourceRefsInMarkdown(content: string, sourceCount: number, prefix: string = SOURCE_LINK_PREFIX): string {
     if (sourceCount <= 0) return content;
     const parts = content.split("```");
     const out: string[] = [];
+    const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     for (let i = 0; i < parts.length; i++) {
         if (i % 2 === 1) {
             out.push(parts[i]);
@@ -130,19 +135,20 @@ function replaceSourceRefsInMarkdown(content: string, sourceCount: number): stri
                 .map((s) => parseInt(s.trim(), 10));
             return numbers
                 .map((num) =>
-                    num >= 1 && num <= sourceCount ? `[${num}](${SOURCE_LINK_PREFIX}${num}__)` : `[${num}]`
+                    num >= 1 && num <= sourceCount ? `[${num}](${prefix}${num}__)` : `[${num}]`
                 )
                 .join(" ");
         });
-        // [N] — single (avoid matching [N] that is already part of [N](__source__N__))
-        text = text.replace(/\[(\d+)\](?!\(__source__\1__\))/g, (_, n) => {
+        // [N] — single (avoid matching [N] that is already part of [N](PREFIX_N__))
+        const singleRe = new RegExp(`\\[(\\d+)\\](?!\\(${escapedPrefix}\\1__\\))`, "g");
+        text = text.replace(singleRe, (_, n) => {
             const num = parseInt(n, 10);
-            return num >= 1 && num <= sourceCount ? `[${num}](${SOURCE_LINK_PREFIX}${num}__)` : `[${n}]`;
+            return num >= 1 && num <= sourceCount ? `[${num}](${prefix}${num}__)` : `[${n}]`;
         });
         // [Source N] — fallback
         text = text.replace(/\[Source\s+(\d+)\]/gi, (match, n) => {
             const num = parseInt(n, 10);
-            return num >= 1 && num <= sourceCount ? `[${num}](${SOURCE_LINK_PREFIX}${num}__)` : match;
+            return num >= 1 && num <= sourceCount ? `[${num}](${prefix}${num}__)` : match;
         });
         out.push(text);
     }
@@ -182,24 +188,47 @@ function SourceRefBadge({
     );
 }
 
-function tryParseContentBlocks(content: string | null | undefined): ContentBlock[] | null {
-    if (!content) return null;
-    const trimmed = content.trimStart();
-    if (!trimmed.startsWith("[")) return null;
-    try {
-        const parsed = JSON.parse(content) as unknown;
-        if (!Array.isArray(parsed)) return null;
-        const valid = parsed.every(
-            (b: unknown) =>
-                typeof b === "object" &&
-                b !== null &&
-                typeof (b as ContentBlock).type === "string"
-        );
-        return valid ? (parsed as ContentBlock[]) : null;
-    } catch {
-        return null;
-    }
+function RagSourceRefBadge({
+    n,
+    sources,
+}: {
+    n: number;
+    sources: RagSource[];
+}) {
+    const source = sources.find(s => s.index === n);
+    if (!source) return <>{n}</>;
+    const handleClick = () => {
+        document.dispatchEvent(new CustomEvent("expand-rag-sources", { detail: { index: n } }));
+        setTimeout(() => {
+            document.getElementById(`rag-source-${n}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 100);
+    };
+    return (
+        <Tooltip
+            label={`${source.documentName}: ${source.content.slice(0, 120)}${source.content.length > 120 ? "..." : ""}`}
+            withArrow
+            multiline
+            maw={350}
+        >
+            <span
+                className="source-reference source-reference--kb"
+                role="button"
+                tabIndex={0}
+                onClick={handleClick}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        handleClick();
+                    }
+                }}
+                title={source.documentName}
+            >
+                {n}
+            </span>
+        </Tooltip>
+    );
 }
+
 
 function CodeBlock({
     children,
@@ -334,7 +363,7 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
     };
 
     const renderUserMessageBody = useCallback(
-        (content: string, webSources?: WebSource[]) => {
+        (content: string, webSources?: WebSource[], ragSources?: RagSource[]) => {
             const blocks = tryParseContentBlocks(content);
             if (!blocks || blocks.length === 0) {
                 return (
@@ -351,7 +380,9 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
             }
             const sep = appDataDirPath?.includes("\\") ? "\\" : "/";
             const base = appDataDirPath?.replace(/[/\\]+$/, "") ?? "";
-            const hasSourceRefs = webSources && webSources.length > 0;
+            const useRag = ragSources && ragSources.length > 0;
+            const useWeb = !useRag && webSources && webSources.length > 0;
+            const hasSourceRefs = useRag || useWeb;
             return (
                 <Box>
                     {blocks.map((block) => {
@@ -411,10 +442,11 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                             );
                         }
                         if (block.type === "text") {
-                            const textContent =
-                                hasSourceRefs && webSources
-                                    ? replaceSourceRefsInMarkdown(block.text, webSources.length)
-                                    : block.text;
+                            const textContent = useRag && ragSources
+                                ? replaceSourceRefsInMarkdown(block.text, ragSources.length, KB_SOURCE_LINK_PREFIX)
+                                : useWeb && webSources
+                                ? replaceSourceRefsInMarkdown(block.text, webSources.length)
+                                : block.text;
                             return (
                                 <Box
                                     key={`text-${block.text.slice(0, 32)}`}
@@ -428,14 +460,25 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                             pre: ({ children, ...props }) => (
                                                 <CodeBlock {...props}>{children}</CodeBlock>
                                             ),
-                                            ...(hasSourceRefs && webSources
+                                            ...(hasSourceRefs
                                                 ? {
                                                       a: ({
                                                           href,
                                                           children,
                                                           ...anchorProps
                                                       }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
-                                                          if (href?.startsWith(SOURCE_LINK_PREFIX)) {
+                                                          if (useRag && ragSources && href?.startsWith(KB_SOURCE_LINK_PREFIX)) {
+                                                              const numStr = href
+                                                                  .slice(KB_SOURCE_LINK_PREFIX.length)
+                                                                  .replace(/__$/, "");
+                                                              const n = parseInt(numStr, 10);
+                                                              if (!Number.isNaN(n)) {
+                                                                  return (
+                                                                      <RagSourceRefBadge n={n} sources={ragSources} />
+                                                                  );
+                                                              }
+                                                          }
+                                                          if (useWeb && webSources && href?.startsWith(SOURCE_LINK_PREFIX)) {
                                                               const numStr = href
                                                                   .slice(SOURCE_LINK_PREFIX.length)
                                                                   .replace(/__$/, "");
@@ -741,7 +784,7 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                 ) : msg.role === "user" ? (
                                     renderUserMessageBody(msg.content)
                                 ) : msg.role === "assistant" && tryParseContentBlocks(msg.content) ? (
-                                    renderUserMessageBody(msg.content, msg.webSources)
+                                    renderUserMessageBody(msg.content, msg.webSources, msg.ragSources)
                                 ) : isStreaming &&
                                   index === messages.length - 1 &&
                                   !(msg.content ?? "").trim() &&
@@ -757,63 +800,84 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                         <span className="typing-indicator-dot" />
                                     </Box>
                                 ) : (
-                                    <Box
-                                        className="markdown-body"
-                                        style={{ fontSize: settings.font_size ?? 14 }}
-                                    >
-                                        <ReactMarkdown
-                                            remarkPlugins={[remarkGfm]}
-                                            rehypePlugins={[rehypeHighlight]}
-                                            components={{
-                                                pre: ({ children, ...props }) => (
-                                                    <CodeBlock {...props}>
-                                                        {children}
-                                                    </CodeBlock>
-                                                ),
-                                                ...(msg.webSources && msg.webSources.length > 0
-                                                    ? {
-                                                          a: ({
-                                                              href,
-                                                              children,
-                                                              ...anchorProps
-                                                          }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
-                                                              if (href?.startsWith(SOURCE_LINK_PREFIX)) {
-                                                                  const numStr = href
-                                                                      .slice(SOURCE_LINK_PREFIX.length)
-                                                                      .replace(/__$/, "");
-                                                                  const n = parseInt(numStr, 10);
-                                                                  if (
-                                                                      !Number.isNaN(n) &&
-                                                                      n >= 1 &&
-                                                                      n <= msg.webSources!.length
-                                                                  ) {
+                                    (() => {
+                                        const msgContent = msg.content || (isStreaming && index === messages.length - 1 ? "▍" : "");
+                                        const useRagDirect = msg.ragSources && msg.ragSources.length > 0;
+                                        const useWebDirect = !useRagDirect && msg.webSources && msg.webSources.length > 0;
+                                        const hasRefs = useRagDirect || useWebDirect;
+                                        const renderedContent = useRagDirect
+                                            ? replaceSourceRefsInMarkdown(msgContent, msg.ragSources!.length, KB_SOURCE_LINK_PREFIX)
+                                            : useWebDirect
+                                            ? replaceSourceRefsInMarkdown(msgContent, msg.webSources!.length)
+                                            : msgContent;
+                                        return (
+                                            <Box
+                                                className="markdown-body"
+                                                style={{ fontSize: settings.font_size ?? 14 }}
+                                            >
+                                                <ReactMarkdown
+                                                    remarkPlugins={[remarkGfm]}
+                                                    rehypePlugins={[rehypeHighlight]}
+                                                    components={{
+                                                        pre: ({ children, ...props }) => (
+                                                            <CodeBlock {...props}>
+                                                                {children}
+                                                            </CodeBlock>
+                                                        ),
+                                                        ...(hasRefs
+                                                            ? {
+                                                                  a: ({
+                                                                      href,
+                                                                      children,
+                                                                      ...anchorProps
+                                                                  }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+                                                                      if (useRagDirect && msg.ragSources && href?.startsWith(KB_SOURCE_LINK_PREFIX)) {
+                                                                          const numStr = href
+                                                                              .slice(KB_SOURCE_LINK_PREFIX.length)
+                                                                              .replace(/__$/, "");
+                                                                          const n = parseInt(numStr, 10);
+                                                                          if (!Number.isNaN(n)) {
+                                                                              return (
+                                                                                  <RagSourceRefBadge
+                                                                                      n={n}
+                                                                                      sources={msg.ragSources}
+                                                                                  />
+                                                                              );
+                                                                          }
+                                                                      }
+                                                                      if (useWebDirect && msg.webSources && href?.startsWith(SOURCE_LINK_PREFIX)) {
+                                                                          const numStr = href
+                                                                              .slice(SOURCE_LINK_PREFIX.length)
+                                                                              .replace(/__$/, "");
+                                                                          const n = parseInt(numStr, 10);
+                                                                          if (
+                                                                              !Number.isNaN(n) &&
+                                                                              n >= 1 &&
+                                                                              n <= msg.webSources.length
+                                                                          ) {
+                                                                              return (
+                                                                                  <SourceRefBadge
+                                                                                      n={n}
+                                                                                      sources={msg.webSources}
+                                                                                  />
+                                                                              );
+                                                                          }
+                                                                      }
                                                                       return (
-                                                                          <SourceRefBadge
-                                                                              n={n}
-                                                                              sources={msg.webSources!}
-                                                                          />
+                                                                          <a href={href} {...anchorProps}>
+                                                                              {children}
+                                                                          </a>
                                                                       );
-                                                                  }
+                                                                  },
                                                               }
-                                                              return (
-                                                                  <a href={href} {...anchorProps}>
-                                                                      {children}
-                                                                  </a>
-                                                              );
-                                                          },
-                                                      }
-                                                    : {}),
-                                            }}
-                                        >
-                                            {msg.webSources && msg.webSources.length > 0
-                                                ? replaceSourceRefsInMarkdown(
-                                                      msg.content ||
-                                                          (isStreaming && index === messages.length - 1 ? "▍" : ""),
-                                                      msg.webSources.length
-                                                  )
-                                                : msg.content || (isStreaming && index === messages.length - 1 ? "▍" : "")}
-                                        </ReactMarkdown>
-                                    </Box>
+                                                            : {}),
+                                                    }}
+                                                >
+                                                    {renderedContent}
+                                                </ReactMarkdown>
+                                            </Box>
+                                        );
+                                    })()
                                 )}
                                 {isStreaming && index === messages.length - 1 && activeToolCalls.length > 0 && (
                                     <ToolCallBlock toolCalls={activeToolCalls} />
@@ -822,7 +886,10 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                     <WebSourcesBlock sources={msg.webSources} />
                                 )}
                                 {msg.role === "assistant" && msg.ragSources && msg.ragSources.length > 0 && (
-                                    <RagSourcesBlock sources={msg.ragSources} />
+                                    <RagSourcesBlock sources={msg.ragSources} citedIndices={new Set(extractCitationIndices(msg.content))} />
+                                )}
+                                {msg.role === "assistant" && msg.ragTrace && (
+                                    <RagDebugPanel trace={msg.ragTrace} sourcesCount={msg.ragSources?.length ?? 0} messageContent={msg.content} />
                                 )}
                             </Paper>
                         )}

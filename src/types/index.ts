@@ -30,6 +30,7 @@ export interface Message {
     agentStep?: number;
     agentRunId?: string;
     ragSources?: RagSource[];
+    ragTrace?: RagTrace;
 }
 
 // Превью соседней ветки
@@ -228,6 +229,8 @@ export interface AppSettings {
     telegramModel?: string;
     embeddingOpenaiKey?: string;
     embeddingGeminiKey?: string;
+    rerankerCohereKey?: string;
+    rerankerJinaKey?: string;
 }
 
 export interface TelegramStatus {
@@ -748,8 +751,17 @@ export interface KnowledgeBase {
     chunkingStrategy: string;
     chunkSize: number;
     chunkOverlap: number;
+    minChunkSize: number;
     retrievalTopK: number;
     retrievalMinScore: number;
+    queryRewritingEnabled: boolean;
+    queryDecompositionEnabled: boolean;
+    queryMaxVariants: number;
+    rerankerType: string;
+    rerankerOverfetchFactor: number;
+    contextTokenBudget: number;
+    contextSentenceExtraction: boolean;
+    contextRedundancyRemoval: boolean;
     systemPrompt: string;
     version: number;
     status: string;
@@ -796,9 +808,31 @@ export interface KbSearchResultItem {
 }
 
 export interface RagSource {
+    index: number;
     documentId: string;
     documentName: string;
     chunkIndex: number;
     content: string;
     score: number;
 }
+
+export interface RagTrace {
+    originalQuery: string;
+    variantsUsed: string[];
+    subQuestions: string[];
+    totalCandidates: number;
+    afterDedup: number;
+    rerankerUsed: string | null;
+    rerankCandidates: number;
+    finalCount: number;
+    optimization?: {
+        originalTokens: number;
+        afterSentenceExtraction: number;
+        afterRedundancyRemoval: number;
+        finalTokens: number;
+        chunksBefore: number;
+        chunksAfter: number;
+    };
+}
+
+export type RagMode = "auto" | "kb_only" | "model_only";

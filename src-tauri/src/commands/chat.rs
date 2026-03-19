@@ -17,7 +17,7 @@ use crate::services::http_client::build_http_client;
 use crate::services::mcp_manager::McpManager;
 use crate::services::retry::{retry_http_request, RetryResult};
 use crate::services::kb_vector_store::KbVectorStore;
-use crate::services::kb_search::{self, KbSearchConfig};
+use crate::services::kb_search::KbSearchConfig;
 use crate::services::rag_context;
 
 pub(crate) const MAX_TOOL_ITERATIONS: usize = 10;
@@ -238,6 +238,7 @@ pub async fn send_message(
     image_style: Option<String>,
     image_n: Option<u32>,
     negative_prompt: Option<String>,
+    rag_mode: Option<String>,
 ) -> Result<(), String> {
     if messages.is_empty() {
         return Err("Messages list is empty".to_string());
@@ -280,7 +281,8 @@ pub async fn send_message(
     let mut messages = maybe_flatten_system(messages, &model);
 
     // RAG: retrieve KB context if chat has an attached knowledge base
-    let rag_sources_json: Option<String> = if !chat_id.is_empty() {
+    let rag_mode_str = rag_mode.as_deref().unwrap_or("auto");
+    let rag_sources_json: Option<String> = if !chat_id.is_empty() && rag_mode_str != "model_only" {
         let kb_id: Option<String> = sqlx::query_scalar("SELECT kb_id FROM chats WHERE id = ?")
             .bind(&chat_id)
             .fetch_optional(pool.inner())
@@ -291,7 +293,11 @@ pub async fn send_message(
         if let (Some(ref kb_id_val), Some(store)) = (&kb_id, kb_vector_store.as_ref().as_ref()) {
             // Load KB settings
             let kb_row = sqlx::query(
-                "SELECT name, embedding_model, retrieval_top_k, retrieval_min_score, system_prompt \
+                "SELECT name, embedding_model, retrieval_top_k, retrieval_min_score, \
+                 query_rewriting_enabled, query_decomposition_enabled, query_max_variants, \
+                 reranker_type, reranker_overfetch_factor, \
+                 context_token_budget, context_sentence_extraction, context_redundancy_removal, \
+                 system_prompt \
                  FROM knowledge_bases WHERE id = ?",
             )
             .bind(kb_id_val)
@@ -320,7 +326,7 @@ pub async fn send_message(
                     };
 
                     // Build embedding provider for KB search
-                    let api_key = {
+                    let api_key_emb = {
                         use tauri_plugin_store::StoreExt;
                         let store_settings = app.store("settings.json").ok();
                         store_settings.and_then(|s| {
@@ -331,20 +337,66 @@ pub async fn send_message(
                             }
                         })
                     };
-                    let http_client = if embedding_model != "e5-small" {
-                        Some(crate::services::http_client::build_http_client(&app, None).await?)
+                    let http_client_for_kb = crate::services::http_client::build_http_client(&app, None).await?;
+                    let emb_http_client = if embedding_model != "e5-small" {
+                        Some(http_client_for_kb.clone())
                     } else {
                         None
                     };
                     let provider = crate::services::embedding_provider::create_embedding_provider(
-                        &embedding_model, api_key.as_deref(), http_client,
+                        &embedding_model, api_key_emb.as_deref(), emb_http_client,
                     )?;
 
-                    match kb_search::search_kb(pool.inner(), store, kb_id_val, &user_query, &config, provider.as_ref()).await {
-                        Ok(results) if !results.is_empty() => {
-                            // Build RAG context
-                            let rag_ctx = rag_context::build_rag_context(&results, &kb_name);
-                            let rag_instruction = rag_context::build_rag_system_instruction(&kb_system_prompt);
+                    // Build query processing config from KB settings + chat LLM credentials
+                    let kb_qr: bool = kb_row.try_get("query_rewriting_enabled").unwrap_or(true);
+                    let kb_qd: bool = kb_row.try_get("query_decomposition_enabled").unwrap_or(false);
+                    let kb_qv: i64 = kb_row.try_get("query_max_variants").unwrap_or(3);
+                    let query_config = crate::commands::knowledge_base::build_query_config_from_kb(
+                        kb_qr, kb_qd, kb_qv,
+                        Some(model.clone()),
+                        Some(api_key.clone()),
+                        base_url.clone(),
+                    );
+
+                    // Build reranker config from KB settings + app-level API keys
+                    let kb_rt: String = kb_row.try_get("reranker_type").unwrap_or("none".to_string());
+                    let kb_rof: i64 = kb_row.try_get("reranker_overfetch_factor").unwrap_or(4);
+                    let (reranker_cohere_key, reranker_jina_key) = {
+                        use tauri_plugin_store::StoreExt;
+                        let store_settings = app.store("settings.json").ok();
+                        let ck = store_settings.as_ref().and_then(|s| s.get("rerankerCohereKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
+                        let jk = store_settings.as_ref().and_then(|s| s.get("rerankerJinaKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
+                        (ck, jk)
+                    };
+                    let reranker_config = crate::commands::knowledge_base::build_reranker_config_from_kb(
+                        &kb_rt, kb_rof, &reranker_cohere_key, &reranker_jina_key,
+                    );
+
+                    match crate::services::kb_search_orchestrator::search_kb_orchestrated(
+                        pool.inner(), store, kb_id_val, &user_query, &config,
+                        &query_config, &reranker_config, &http_client_for_kb, provider.as_ref(),
+                    ).await {
+                        Ok(orchestrated) if !orchestrated.results.is_empty() => {
+                            let results = orchestrated.results;
+                            let mut query_trace = orchestrated.query_trace;
+
+                            // Context optimization
+                            let ctx_budget: i64 = kb_row.try_get("context_token_budget").unwrap_or(4000);
+                            let ctx_sentence: bool = kb_row.try_get::<bool, _>("context_sentence_extraction").unwrap_or(true);
+                            let ctx_redundancy: bool = kb_row.try_get::<bool, _>("context_redundancy_removal").unwrap_or(true);
+                            let opt_config = crate::commands::knowledge_base::build_optimization_config_from_kb(
+                                ctx_budget, ctx_sentence, ctx_redundancy,
+                            );
+                            let (optimized, opt_trace) = crate::services::context_optimizer::optimize_context(
+                                &user_query, &results, &opt_config,
+                            );
+
+                            // Merge optimization trace into query trace
+                            query_trace.optimization = Some(opt_trace);
+
+                            // Build RAG context from optimized chunks
+                            let rag_ctx = rag_context::build_rag_context_optimized(&optimized, &kb_name);
+                            let rag_instruction = rag_context::build_rag_system_instruction_with_mode(&kb_system_prompt, rag_mode_str);
 
                             // Prepend RAG instruction to system prompt (first message if system)
                             if let Some(first) = messages.first_mut() {
@@ -367,21 +419,26 @@ pub async fn send_message(
                                 });
                             }
 
-                            // Serialize sources for the assistant message
-                            let sources: Vec<serde_json::Value> = results.iter().map(|r| {
+                            // Serialize sources with trace envelope
+                            let sources: Vec<serde_json::Value> = optimized.iter().enumerate().map(|(i, r)| {
                                 serde_json::json!({
+                                    "index": i + 1,
                                     "documentId": r.document_id,
                                     "documentName": r.document_name,
                                     "chunkIndex": r.chunk_index,
-                                    "content": if r.content.len() > 200 {
-                                        format!("{}...", &r.content.chars().take(200).collect::<String>())
+                                    "content": if r.original_content.len() > 200 {
+                                        format!("{}...", &r.original_content.chars().take(200).collect::<String>())
                                     } else {
-                                        r.content.clone()
+                                        r.original_content.clone()
                                     },
                                     "score": r.score
                                 })
                             }).collect();
-                            Some(serde_json::to_string(&sources).unwrap_or_default())
+                            let rag_data = serde_json::json!({
+                                "sources": sources,
+                                "trace": serde_json::to_value(&query_trace).unwrap_or_default(),
+                            });
+                            Some(serde_json::to_string(&rag_data).unwrap_or_default())
                         }
                         _ => None,
                     }

@@ -26,7 +26,8 @@ import { appDataDir } from "@tauri-apps/api/path";
 import { useChatStore } from "../store/chatStore";
 import { CreateComparisonModal } from "./CreateComparisonModal";
 import { MessageInput } from "./MessageInput";
-import type { Comparison, ComparisonMessage, ContentBlock } from "../types";
+import type { Comparison, ComparisonMessage } from "../types";
+import { tryParseContentBlocks } from "../utils/contentParsing";
 import { ToolCallBlock } from "./ToolCallBlock";
 
 function formatTokens(n: number): string {
@@ -98,21 +99,6 @@ function buildRounds(messages: ComparisonMessage[]): Round[] {
     return rounds;
 }
 
-function tryParseContentBlocks(content: string): ContentBlock[] | null {
-    const trimmed = content.trimStart();
-    if (!trimmed.startsWith("[")) return null;
-    try {
-        const parsed = JSON.parse(content) as unknown;
-        if (!Array.isArray(parsed)) return null;
-        const valid = parsed.every(
-            (b: unknown) =>
-                typeof b === "object" && b !== null && typeof (b as ContentBlock).type === "string"
-        );
-        return valid ? (parsed as ContentBlock[]) : null;
-    } catch {
-        return null;
-    }
-}
 
 function AssistantBubble({
     content,

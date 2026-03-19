@@ -108,6 +108,8 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
     const chatKbId = useChatStore((s) => s.chatKbId);
     const attachKbToChat = useChatStore((s) => s.attachKbToChat);
     const detachKbFromChat = useChatStore((s) => s.detachKbFromChat);
+    const ragMode = useChatStore((s) => s.ragMode);
+    const setRagMode = useChatStore((s) => s.setRagMode);
 
     const enabledSkills = useMemo(() => skills.filter((s) => s.enabled), [skills]);
     const activeChatSkills = chatSkills;
@@ -869,6 +871,30 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                                             {kb.name}
                                         </Menu.Item>
                                     ))}
+                                    {chatKbId && (
+                                        <>
+                                            <Menu.Divider />
+                                            <Menu.Label>{t("kb.ragMode")}</Menu.Label>
+                                            <Menu.Item
+                                                onClick={() => setRagMode("auto")}
+                                                rightSection={ragMode === "auto" ? <IconCheck size={14} color="var(--mantine-color-brand-5)" /> : null}
+                                            >
+                                                {t("kb.ragModeAuto")}
+                                            </Menu.Item>
+                                            <Menu.Item
+                                                onClick={() => setRagMode("kb_only")}
+                                                rightSection={ragMode === "kb_only" ? <IconCheck size={14} color="var(--mantine-color-brand-5)" /> : null}
+                                            >
+                                                {t("kb.ragModeKbOnly")}
+                                            </Menu.Item>
+                                            <Menu.Item
+                                                onClick={() => setRagMode("model_only")}
+                                                rightSection={ragMode === "model_only" ? <IconCheck size={14} color="var(--mantine-color-brand-5)" /> : null}
+                                            >
+                                                {t("kb.ragModeModelOnly")}
+                                            </Menu.Item>
+                                        </>
+                                    )}
                                 </Menu.Dropdown>
                             </Menu>
                         )}

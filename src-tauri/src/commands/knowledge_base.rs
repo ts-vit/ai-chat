@@ -40,15 +40,32 @@ fn get_kb_documents_dir(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn detect_mime_type(extension: &str) -> &'static str {
     match extension.to_lowercase().as_str() {
-        "txt" => "text/plain",
-        "md" | "markdown" => "text/markdown",
+        "txt" | "log" | "cfg" | "ini" => "text/plain",
+        "md" | "markdown" | "mdx" => "text/markdown",
         "html" | "htm" => "text/html",
         "pdf" => "application/pdf",
         "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "json" => "application/json",
         "csv" => "text/csv",
-        "xml" => "application/xml",
+        "xml" | "xhtml" => "application/xml",
         "rst" => "text/x-rst",
+        "yaml" | "yml" | "toml" => "text/plain",
+        "rs" => "text/x-rust",
+        "py" => "text/x-python",
+        "ts" | "tsx" => "text/x-typescript",
+        "js" | "jsx" => "application/javascript",
+        "go" => "text/x-go",
+        "java" => "text/x-java",
+        "c" | "h" => "text/x-c",
+        "cpp" | "hpp" => "text/x-c++",
+        "cs" => "text/x-csharp",
+        "rb" => "text/x-ruby",
+        "php" => "text/x-php",
+        "swift" => "text/x-swift",
+        "kt" => "text/x-kotlin",
+        "sh" | "bash" | "zsh" => "text/x-shellscript",
+        "lua" => "text/x-lua",
+        "scala" => "text/x-scala",
         _ => "text/plain",
     }
 }
@@ -63,8 +80,17 @@ fn map_kb_row(row: sqlx::sqlite::SqliteRow) -> KnowledgeBase {
         chunking_strategy: row.get("chunking_strategy"),
         chunk_size: row.get("chunk_size"),
         chunk_overlap: row.get("chunk_overlap"),
+        min_chunk_size: row.try_get("min_chunk_size").unwrap_or(50),
         retrieval_top_k: row.get("retrieval_top_k"),
         retrieval_min_score: row.get("retrieval_min_score"),
+        query_rewriting_enabled: row.try_get::<bool, _>("query_rewriting_enabled").unwrap_or(true),
+        query_decomposition_enabled: row.try_get::<bool, _>("query_decomposition_enabled").unwrap_or(false),
+        query_max_variants: row.try_get("query_max_variants").unwrap_or(3),
+        reranker_type: row.try_get("reranker_type").unwrap_or("none".to_string()),
+        reranker_overfetch_factor: row.try_get("reranker_overfetch_factor").unwrap_or(4),
+        context_token_budget: row.try_get("context_token_budget").unwrap_or(4000),
+        context_sentence_extraction: row.try_get::<bool, _>("context_sentence_extraction").unwrap_or(true),
+        context_redundancy_removal: row.try_get::<bool, _>("context_redundancy_removal").unwrap_or(true),
         system_prompt: row.get("system_prompt"),
         version: row.get("version"),
         status: row.get("status"),
@@ -100,7 +126,9 @@ fn map_doc_row(row: sqlx::sqlite::SqliteRow) -> KbDocument {
 pub async fn list_knowledge_bases(pool: State<'_, Pool>) -> Result<Vec<KnowledgeBase>, String> {
     let rows = sqlx::query(
         "SELECT id, name, description, embedding_model, embedding_dimensions, chunking_strategy, chunk_size, chunk_overlap, \
-         retrieval_top_k, retrieval_min_score, system_prompt, version, status, document_count, \
+         min_chunk_size, retrieval_top_k, retrieval_min_score, reranker_type, reranker_overfetch_factor, \
+         context_token_budget, context_sentence_extraction, context_redundancy_removal, \
+         system_prompt, version, status, document_count, \
          total_chunks, created_at, updated_at FROM knowledge_bases ORDER BY created_at DESC",
     )
     .fetch_all(pool.inner())
@@ -114,7 +142,9 @@ pub async fn list_knowledge_bases(pool: State<'_, Pool>) -> Result<Vec<Knowledge
 pub async fn get_knowledge_base(pool: State<'_, Pool>, id: String) -> Result<KnowledgeBase, String> {
     let row = sqlx::query(
         "SELECT id, name, description, embedding_model, embedding_dimensions, chunking_strategy, chunk_size, chunk_overlap, \
-         retrieval_top_k, retrieval_min_score, system_prompt, version, status, document_count, \
+         min_chunk_size, retrieval_top_k, retrieval_min_score, reranker_type, reranker_overfetch_factor, \
+         context_token_budget, context_sentence_extraction, context_redundancy_removal, \
+         system_prompt, version, status, document_count, \
          total_chunks, created_at, updated_at FROM knowledge_bases WHERE id = ?",
     )
     .bind(&id)
@@ -139,9 +169,9 @@ pub async fn create_knowledge_base(
 
     sqlx::query(
         "INSERT INTO knowledge_bases (id, name, description, embedding_model, embedding_dimensions, \
-         chunking_strategy, chunk_size, chunk_overlap, retrieval_top_k, retrieval_min_score, \
+         chunking_strategy, chunk_size, chunk_overlap, min_chunk_size, retrieval_top_k, retrieval_min_score, \
          system_prompt, version, status, document_count, total_chunks, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, 'tokens', 512, 50, 5, 0.7, '', 1, 'active', 0, 0, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, 'auto', 512, 50, 50, 5, 0.7, '', 1, 'active', 0, 0, ?, ?)",
     )
     .bind(&id)
     .bind(&name)
@@ -160,11 +190,20 @@ pub async fn create_knowledge_base(
         description,
         embedding_model: emb_model,
         embedding_dimensions: emb_dims,
-        chunking_strategy: "tokens".to_string(),
+        chunking_strategy: "auto".to_string(),
         chunk_size: 512,
         chunk_overlap: 50,
+        min_chunk_size: 50,
         retrieval_top_k: 5,
         retrieval_min_score: 0.7,
+        query_rewriting_enabled: true,
+        query_decomposition_enabled: false,
+        query_max_variants: 3,
+        reranker_type: "none".to_string(),
+        reranker_overfetch_factor: 4,
+        context_token_budget: 4000,
+        context_sentence_extraction: true,
+        context_redundancy_removal: true,
         system_prompt: String::new(),
         version: 1,
         status: "active".to_string(),
@@ -186,16 +225,37 @@ pub async fn update_knowledge_base(
     chunking_strategy: String,
     chunk_size: i64,
     chunk_overlap: i64,
+    min_chunk_size: Option<i64>,
     retrieval_top_k: i64,
     retrieval_min_score: f64,
+    query_rewriting_enabled: Option<bool>,
+    query_decomposition_enabled: Option<bool>,
+    query_max_variants: Option<i64>,
+    reranker_type: Option<String>,
+    reranker_overfetch_factor: Option<i64>,
+    context_token_budget: Option<i64>,
+    context_sentence_extraction: Option<bool>,
+    context_redundancy_removal: Option<bool>,
     system_prompt: String,
 ) -> Result<(), String> {
     let now = unix_now()?;
+    let min_cs = min_chunk_size.unwrap_or(50);
+    let qr_enabled = query_rewriting_enabled.unwrap_or(true);
+    let qd_enabled = query_decomposition_enabled.unwrap_or(false);
+    let q_max = query_max_variants.unwrap_or(3);
+    let r_type = reranker_type.unwrap_or_else(|| "none".to_string());
+    let r_overfetch = reranker_overfetch_factor.unwrap_or(4);
+    let ctx_budget = context_token_budget.unwrap_or(4000);
+    let ctx_sentence = context_sentence_extraction.unwrap_or(true);
+    let ctx_redundancy = context_redundancy_removal.unwrap_or(true);
 
     sqlx::query(
         "UPDATE knowledge_bases SET name = ?, description = ?, embedding_model = COALESCE(?, embedding_model), \
          embedding_dimensions = COALESCE(?, embedding_dimensions), chunking_strategy = ?, \
-         chunk_size = ?, chunk_overlap = ?, retrieval_top_k = ?, retrieval_min_score = ?, \
+         chunk_size = ?, chunk_overlap = ?, min_chunk_size = ?, retrieval_top_k = ?, retrieval_min_score = ?, \
+         query_rewriting_enabled = ?, query_decomposition_enabled = ?, query_max_variants = ?, \
+         reranker_type = ?, reranker_overfetch_factor = ?, \
+         context_token_budget = ?, context_sentence_extraction = ?, context_redundancy_removal = ?, \
          system_prompt = ?, updated_at = ? WHERE id = ?",
     )
     .bind(&name)
@@ -205,8 +265,17 @@ pub async fn update_knowledge_base(
     .bind(&chunking_strategy)
     .bind(chunk_size)
     .bind(chunk_overlap)
+    .bind(min_cs)
     .bind(retrieval_top_k)
     .bind(retrieval_min_score)
+    .bind(qr_enabled)
+    .bind(qd_enabled)
+    .bind(q_max)
+    .bind(&r_type)
+    .bind(r_overfetch)
+    .bind(ctx_budget)
+    .bind(ctx_sentence)
+    .bind(ctx_redundancy)
     .bind(&system_prompt)
     .bind(now)
     .bind(&id)
@@ -848,7 +917,8 @@ pub async fn get_chat_kb(
     let row = sqlx::query(
         "SELECT kb.id, kb.name, kb.description, kb.embedding_model, kb.embedding_dimensions, \
          kb.chunking_strategy, kb.chunk_size, kb.chunk_overlap, kb.retrieval_top_k, \
-         kb.retrieval_min_score, kb.system_prompt, kb.version, kb.status, kb.document_count, \
+         kb.retrieval_min_score, kb.reranker_type, kb.reranker_overfetch_factor, \
+         kb.system_prompt, kb.version, kb.status, kb.document_count, \
          kb.total_chunks, kb.created_at, kb.updated_at \
          FROM knowledge_bases kb JOIN chats c ON c.kb_id = kb.id WHERE c.id = ?",
     )
@@ -881,10 +951,36 @@ struct KbManifestKb {
     chunking_strategy: String,
     chunk_size: i64,
     chunk_overlap: i64,
+    #[serde(default = "default_min_chunk_size")]
+    min_chunk_size: i64,
     retrieval_top_k: i64,
     retrieval_min_score: f64,
+    #[serde(default = "default_query_rewriting_enabled")]
+    query_rewriting_enabled: bool,
+    #[serde(default)]
+    query_decomposition_enabled: bool,
+    #[serde(default = "default_query_max_variants")]
+    query_max_variants: i64,
+    #[serde(default = "default_reranker_type")]
+    reranker_type: String,
+    #[serde(default = "default_reranker_overfetch_factor")]
+    reranker_overfetch_factor: i64,
+    #[serde(default = "default_context_token_budget")]
+    context_token_budget: i64,
+    #[serde(default = "default_true")]
+    context_sentence_extraction: bool,
+    #[serde(default = "default_true")]
+    context_redundancy_removal: bool,
     version: i64,
 }
+
+fn default_min_chunk_size() -> i64 { 50 }
+fn default_query_rewriting_enabled() -> bool { true }
+fn default_query_max_variants() -> i64 { 3 }
+fn default_reranker_type() -> String { "none".to_string() }
+fn default_reranker_overfetch_factor() -> i64 { 4 }
+fn default_context_token_budget() -> i64 { 4000 }
+fn default_true() -> bool { true }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct KbManifestDoc {
@@ -992,8 +1088,17 @@ pub async fn export_knowledge_base(
             chunking_strategy: kb.chunking_strategy.clone(),
             chunk_size: kb.chunk_size,
             chunk_overlap: kb.chunk_overlap,
+            min_chunk_size: kb.min_chunk_size,
             retrieval_top_k: kb.retrieval_top_k,
             retrieval_min_score: kb.retrieval_min_score,
+            query_rewriting_enabled: kb.query_rewriting_enabled,
+            query_decomposition_enabled: kb.query_decomposition_enabled,
+            query_max_variants: kb.query_max_variants,
+            reranker_type: kb.reranker_type.clone(),
+            reranker_overfetch_factor: kb.reranker_overfetch_factor,
+            context_token_budget: kb.context_token_budget,
+            context_sentence_extraction: kb.context_sentence_extraction,
+            context_redundancy_removal: kb.context_redundancy_removal,
             version: kb.version,
         },
         documents: manifest_docs,
@@ -1076,9 +1181,12 @@ pub async fn import_knowledge_base(
 
     sqlx::query(
         "INSERT INTO knowledge_bases (id, name, description, embedding_model, chunking_strategy, \
-         chunk_size, chunk_overlap, retrieval_top_k, retrieval_min_score, system_prompt, version, \
-         status, document_count, total_chunks, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', 0, 0, ?, ?)",
+         chunk_size, chunk_overlap, min_chunk_size, retrieval_top_k, retrieval_min_score, \
+         query_rewriting_enabled, query_decomposition_enabled, query_max_variants, \
+         reranker_type, reranker_overfetch_factor, \
+         context_token_budget, context_sentence_extraction, context_redundancy_removal, \
+         system_prompt, version, status, document_count, total_chunks, created_at, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active', 0, 0, ?, ?)",
     )
     .bind(&new_kb_id)
     .bind(&mkb.name)
@@ -1087,8 +1195,17 @@ pub async fn import_knowledge_base(
     .bind(&mkb.chunking_strategy)
     .bind(mkb.chunk_size)
     .bind(mkb.chunk_overlap)
+    .bind(mkb.min_chunk_size)
     .bind(mkb.retrieval_top_k)
     .bind(mkb.retrieval_min_score)
+    .bind(mkb.query_rewriting_enabled)
+    .bind(mkb.query_decomposition_enabled)
+    .bind(mkb.query_max_variants)
+    .bind(&mkb.reranker_type)
+    .bind(mkb.reranker_overfetch_factor)
+    .bind(mkb.context_token_budget)
+    .bind(mkb.context_sentence_extraction)
+    .bind(mkb.context_redundancy_removal)
     .bind(&system_prompt)
     .bind(now)
     .bind(now)
@@ -1169,8 +1286,17 @@ pub async fn import_knowledge_base(
         chunking_strategy: mkb.chunking_strategy.clone(),
         chunk_size: mkb.chunk_size,
         chunk_overlap: mkb.chunk_overlap,
+        min_chunk_size: mkb.min_chunk_size,
         retrieval_top_k: mkb.retrieval_top_k,
         retrieval_min_score: mkb.retrieval_min_score,
+        query_rewriting_enabled: mkb.query_rewriting_enabled,
+        query_decomposition_enabled: mkb.query_decomposition_enabled,
+        query_max_variants: mkb.query_max_variants,
+        reranker_type: mkb.reranker_type.clone(),
+        reranker_overfetch_factor: mkb.reranker_overfetch_factor,
+        context_token_budget: mkb.context_token_budget,
+        context_sentence_extraction: mkb.context_sentence_extraction,
+        context_redundancy_removal: mkb.context_redundancy_removal,
         system_prompt,
         version: 1,
         status: "active".to_string(),
@@ -1220,7 +1346,9 @@ async fn build_provider_for_kb(
 async fn fetch_kb(pool: &Pool, kb_id: &str) -> Result<KnowledgeBase, String> {
     let row = sqlx::query(
         "SELECT id, name, description, embedding_model, embedding_dimensions, chunking_strategy, chunk_size, chunk_overlap, \
-         retrieval_top_k, retrieval_min_score, system_prompt, version, status, document_count, \
+         min_chunk_size, retrieval_top_k, retrieval_min_score, reranker_type, reranker_overfetch_factor, \
+         context_token_budget, context_sentence_extraction, context_redundancy_removal, \
+         system_prompt, version, status, document_count, \
          total_chunks, created_at, updated_at FROM knowledge_bases WHERE id = ?",
     )
     .bind(kb_id)
@@ -1241,4 +1369,64 @@ async fn fetch_doc(pool: &Pool, doc_id: &str) -> Result<KbDocument, String> {
     .await
     .map_err(|e| e.to_string())?;
     Ok(map_doc_row(row))
+}
+
+pub fn build_reranker_config_from_kb(
+    reranker_type_str: &str,
+    overfetch_factor: i64,
+    cohere_key: &Option<String>,
+    jina_key: &Option<String>,
+) -> crate::services::kb_search_orchestrator::RerankerConfig {
+    use crate::services::reranker_provider::RerankerType;
+
+    let reranker_type = match reranker_type_str {
+        "cohere" => RerankerType::Cohere,
+        "jina" => RerankerType::Jina,
+        _ => RerankerType::None,
+    };
+
+    let api_key = match &reranker_type {
+        RerankerType::Cohere => cohere_key.clone(),
+        RerankerType::Jina => jina_key.clone(),
+        RerankerType::None => None,
+    };
+
+    crate::services::kb_search_orchestrator::RerankerConfig {
+        enabled: reranker_type != RerankerType::None && api_key.is_some(),
+        reranker_type,
+        api_key,
+        overfetch_factor: overfetch_factor.max(2) as usize,
+    }
+}
+
+pub fn build_optimization_config_from_kb(
+    token_budget: i64,
+    sentence_extraction: bool,
+    redundancy_removal: bool,
+) -> crate::services::context_optimizer::ContextOptimizationConfig {
+    crate::services::context_optimizer::ContextOptimizationConfig {
+        enabled: token_budget > 0 || sentence_extraction || redundancy_removal,
+        token_budget: token_budget.max(0) as usize,
+        sentence_extraction,
+        redundancy_removal,
+        ..Default::default()
+    }
+}
+
+pub fn build_query_config_from_kb(
+    kb_rewriting: bool,
+    kb_decomposition: bool,
+    kb_max_variants: i64,
+    model: Option<String>,
+    api_key: Option<String>,
+    base_url: Option<String>,
+) -> crate::services::query_processor::QueryProcessingConfig {
+    crate::services::query_processor::QueryProcessingConfig {
+        multi_query_enabled: kb_rewriting,
+        decomposition_enabled: kb_decomposition,
+        max_variants: kb_max_variants.max(1) as usize,
+        model,
+        api_key,
+        base_url,
+    }
 }

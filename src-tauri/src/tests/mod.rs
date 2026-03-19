@@ -1,0 +1,11 @@
+mod migration_tests;
+mod chat_tests;
+mod message_tests;
+mod cascade_tests;
+mod project_tests;
+mod workspace_tests;
+mod plan_tests;
+mod memory_tests;
+mod skill_tests;
+mod kb_tests;
+mod misc_tests;

@@ -14,6 +14,7 @@ import {
     Select,
     Slider,
     Stack,
+    Switch,
     Text,
     Textarea,
     TextInput,
@@ -103,10 +104,19 @@ export function KnowledgeBasesPage() {
     const [editChunkingStrategy, setEditChunkingStrategy] = useState("tokens");
     const [editChunkSize, setEditChunkSize] = useState(512);
     const [editChunkOverlap, setEditChunkOverlap] = useState(50);
+    const [editMinChunkSize, setEditMinChunkSize] = useState(50);
     const [editTopK, setEditTopK] = useState(5);
     const [editMinScore, setEditMinScore] = useState(0.7);
     const [editSystemPrompt, setEditSystemPrompt] = useState("");
     const [editEmbeddingModel, setEditEmbeddingModel] = useState("e5-small");
+    const [editQueryRewriting, setEditQueryRewriting] = useState(true);
+    const [editQueryDecomposition, setEditQueryDecomposition] = useState(false);
+    const [editQueryMaxVariants, setEditQueryMaxVariants] = useState(3);
+    const [editRerankerType, setEditRerankerType] = useState("none");
+    const [editRerankerOverfetchFactor, setEditRerankerOverfetchFactor] = useState(4);
+    const [editContextTokenBudget, setEditContextTokenBudget] = useState(4000);
+    const [editContextSentenceExtraction, setEditContextSentenceExtraction] = useState(true);
+    const [editContextRedundancyRemoval, setEditContextRedundancyRemoval] = useState(true);
     const [dirty, setDirty] = useState(false);
 
     useEffect(() => {
@@ -127,8 +137,17 @@ export function KnowledgeBasesPage() {
             setEditChunkingStrategy(activeKb.chunkingStrategy);
             setEditChunkSize(activeKb.chunkSize);
             setEditChunkOverlap(activeKb.chunkOverlap);
+            setEditMinChunkSize(activeKb.minChunkSize ?? 50);
             setEditTopK(activeKb.retrievalTopK);
             setEditMinScore(activeKb.retrievalMinScore);
+            setEditQueryRewriting(activeKb.queryRewritingEnabled ?? true);
+            setEditQueryDecomposition(activeKb.queryDecompositionEnabled ?? false);
+            setEditQueryMaxVariants(activeKb.queryMaxVariants ?? 3);
+            setEditRerankerType(activeKb.rerankerType ?? "none");
+            setEditRerankerOverfetchFactor(activeKb.rerankerOverfetchFactor ?? 4);
+            setEditContextTokenBudget(activeKb.contextTokenBudget ?? 4000);
+            setEditContextSentenceExtraction(activeKb.contextSentenceExtraction ?? true);
+            setEditContextRedundancyRemoval(activeKb.contextRedundancyRemoval ?? true);
             setEditSystemPrompt(activeKb.systemPrompt);
             setEditEmbeddingModel(activeKb.embeddingModel);
             setDirty(false);
@@ -163,18 +182,27 @@ export function KnowledgeBasesPage() {
             chunkingStrategy: editChunkingStrategy,
             chunkSize: editChunkSize,
             chunkOverlap: editChunkOverlap,
+            minChunkSize: editMinChunkSize,
             retrievalTopK: editTopK,
             retrievalMinScore: editMinScore,
+            queryRewritingEnabled: editQueryRewriting,
+            queryDecompositionEnabled: editQueryDecomposition,
+            queryMaxVariants: editQueryMaxVariants,
+            rerankerType: editRerankerType,
+            rerankerOverfetchFactor: editRerankerOverfetchFactor,
+            contextTokenBudget: editContextTokenBudget,
+            contextSentenceExtraction: editContextSentenceExtraction,
+            contextRedundancyRemoval: editContextRedundancyRemoval,
             systemPrompt: editSystemPrompt,
         });
         setDirty(false);
-    }, [activeKbId, activeKb, editName, editDescription, editEmbeddingModel, editChunkingStrategy, editChunkSize, editChunkOverlap, editTopK, editMinScore, editSystemPrompt, updateKnowledgeBase]);
+    }, [activeKbId, activeKb, editName, editDescription, editEmbeddingModel, editChunkingStrategy, editChunkSize, editChunkOverlap, editMinChunkSize, editTopK, editMinScore, editQueryRewriting, editQueryDecomposition, editQueryMaxVariants, editRerankerType, editRerankerOverfetchFactor, editContextTokenBudget, editContextSentenceExtraction, editContextRedundancyRemoval, editSystemPrompt, updateKnowledgeBase]);
 
     const handleAddDocuments = useCallback(async () => {
         if (!activeKbId) return;
         const selected = await open({
             multiple: true,
-            filters: [{ name: "Documents", extensions: ["txt", "md", "html", "pdf", "docx", "json", "csv", "xml", "rst"] }],
+            filters: [{ name: "Documents", extensions: ["txt", "md", "html", "pdf", "docx", "json", "csv", "xml", "rst", "rs", "py", "ts", "tsx", "js", "jsx", "go", "java", "c", "cpp", "h", "rb", "php", "swift", "kt", "cs", "yaml", "yml", "toml"] }],
         });
         if (!selected) return;
         const paths = Array.isArray(selected) ? selected : [selected];
@@ -419,11 +447,16 @@ export function KnowledgeBasesPage() {
                                         <Select
                                             label={t("kb.chunkingStrategy")}
                                             value={editChunkingStrategy}
-                                            onChange={(v) => { setEditChunkingStrategy(v ?? "tokens"); markDirty(); }}
+                                            onChange={(v) => { setEditChunkingStrategy(v ?? "auto"); markDirty(); }}
                                             data={[
-                                                { value: "tokens", label: t("kb.chunkingTokens") },
+                                                { value: "auto", label: t("kb.chunkingAuto") },
+                                                { value: "markdown", label: t("kb.chunkingMarkdown") },
+                                                { value: "code", label: t("kb.chunkingCode") },
+                                                { value: "html", label: t("kb.chunkingHtml") },
+                                                { value: "plain", label: t("kb.chunkingPlain") },
                                                 { value: "headings", label: t("kb.chunkingHeadings") },
                                                 { value: "paragraphs", label: t("kb.chunkingParagraphs") },
+                                                { value: "tokens", label: t("kb.chunkingTokens") },
                                             ]}
                                         />
                                         <NumberInput
@@ -442,6 +475,23 @@ export function KnowledgeBasesPage() {
                                             max={512}
                                             step={10}
                                         />
+                                        <NumberInput
+                                            label={t("kb.minChunkSize")}
+                                            description={t("kb.minChunkSizeTooltip")}
+                                            value={editMinChunkSize}
+                                            onChange={(v) => { setEditMinChunkSize(typeof v === "number" ? v : 50); markDirty(); }}
+                                            min={0}
+                                            max={200}
+                                            step={10}
+                                        />
+                                        {activeKb && activeKb.totalChunks > 0 && (
+                                            editChunkingStrategy !== activeKb.chunkingStrategy ||
+                                            editChunkSize !== activeKb.chunkSize ||
+                                            editChunkOverlap !== activeKb.chunkOverlap ||
+                                            editMinChunkSize !== (activeKb.minChunkSize ?? 50)
+                                        ) && (
+                                            <Text size="xs" c="orange">{t("kb.settingsChanged")}</Text>
+                                        )}
                                         <NumberInput
                                             label={t("kb.retrievalTopK")}
                                             value={editTopK}
@@ -464,6 +514,90 @@ export function KnowledgeBasesPage() {
                                                 ]}
                                             />
                                         </Box>
+
+                                        {/* Query Processing */}
+                                        <Text fw={600} size="sm" mt="md">{t("kb.queryProcessing")}</Text>
+                                        <Switch
+                                            label={t("kb.queryRewriting")}
+                                            description={t("kb.queryRewritingDesc")}
+                                            checked={editQueryRewriting}
+                                            onChange={(e) => { setEditQueryRewriting(e.currentTarget.checked); markDirty(); }}
+                                        />
+                                        <Group gap="xs">
+                                            <Switch
+                                                label={t("kb.queryDecomposition")}
+                                                description={t("kb.queryDecompositionDesc")}
+                                                checked={editQueryDecomposition}
+                                                onChange={(e) => { setEditQueryDecomposition(e.currentTarget.checked); markDirty(); }}
+                                            />
+                                            <Badge color="orange" size="xs" variant="light">{t("kb.experimental")}</Badge>
+                                        </Group>
+                                        {(editQueryRewriting || editQueryDecomposition) && (
+                                            <NumberInput
+                                                label={t("kb.maxQueryVariants")}
+                                                value={editQueryMaxVariants}
+                                                onChange={(v) => { setEditQueryMaxVariants(typeof v === "number" ? v : 3); markDirty(); }}
+                                                min={1}
+                                                max={5}
+                                                step={1}
+                                            />
+                                        )}
+                                        <Text size="xs" c="dimmed">{t("kb.queryProcessingNote")}</Text>
+
+                                        {/* Reranking */}
+                                        <Text fw={600} size="sm" mt="md">{t("kb.reranking")}</Text>
+                                        <Text size="xs" c="dimmed">{t("kb.rerankerDesc")}</Text>
+                                        <Select
+                                            label={t("kb.rerankerType")}
+                                            data={[
+                                                { value: "none", label: t("kb.rerankerNone") },
+                                                { value: "cohere", label: t("kb.rerankerCohere") },
+                                                { value: "jina", label: t("kb.rerankerJina") },
+                                            ]}
+                                            value={editRerankerType}
+                                            onChange={(v) => { setEditRerankerType(v ?? "none"); markDirty(); }}
+                                        />
+                                        {editRerankerType !== "none" && (
+                                            <>
+                                                <Text size="xs" c="dimmed">{t("kb.rerankerKeyRequired")}</Text>
+                                                <NumberInput
+                                                    label={t("kb.overfetchFactor")}
+                                                    description={t("kb.overfetchFactorDesc")}
+                                                    value={editRerankerOverfetchFactor}
+                                                    onChange={(v) => { setEditRerankerOverfetchFactor(typeof v === "number" ? v : 4); markDirty(); }}
+                                                    min={2}
+                                                    max={10}
+                                                    step={1}
+                                                />
+                                            </>
+                                        )}
+
+                                        {/* Context Optimization */}
+                                        <Text fw={600} size="sm" mt="md">{t("kb.contextOptimization")}</Text>
+                                        <NumberInput
+                                            label={t("kb.tokenBudget")}
+                                            description={t("kb.tokenBudgetDesc")}
+                                            value={editContextTokenBudget}
+                                            onChange={(v) => { setEditContextTokenBudget(typeof v === "number" ? v : 4000); markDirty(); }}
+                                            min={0}
+                                            max={16000}
+                                            step={500}
+                                        />
+                                        <Switch
+                                            label={t("kb.sentenceExtraction")}
+                                            description={t("kb.sentenceExtractionDesc")}
+                                            checked={editContextSentenceExtraction}
+                                            onChange={(e) => { setEditContextSentenceExtraction(e.currentTarget.checked); markDirty(); }}
+                                            mt="xs"
+                                        />
+                                        <Switch
+                                            label={t("kb.redundancyRemoval")}
+                                            description={t("kb.redundancyRemovalDesc")}
+                                            checked={editContextRedundancyRemoval}
+                                            onChange={(e) => { setEditContextRedundancyRemoval(e.currentTarget.checked); markDirty(); }}
+                                            mt="xs"
+                                        />
+
                                         <Textarea
                                             label={t("kb.systemPrompt")}
                                             placeholder={t("kb.systemPromptPlaceholder")}

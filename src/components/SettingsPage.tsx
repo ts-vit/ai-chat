@@ -150,6 +150,8 @@ interface FormSnapshot {
     telegramModel: string;
     embeddingOpenaiKey: string;
     embeddingGeminiKey: string;
+    rerankerCohereKey: string;
+    rerankerJinaKey: string;
 }
 
 function normalizedCustomProviders(obj: Record<string, string[]>): Record<string, string[]> {
@@ -199,7 +201,9 @@ function isSameSnapshot(a: FormSnapshot, b: FormSnapshot | null): boolean {
         a.telegramAutoStart !== b.telegramAutoStart ||
         a.telegramModel !== b.telegramModel ||
         a.embeddingOpenaiKey !== b.embeddingOpenaiKey ||
-        a.embeddingGeminiKey !== b.embeddingGeminiKey
+        a.embeddingGeminiKey !== b.embeddingGeminiKey ||
+        a.rerankerCohereKey !== b.rerankerCohereKey ||
+        a.rerankerJinaKey !== b.rerankerJinaKey
     ) {
         return false;
     }
@@ -313,6 +317,8 @@ export function SettingsPage() {
     const [telegramModel, setTelegramModel] = useState(settings.telegramModel ?? "");
     const [embeddingOpenaiKey, setEmbeddingOpenaiKey] = useState(settings.embeddingOpenaiKey ?? "");
     const [embeddingGeminiKey, setEmbeddingGeminiKey] = useState(settings.embeddingGeminiKey ?? "");
+    const [rerankerCohereKey, setRerankerCohereKey] = useState(settings.rerankerCohereKey ?? "");
+    const [rerankerJinaKey, setRerankerJinaKey] = useState(settings.rerankerJinaKey ?? "");
 
     const initialSnapshotRef = useRef<FormSnapshot | null>(null);
 
@@ -361,6 +367,8 @@ export function SettingsPage() {
             telegramModel,
             embeddingOpenaiKey: embeddingOpenaiKey ?? "",
             embeddingGeminiKey: embeddingGeminiKey ?? "",
+            rerankerCohereKey: rerankerCohereKey ?? "",
+            rerankerJinaKey: rerankerJinaKey ?? "",
         };
     }
 
@@ -409,6 +417,8 @@ export function SettingsPage() {
             telegramAutoStart: s.telegramAutoStart ?? false,
             embeddingOpenaiKey: s.embeddingOpenaiKey ?? "",
             embeddingGeminiKey: s.embeddingGeminiKey ?? "",
+            rerankerCohereKey: s.rerankerCohereKey ?? "",
+            rerankerJinaKey: s.rerankerJinaKey ?? "",
         };
     }
 
@@ -469,6 +479,8 @@ export function SettingsPage() {
         setSshAutoConnect(settings.sshAutoConnect ?? false);
         setEmbeddingOpenaiKey(settings.embeddingOpenaiKey ?? "");
         setEmbeddingGeminiKey(settings.embeddingGeminiKey ?? "");
+        setRerankerCohereKey(settings.rerankerCohereKey ?? "");
+        setRerankerJinaKey(settings.rerankerJinaKey ?? "");
         setRoutingEnabled(settings.routingEnabled ?? false);
         setRoutingStrategy((settings.routingStrategy as "rules" | "llm") ?? "rules");
         setBudgetPlanEnabled(settings.budgetPlanEnabled ?? false);
@@ -549,6 +561,8 @@ export function SettingsPage() {
             telegramModel: telegramModel || undefined,
             embeddingOpenaiKey: embeddingOpenaiKey || undefined,
             embeddingGeminiKey: embeddingGeminiKey || undefined,
+            rerankerCohereKey: rerankerCohereKey || undefined,
+            rerankerJinaKey: rerankerJinaKey || undefined,
             routingEnabled,
             routingStrategy: routingStrategy || "rules",
             budgetPlanEnabled,
@@ -754,6 +768,23 @@ export function SettingsPage() {
                             value={embeddingGeminiKey}
                             onChange={(e) => setEmbeddingGeminiKey(e.currentTarget.value)}
                         />
+
+                        <Title order={4} mt="lg">{t("settings.rerankerKeys")}</Title>
+                        <Text size="sm" c="dimmed">{t("settings.rerankerKeysHint")}</Text>
+                        <PasswordInput
+                            label={t("settings.cohereApiKey")}
+                            placeholder="..."
+                            value={rerankerCohereKey}
+                            onChange={(e) => setRerankerCohereKey(e.currentTarget.value)}
+                        />
+                        <Text size="xs" c="dimmed">{t("settings.getCohereKey")}</Text>
+                        <PasswordInput
+                            label={t("settings.jinaRerankerKey")}
+                            placeholder="jina_..."
+                            value={rerankerJinaKey}
+                            onChange={(e) => setRerankerJinaKey(e.currentTarget.value)}
+                        />
+                        <Text size="xs" c="dimmed">{t("settings.getJinaKey")}</Text>
                     </Stack>
                 );
             case "data":

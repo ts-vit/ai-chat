@@ -235,6 +235,25 @@
     background: var(--mantine-color-brand-8);
 }
 
+/* KB source citation badges — uses teal to distinguish from web citations */
+.source-reference--kb {
+    color: var(--mantine-color-teal-7);
+    background: var(--mantine-color-teal-0);
+}
+
+.source-reference--kb:hover {
+    background: var(--mantine-color-teal-1);
+}
+
+[data-mantine-color-scheme="dark"] .source-reference--kb {
+    color: var(--mantine-color-teal-4);
+    background: var(--mantine-color-teal-9);
+}
+
+[data-mantine-color-scheme="dark"] .source-reference--kb:hover {
+    background: var(--mantine-color-teal-8);
+}
+
 /* Инлайн-код (code не внутри pre) */
 .markdown-body :not(pre) > code {
     padding: 2px 6px;

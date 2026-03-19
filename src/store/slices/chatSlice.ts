@@ -18,7 +18,6 @@ import type {
     ToolResultEvent,
     ToolCallInfo,
     WebSource,
-    RagSource,
     StreamRetryPayload,
     ProjectSummary,
 } from "../../types";
@@ -35,6 +34,7 @@ import {
     toMessageWithSiblings,
     _initModeState,
     _initActiveMode,
+    parseRagData,
 } from "../helpers";
 
 export interface ChatSlice {
@@ -925,25 +925,23 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                     }
                     // Handle RAG sources from KB
                     if (event.payload.ragSources) {
-                        try {
-                            const ragSources: RagSource[] = JSON.parse(event.payload.ragSources);
-                            if (ragSources.length > 0) {
-                                set((state) => ({
-                                    chats: state.chats.map((c) =>
-                                        c.id === activeChatId
-                                            ? {
-                                                  ...c,
-                                                  messages: c.messages.map((msg) =>
-                                                      msg.id === assistantMsg.id
-                                                          ? { ...msg, ragSources }
-                                                          : msg
-                                                  ),
-                                              }
-                                            : c
-                                    ),
-                                }));
-                            }
-                        } catch { /* ignore parse errors */ }
+                        const ragData = parseRagData(event.payload.ragSources);
+                        if (ragData?.sources && ragData.sources.length > 0) {
+                            set((state) => ({
+                                chats: state.chats.map((c) =>
+                                    c.id === activeChatId
+                                        ? {
+                                              ...c,
+                                              messages: c.messages.map((msg) =>
+                                                  msg.id === assistantMsg.id
+                                                      ? { ...msg, ragSources: ragData.sources, ragTrace: ragData.trace }
+                                                      : msg
+                                              ),
+                                          }
+                                        : c
+                                ),
+                            }));
+                        }
                     }
                 })
             );
@@ -1005,6 +1003,7 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                 imageStyle: chat.imageStyle ?? null,
                 imageN: chat.imageN ?? null,
                 negativePrompt: chat.negativePrompt ?? null,
+                ragMode: get().ragMode !== "auto" ? get().ragMode : null,
             };
             if (draftAttachments.length > 0) {
                 invokePayload.userMessageId = userMsg.id;
@@ -1364,25 +1363,23 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                     invoke("index_message", { messageId: assistantMsg.id }).catch(console.error);
                     // Handle RAG sources from KB
                     if (event.payload.ragSources) {
-                        try {
-                            const ragSources: RagSource[] = JSON.parse(event.payload.ragSources);
-                            if (ragSources.length > 0) {
-                                set((state) => ({
-                                    chats: state.chats.map((c) =>
-                                        c.id === activeChatId
-                                            ? {
-                                                  ...c,
-                                                  messages: c.messages.map((m) =>
-                                                      m.id === assistantMsg.id
-                                                          ? { ...m, ragSources }
-                                                          : m
-                                                  ),
-                                              }
-                                            : c
-                                    ),
-                                }));
-                            }
-                        } catch { /* ignore parse errors */ }
+                        const ragData = parseRagData(event.payload.ragSources);
+                        if (ragData?.sources && ragData.sources.length > 0) {
+                            set((state) => ({
+                                chats: state.chats.map((c) =>
+                                    c.id === activeChatId
+                                        ? {
+                                              ...c,
+                                              messages: c.messages.map((m) =>
+                                                  m.id === assistantMsg.id
+                                                      ? { ...m, ragSources: ragData.sources, ragTrace: ragData.trace }
+                                                      : m
+                                              ),
+                                          }
+                                        : c
+                                ),
+                            }));
+                        }
                     }
                 })
             );
@@ -1427,6 +1424,7 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                 imageStyle: chat.imageStyle ?? null,
                 imageN: chat.imageN ?? null,
                 negativePrompt: chat.negativePrompt ?? null,
+                ragMode: get().ragMode !== "auto" ? get().ragMode : null,
             });
         } catch (e) {
             set({ isStreaming: false });

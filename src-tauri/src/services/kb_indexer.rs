@@ -49,8 +49,13 @@ pub async fn index_document(
     let file_path = app_data_dir.join(source_path);
     let file_path_str = file_path.to_string_lossy().to_string();
 
-    // 3. Extract text
-    let text = match document_parser::extract_text(&file_path_str, &document.mime_type) {
+    // 3. Extract text (use raw extraction for auto/html strategies to preserve HTML structure)
+    let use_raw = matches!(kb.chunking_strategy.as_str(), "auto" | "html");
+    let text = match if use_raw {
+        document_parser::extract_text_raw(&file_path_str, &document.mime_type)
+    } else {
+        document_parser::extract_text(&file_path_str, &document.mime_type)
+    } {
         Ok(t) => t,
         Err(e) => {
             let err = format!("Text extraction failed: {}", e);
@@ -67,12 +72,15 @@ pub async fn index_document(
         return Err(err);
     }
 
-    // 4. Chunk text
-    let chunks = chunker::chunk_document(
+    // 4. Chunk text (enriched: auto-detection, heading hierarchy, content_with_context)
+    let chunks = chunker::chunk_document_enriched(
         &text,
         &kb.chunking_strategy,
         kb.chunk_size as usize,
         kb.chunk_overlap as usize,
+        kb.min_chunk_size as usize,
+        &document.name,
+        &document.mime_type,
     );
 
     if chunks.is_empty() {
@@ -85,8 +93,10 @@ pub async fn index_document(
     let chunk_count = chunks.len();
     emit_progress(app_handle, kb_id, doc_id, "embedding", Some(chunk_count), None);
 
-    // 5. Generate embeddings via provider (handles prefixes internally)
-    let chunk_texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+    // 5. Generate embeddings via provider (use content_with_context for richer embeddings)
+    let chunk_texts: Vec<String> = chunks.iter().map(|c| {
+        c.content_with_context.as_ref().unwrap_or(&c.content).clone()
+    }).collect();
     let embeddings = provider.embed_documents(&chunk_texts).await?;
 
     emit_progress(app_handle, kb_id, doc_id, "storing", Some(chunk_count), None);

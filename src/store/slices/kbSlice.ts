@@ -77,8 +77,17 @@ export const createKbSlice = (set: Set, _get: Get): KbSlice => ({
                 chunkingStrategy: updates.chunkingStrategy ?? existing.chunkingStrategy,
                 chunkSize: updates.chunkSize ?? existing.chunkSize,
                 chunkOverlap: updates.chunkOverlap ?? existing.chunkOverlap,
+                minChunkSize: updates.minChunkSize ?? existing.minChunkSize,
                 retrievalTopK: updates.retrievalTopK ?? existing.retrievalTopK,
                 retrievalMinScore: updates.retrievalMinScore ?? existing.retrievalMinScore,
+                queryRewritingEnabled: updates.queryRewritingEnabled ?? existing.queryRewritingEnabled,
+                queryDecompositionEnabled: updates.queryDecompositionEnabled ?? existing.queryDecompositionEnabled,
+                queryMaxVariants: updates.queryMaxVariants ?? existing.queryMaxVariants,
+                rerankerType: updates.rerankerType ?? existing.rerankerType,
+                rerankerOverfetchFactor: updates.rerankerOverfetchFactor ?? existing.rerankerOverfetchFactor,
+                contextTokenBudget: updates.contextTokenBudget ?? existing.contextTokenBudget,
+                contextSentenceExtraction: updates.contextSentenceExtraction ?? existing.contextSentenceExtraction,
+                contextRedundancyRemoval: updates.contextRedundancyRemoval ?? existing.contextRedundancyRemoval,
                 systemPrompt: updates.systemPrompt ?? existing.systemPrompt,
             });
 

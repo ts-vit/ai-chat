@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActionIcon, Badge, Box, Button, Code, Collapse, Group, Modal, Paper, Popover, Spoiler, Stack, Text, Textarea, ThemeIcon, Tooltip, UnstyledButton } from "@mantine/core";
-import { IconBook2, IconBrain, IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconCopy, IconCurrencyDollar, IconEdit, IconFile, IconFileText, IconListCheck, IconLoader2, IconPackage, IconPlayerStop, IconTool, IconUsers, IconVolume, IconWorldSearch, IconX } from "@tabler/icons-react";
+import { IconBook2, IconBrain, IconCheck, IconChevronDown, IconChevronLeft, IconChevronRight, IconCopy, IconCurrencyDollar, IconEdit, IconFile, IconFileText, IconListCheck, IconLoader2, IconPackage, IconPlayerStop, IconRobot, IconTool, IconUsers, IconVolume, IconWorldSearch, IconX } from "@tabler/icons-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -19,9 +19,20 @@ import { RagDebugPanel } from "./RagDebugPanel";
 import type { AgentTask, ContentBlock, ContentBlockText, MessageWithSiblings, RagSource, WebSource } from "../types";
 import { tryParseContentBlocks } from "../utils/contentParsing";
 import { extractCitationIndices } from "../utils/citationParser";
+import i18n from "../i18n";
 
 const SOURCE_LINK_PREFIX = "__source__";
 const KB_SOURCE_LINK_PREFIX = "__kbsource__";
+
+function pluralizeSteps(n: number, lang: string): string {
+    if (lang === "ru") {
+        const mod10 = n % 10, mod100 = n % 100;
+        if (mod10 === 1 && mod100 !== 11) return `Агент выполнил ${n} шаг`;
+        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `Агент выполнил ${n} шага`;
+        return `Агент выполнил ${n} шагов`;
+    }
+    return `Agent worked for ${n} step${n === 1 ? "" : "s"}`;
+}
 
 const COMPACT_BUILTIN_TOOLS = new Set([
     'web_search', 'web_read',
@@ -290,7 +301,7 @@ const DENSITY_MB = { compact: "xs", standard: "sm", spacious: "lg" } as const;
 
 export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranch, compact = false }: Props) {
     const { t } = useTranslation();
-    const { settings, scrollTargetId, setScrollTargetId, activeToolCalls, playingMessageId, speakMessage, stopTts } = useChatStore();
+    const { settings, scrollTargetId, setScrollTargetId, activeToolCalls, playingMessageId, speakMessage, stopTts, agentStatus } = useChatStore();
     const density = (settings.messageDensity === "compact" || settings.messageDensity === "spacious"
         ? settings.messageDensity
         : "standard") as keyof typeof DENSITY_PADDING;
@@ -307,6 +318,7 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
     const [expandedPlanTasks, setExpandedPlanTasks] = useState<Set<string>>(new Set());
     const [showAllPlanSteps, setShowAllPlanSteps] = useState(false);
     const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+    const [expandedAgentSteps, setExpandedAgentSteps] = useState<Set<string>>(new Set());
     const activeSubAgents = useChatStore((s) => s.activeSubAgents);
     const currentAgentRun = useChatStore((s) => s.currentAgentRun);
     const activePlan = useChatStore((s) => s.activePlan);
@@ -549,11 +561,15 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
         return map;
     }, [activePlan]);
 
-    // Group messages: identify sub-agent and plan task message groups
+    // Group messages: identify sub-agent, plan task, and agent step message groups
     type MessageGroup =
         | { type: "normal"; msg: MessageWithSiblings; index: number }
         | { type: "subagent"; runId: string; goal: string; status: string; messages: { msg: MessageWithSiblings; index: number }[] }
-        | { type: "plantask"; taskId: string; title: string; status: string; result: string | null; runId: string; taskIndex: number; messages: { msg: MessageWithSiblings; index: number }[] };
+        | { type: "plantask"; taskId: string; title: string; status: string; result: string | null; runId: string; taskIndex: number; messages: { msg: MessageWithSiblings; index: number }[] }
+        | { type: "agentsteps"; runId: string; messages: { msg: MessageWithSiblings; index: number }[] };
+
+    // Determine if a given agent run is currently active (still streaming)
+    const isRunActive = (runId: string) => agentStatus === "running" && currentAgentRun?.id === runId;
 
     const messageGroups: MessageGroup[] = [];
     let i = 0;
@@ -594,6 +610,54 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
         } else {
             messageGroups.push({ type: "normal", msg, index: i });
             i++;
+        }
+    }
+
+    // Post-process: collapse finished agent-step messages into "agentsteps" groups.
+    // Collect consecutive normal messages with the same agentRunId + agentStep into a group,
+    // keeping the final assistant message (the answer) as a normal message.
+    const collapsedGroups: MessageGroup[] = [];
+    const finalAnswerIds = new Set<string>();
+    let j = 0;
+    while (j < messageGroups.length) {
+        const g = messageGroups[j];
+        if (g.type === "normal" && g.msg.agentStep != null && g.msg.agentRunId && !isRunActive(g.msg.agentRunId)) {
+            const runId = g.msg.agentRunId;
+            // Gather all consecutive normal messages belonging to this agent run
+            const batch: { msg: MessageWithSiblings; index: number }[] = [];
+            while (j < messageGroups.length) {
+                const cur = messageGroups[j];
+                if (cur.type === "normal" && cur.msg.agentRunId === runId && cur.msg.agentStep != null) {
+                    batch.push({ msg: cur.msg, index: cur.index });
+                    j++;
+                } else {
+                    break;
+                }
+            }
+            // Find the last assistant message — that's the final answer
+            let finalIdx = -1;
+            for (let k = batch.length - 1; k >= 0; k--) {
+                if (batch[k].msg.role === "assistant") {
+                    finalIdx = k;
+                    break;
+                }
+            }
+            if (finalIdx >= 0 && batch.length > 1) {
+                const stepsOnly = batch.filter((_, idx) => idx !== finalIdx);
+                if (stepsOnly.length > 0) {
+                    collapsedGroups.push({ type: "agentsteps", runId, messages: stepsOnly });
+                }
+                finalAnswerIds.add(batch[finalIdx].msg.id);
+                collapsedGroups.push({ type: "normal", msg: batch[finalIdx].msg, index: batch[finalIdx].index });
+            } else {
+                // Single message or no assistant message — show as-is
+                for (const item of batch) {
+                    collapsedGroups.push({ type: "normal", msg: item.msg, index: item.index });
+                }
+            }
+        } else {
+            collapsedGroups.push(g);
+            j++;
         }
     }
 
@@ -674,7 +738,7 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                     color: msg.role === "user" ? "var(--mantine-color-white)" : undefined,
                                 }}
                             >
-                                {msg.agentStep != null && msg.role === "assistant" && (
+                                {msg.agentStep != null && msg.role === "assistant" && !finalAnswerIds.has(msg.id) && (
                                     <Badge size="xs" variant="light" color="orange" mb={4}>
                                         {t("agent.step", { step: msg.agentStep })}
                                     </Badge>
@@ -947,7 +1011,7 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                                 </Group>
                             </Tooltip>
                         )}
-                        {msg.role === "assistant" && (msg.content.trim() || tryParseContentBlocks(msg.content)) && (
+                        {msg.role === "assistant" && ((msg.content || "").trim() || tryParseContentBlocks(msg.content || "")) && (
                             <Tooltip label={playingMessageId === msg.id ? t("chat.stopSpeaking") : t("chat.speak")}>
                                 <ActionIcon
                                     size="xs"
@@ -1081,9 +1145,64 @@ export function MessageList({ messages, isStreaming, onEditResend, onSwitchBranc
                     </Button>
                 </Group>
             )}
-            {messageGroups.map((group) => {
+            {collapsedGroups.map((group, gi) => {
                 if (group.type === "normal") {
                     return renderMessage(group.msg, group.index);
+                }
+                if (group.type === "agentsteps") {
+                    const isExpanded = expandedAgentSteps.has(group.runId);
+                    const stepCount = new Set(group.messages.map(m => m.msg.agentStep)).size;
+                    const toolCallCount = group.messages.filter(m => m.msg.role === "tool").length;
+                    return (
+                        <Box
+                            key={`agentsteps-${group.runId}-${gi}`}
+                            mb={messageMb}
+                            style={{
+                                border: "1px solid var(--mantine-color-default-border)",
+                                borderRadius: "var(--mantine-radius-sm)",
+                                overflow: "hidden",
+                            }}
+                        >
+                            <Group
+                                gap={6}
+                                p={8}
+                                wrap="nowrap"
+                                style={{ cursor: "pointer", background: "var(--mantine-color-default-hover)" }}
+                                onClick={() =>
+                                    setExpandedAgentSteps((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(group.runId)) next.delete(group.runId);
+                                        else next.add(group.runId);
+                                        return next;
+                                    })
+                                }
+                            >
+                                <IconChevronDown
+                                    size={14}
+                                    stroke={1.5}
+                                    style={{
+                                        transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)",
+                                        transition: "transform 150ms ease",
+                                    }}
+                                />
+                                <IconRobot size={14} stroke={1.5} style={{ opacity: 0.6 }} />
+                                <Text size="xs" fw={500} style={{ flex: 1, minWidth: 0 }} lineClamp={1}>
+                                    {pluralizeSteps(stepCount, i18n.language)}
+                                </Text>
+                                {toolCallCount > 0 && (
+                                    <Group gap={4}>
+                                        <IconTool size={12} stroke={1.5} style={{ opacity: 0.5 }} />
+                                        <Text size="xs" c="dimmed">{toolCallCount}</Text>
+                                    </Group>
+                                )}
+                            </Group>
+                            <Collapse in={isExpanded}>
+                                <Box p="xs">
+                                    {group.messages.map(({ msg, index }) => renderMessage(msg, index))}
+                                </Box>
+                            </Collapse>
+                        </Box>
+                    );
                 }
                 if (group.type === "plantask") {
                     const isExpanded = showAllPlanSteps || expandedPlanTasks.has(group.taskId);

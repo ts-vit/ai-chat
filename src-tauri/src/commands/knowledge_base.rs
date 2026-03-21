@@ -15,6 +15,7 @@ use tauri_plugin_store::StoreExt;
 use crate::models::knowledge_base::{KbDocument, KbStats, KnowledgeBase};
 use crate::services::kb_vector_store::KbVectorStore;
 use crate::services::kb_indexer;
+use crate::services::kb_fts;
 use crate::services::kb_search::{self, KbSearchConfig, KbSearchResultItem};
 use crate::services::embedding_provider;
 use crate::services::http_client::build_http_client;
@@ -129,7 +130,7 @@ pub async fn list_knowledge_bases(pool: State<'_, Pool>) -> Result<Vec<Knowledge
          min_chunk_size, retrieval_top_k, retrieval_min_score, reranker_type, reranker_overfetch_factor, \
          context_token_budget, context_sentence_extraction, context_redundancy_removal, \
          system_prompt, version, status, document_count, \
-         total_chunks, created_at, updated_at FROM knowledge_bases ORDER BY created_at DESC",
+         total_chunks, created_at, updated_at FROM knowledge_bases WHERE notebook_id IS NULL ORDER BY created_at DESC",
     )
     .fetch_all(pool.inner())
     .await
@@ -879,6 +880,106 @@ pub async fn search_knowledge_base(
     };
 
     kb_search::search_kb(pool.inner(), store, &kb_id, &query, &config, provider.as_ref()).await
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KbDocSearchResult {
+    pub chunk_id: String,
+    pub kb_id: String,
+    pub kb_name: String,
+    pub document_id: String,
+    pub document_name: String,
+    pub content: String,
+    pub chunk_index: i64,
+    pub score: f32,
+    pub heading_hierarchy: Option<String>,
+}
+
+#[tauri::command]
+pub async fn search_all_knowledge_bases(
+    pool: State<'_, Pool>,
+    query: String,
+    top_k: Option<i64>,
+) -> Result<Vec<KbDocSearchResult>, String> {
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let limit = top_k.unwrap_or(20) as usize;
+
+    // 1. FTS5 search across all KBs
+    let fts_results = kb_fts::search_all_kb_fts(pool.inner(), &query, limit).await?;
+    if fts_results.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 2. Normalize FTS ranks to 0..1
+    let min_rank = fts_results.iter().map(|r| r.rank).fold(f64::INFINITY, f64::min);
+    let max_rank = fts_results.iter().map(|r| r.rank).fold(f64::NEG_INFINITY, f64::max);
+    let range = max_rank - min_rank;
+    let scored: Vec<(String, f32)> = fts_results
+        .iter()
+        .map(|r| {
+            let normalized = if range > 1e-9 {
+                1.0 - (r.rank - min_rank) / range
+            } else {
+                1.0
+            };
+            (r.chunk_id.clone(), normalized.max(0.0).min(1.0) as f32)
+        })
+        .collect();
+
+    // 3. Batch-load chunk details with document and KB names
+    let chunk_ids: Vec<&str> = scored.iter().map(|(id, _)| id.as_str()).collect();
+    let placeholders: String = chunk_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT kc.id, kc.content, kc.chunk_index, kc.document_id, kc.kb_id, kc.metadata, \
+         kd.name AS document_name, kb.name AS kb_name \
+         FROM kb_chunks kc \
+         JOIN kb_documents kd ON kd.id = kc.document_id \
+         JOIN knowledge_bases kb ON kb.id = kc.kb_id \
+         WHERE kc.id IN ({})",
+        placeholders
+    );
+    let mut q = sqlx::query(&sql);
+    for id in &chunk_ids {
+        q = q.bind(id);
+    }
+    let rows = q.fetch_all(pool.inner()).await.map_err(|e| e.to_string())?;
+
+    // Build a map of chunk_id -> row data
+    let mut row_map: HashMap<String, _> = HashMap::new();
+    for row in &rows {
+        let id: String = row.get("id");
+        row_map.insert(id, row);
+    }
+
+    // 4. Build results in score order
+    let mut results = Vec::with_capacity(scored.len());
+    for (chunk_id, score) in &scored {
+        if let Some(row) = row_map.get(chunk_id) {
+            let metadata_str: String = row.get("metadata");
+            let heading = serde_json::from_str::<serde_json::Value>(&metadata_str)
+                .ok()
+                .and_then(|v| v.get("heading_hierarchy").and_then(|h| h.as_str().map(String::from)));
+
+            results.push(KbDocSearchResult {
+                chunk_id: chunk_id.clone(),
+                kb_id: row.get("kb_id"),
+                kb_name: row.get("kb_name"),
+                document_id: row.get("document_id"),
+                document_name: row.get("document_name"),
+                content: row.get("content"),
+                chunk_index: row.get("chunk_index"),
+                score: *score,
+                heading_hierarchy: heading,
+            });
+        }
+    }
+
+    Ok(results)
 }
 
 #[tauri::command]

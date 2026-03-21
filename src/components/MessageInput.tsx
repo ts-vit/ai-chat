@@ -19,7 +19,7 @@ import {
     Tooltip,
     UnstyledButton,
 } from "@mantine/core";
-import { IconAdjustments, IconArrowUp, IconCheck, IconCode, IconDatabase, IconDownload, IconFile, IconFileText, IconMessage2, IconMicrophone, IconPaperclip, IconPlayerStop, IconPlus, IconSubtask, IconWand, IconWorldSearch, IconX } from "@tabler/icons-react";
+import { IconAdjustments, IconArrowUp, IconCheck, IconCode, IconDatabase, IconDownload, IconFile, IconFileText, IconMessage2, IconMicrophone, IconPaperclip, IconPlayerPlay, IconPlayerStop, IconPlus, IconSubtask, IconWand, IconWorldSearch, IconX } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useChatStore } from "../store/chatStore";
 import { getUniqueVariableNames } from "./VariablesModal";
@@ -101,6 +101,8 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
     const detachSkillFromChat = useChatStore((s) => s.detachSkillFromChat);
 
     const activeMode = useChatStore((s) => s.activeMode);
+    const agentStatus = useChatStore((s) => s.agentStatus);
+    const currentAgentRun = useChatStore((s) => s.currentAgentRun);
     const generatePlan = useChatStore((s) => s.generatePlan);
     const planGenerating = useChatStore((s) => s.planGenerating);
     const activeChatId = useChatStore((s) => s.activeChatId);
@@ -345,7 +347,7 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                 return;
             }
         }
-        if (e.key === "Enter") {
+        if (e.key === "Enter" && !e.repeat) {
             const sendByEnter = settings.sendByEnter !== false;
             if (sendByEnter) {
                 if (!e.shiftKey) {
@@ -591,7 +593,11 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
 
             <Box className={`message-input-pill ${isDragging ? "dragging" : ""}`}>
                 {/* Model name above textarea */}
-                {activeChat && (
+                {activeChat && (agentStatus === "running" && currentAgentRun?.assignedModel ? (
+                        <Text size="xs" c="dimmed" style={{ padding: "4px 12px 0" }}>
+                            {currentAgentRun.assignedModel.split("/").pop() ?? currentAgentRun.assignedModel}
+                        </Text>
+                    ) : (
                     <Popover
                         width={300}
                         position="top-start"
@@ -626,6 +632,7 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                             />
                         </Popover.Dropdown>
                     </Popover>
+                    )
                 )}
 
                 {draftAttachments.length > 0 && (
@@ -694,7 +701,11 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
 
                 <Textarea
                     ref={inputRef}
-                    placeholder={compact ? t("messageInput.placeholderShort") : t("messageInput.placeholderLong")}
+                    placeholder={
+                        activeMode === "assistant"
+                            ? (compact ? t("messageInput.assistantPlaceholderShort") : t("messageInput.assistantPlaceholderLong"))
+                            : (compact ? t("messageInput.placeholderShort") : t("messageInput.placeholderLong"))
+                    }
                     value={value}
                     onChange={handleChange}
                     onKeyDown={handleKeyDown}
@@ -1069,11 +1080,14 @@ export function MessageInput({ onSend, onStop, disabled, isStopping, compact = f
                                     size="sm"
                                     radius="xl"
                                     variant={hasContent ? "filled" : "subtle"}
-                                    color="brand"
+                                    color={activeMode === "assistant" ? "teal" : "brand"}
                                     onClick={handleSend}
                                     disabled={!hasContent}
                                 >
-                                    <IconArrowUp size={16} stroke={2} />
+                                    {activeMode === "assistant"
+                                        ? <IconPlayerPlay size={16} stroke={2} />
+                                        : <IconArrowUp size={16} stroke={2} />
+                                    }
                                 </ActionIcon>
                             </Tooltip>
                         )}

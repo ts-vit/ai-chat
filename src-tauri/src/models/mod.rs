@@ -11,3 +11,5 @@ pub mod workspace;
 pub mod project;
 pub mod scheduler;
 pub mod knowledge_base;
+pub mod agent_trace;
+pub mod notebook;

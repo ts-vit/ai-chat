@@ -109,6 +109,7 @@ pub async fn create_chat(
         negative_prompt,
         active_child_map: Some("{}".to_string()),
         mode: mode.unwrap_or_else(|| "chat".to_string()),
+        last_run_status: None,
     })
 }
 
@@ -146,7 +147,7 @@ pub async fn delete_chat(app: AppHandle, pool: State<'_, Pool>, id: String) -> R
 #[tauri::command]
 pub async fn get_all_chats(pool: State<'_, Pool>) -> Result<Vec<DbChat>, String> {
     let rows = sqlx::query(
-        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, project_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty, image_size, image_quality, image_style, image_n, negative_prompt, active_child_map, mode FROM chats ORDER BY updated_at DESC",
+        "SELECT id, title, created_at, updated_at, system_prompt, provider_id, model, folder_id, project_id, is_image_model, temperature, max_tokens, top_p, top_k, frequency_penalty, presence_penalty, image_size, image_quality, image_style, image_n, negative_prompt, active_child_map, mode, last_run_status FROM chats ORDER BY updated_at DESC",
     )
     .fetch_all(pool.inner())
     .await
@@ -181,6 +182,7 @@ pub async fn get_all_chats(pool: State<'_, Pool>) -> Result<Vec<DbChat>, String>
             negative_prompt: row.try_get::<Option<String>, _>("negative_prompt").ok().flatten(),
             active_child_map: row.try_get::<Option<String>, _>("active_child_map").ok().flatten(),
             mode: row.try_get::<String, _>("mode").unwrap_or_else(|_| "chat".to_string()),
+            last_run_status: row.try_get::<Option<String>, _>("last_run_status").ok().flatten(),
         })
         .collect();
     log::debug!("get_all_chats: loaded {} chats", chats.len());

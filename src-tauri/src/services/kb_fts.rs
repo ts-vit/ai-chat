@@ -92,7 +92,36 @@ pub async fn delete_kb_fts(pool: &SqlitePool, kb_id: &str) -> Result<(), String>
     Ok(())
 }
 
-fn fts_escape_query(q: &str) -> String {
+/// Search KB chunks via FTS5 across ALL knowledge bases (no kb_id filter).
+pub async fn search_all_kb_fts(
+    pool: &SqlitePool,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<KbFtsResult>, String> {
+    let q = fts_escape_query(query);
+    let rows = sqlx::query(
+        "SELECT chunk_id, bm25(kb_chunks_fts) AS rank \
+         FROM kb_chunks_fts \
+         WHERE kb_chunks_fts MATCH ? \
+         ORDER BY bm25(kb_chunks_fts) \
+         LIMIT ?",
+    )
+    .bind(&q)
+    .bind(limit as i64)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("FTS search error: {}", e))?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| KbFtsResult {
+            chunk_id: row.get("chunk_id"),
+            rank: row.get::<f64, _>("rank"),
+        })
+        .collect())
+}
+
+pub fn fts_escape_query(q: &str) -> String {
     let q = q.trim();
     if q.is_empty() {
         return "\"\"".to_string();

@@ -14,13 +14,12 @@ import {
     TextInput,
     Title,
 } from "@mantine/core";
-import { IconRobot, IconSearch, IconUser } from "@tabler/icons-react";
+import { IconDatabase, IconFileText, IconRobot, IconSearch, IconUser } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useChatStore } from "../store/chatStore";
 import { formatRelativeDate } from "../utils/formatDate";
-import type { IndexingStatus, Message, SearchResult } from "../types";
-import { notify } from "../utils/notify";
+import type { IndexingStatus, KbDocSearchResult, Message, SearchResult } from "../types";
 
 const DEBOUNCE_MS = 500;
 const PREVIEW_MAX = 200;
@@ -94,6 +93,42 @@ function groupByChat(results: SearchResult[]): { chatId: string; chatTitle: stri
     }));
 }
 
+interface DocGroup {
+    kbId: string;
+    kbName: string;
+    documents: {
+        documentId: string;
+        documentName: string;
+        chunks: KbDocSearchResult[];
+    }[];
+}
+
+export function groupDocResults(results: KbDocSearchResult[]): DocGroup[] {
+    const byKb = new Map<string, KbDocSearchResult[]>();
+    for (const r of results) {
+        const list = byKb.get(r.kbId) ?? [];
+        list.push(r);
+        byKb.set(r.kbId, list);
+    }
+    return Array.from(byKb.entries()).map(([kbId, kbResults]) => {
+        const byDoc = new Map<string, KbDocSearchResult[]>();
+        for (const r of kbResults) {
+            const list = byDoc.get(r.documentId) ?? [];
+            list.push(r);
+            byDoc.set(r.documentId, list);
+        }
+        return {
+            kbId,
+            kbName: kbResults[0]?.kbName ?? "",
+            documents: Array.from(byDoc.entries()).map(([documentId, chunks]) => ({
+                documentId,
+                documentName: chunks[0]?.documentName ?? "",
+                chunks,
+            })),
+        };
+    });
+}
+
 export function SearchPage() {
     const { t } = useTranslation();
     const { setView, setActiveChat, setScrollTargetId } = useChatStore();
@@ -108,6 +143,8 @@ export function SearchPage() {
         inProgress: false,
     });
     const [messagesByChatId, setMessagesByChatId] = useState<Record<string, Message[]>>({});
+    const [docResults, setDocResults] = useState<KbDocSearchResult[]>([]);
+    const [docLoading, setDocLoading] = useState(false);
 
     useEffect(() => {
         const t = setTimeout(() => setDebouncedQuery(query.trim()), DEBOUNCE_MS);
@@ -147,7 +184,7 @@ export function SearchPage() {
     }, [fetchStatus]);
 
     useEffect(() => {
-        if (!debouncedQuery) {
+        if (!debouncedQuery || segment === "docs") {
             setResults([]);
             setLoading(false);
             return;
@@ -156,11 +193,27 @@ export function SearchPage() {
         invoke<SearchResult[]>("search_messages", { query: debouncedQuery })
             .then((data) => setResults(Array.isArray(data) ? data : []))
             .catch((e) => {
-                notify.error(String(e));
+                console.error("Chat search error:", e);
                 setResults([]);
             })
             .finally(() => setLoading(false));
-    }, [debouncedQuery]);
+    }, [debouncedQuery, segment]);
+
+    useEffect(() => {
+        if (!debouncedQuery || segment === "chats") {
+            setDocResults([]);
+            setDocLoading(false);
+            return;
+        }
+        setDocLoading(true);
+        invoke<KbDocSearchResult[]>("search_all_knowledge_bases", { query: debouncedQuery, topK: 20 })
+            .then((data) => setDocResults(Array.isArray(data) ? data : []))
+            .catch((e) => {
+                console.error("Doc search error:", e);
+                setDocResults([]);
+            })
+            .finally(() => setDocLoading(false));
+    }, [debouncedQuery, segment]);
 
     useEffect(() => {
         if (results.length === 0) {
@@ -191,6 +244,7 @@ export function SearchPage() {
     }, [results]);
 
     const groups = useMemo(() => groupByChat(results), [results]);
+    const docGroups = useMemo(() => groupDocResults(docResults), [docResults]);
 
     const getContextSnippet = useCallback(
         (chatId: string, messageId: string, role: string): string | null => {
@@ -221,6 +275,15 @@ export function SearchPage() {
         },
         [setActiveChat, setScrollTargetId, setView]
     );
+
+    const handleDocChunkClick = useCallback(
+        (_chunk: KbDocSearchResult) => {
+            setView("knowledgeBases");
+        },
+        [setView]
+    );
+
+    const isLoading = loading || docLoading;
 
     return (
         <Box
@@ -274,14 +337,7 @@ export function SearchPage() {
                         />
                         <SegmentedControl
                             value={segment}
-                            onChange={(v) => {
-                                const next = v as "all" | "chats" | "docs";
-                                if (next === "docs") {
-                                    notify.info(t("search.comingSoon"));
-                                    return;
-                                }
-                                setSegment(next);
-                            }}
+                            onChange={(v) => setSegment(v as "all" | "chats" | "docs")}
                             data={[
                                 { value: "all", label: t("search.segmentAll") },
                                 { value: "chats", label: t("search.segmentChats") },
@@ -307,24 +363,31 @@ export function SearchPage() {
 
                     <ScrollArea style={{ flex: 1, minHeight: 0 }} type="scroll">
                         <Stack p="md" gap="lg">
-                            {loading && (
+                            {isLoading && (
                                 <Group justify="center" py="xl">
                                     <Loader size="sm" />
                                 </Group>
                             )}
-                            {!loading && !debouncedQuery && (
+                            {!isLoading && !debouncedQuery && (
                                 <Stack align="center" gap="sm" py="xl">
                                     <IconSearch size={48} stroke={1.5} style={{ opacity: 0.5 }} />
                                     <Text c="dimmed">{t("search.noQuery")}</Text>
                                 </Stack>
                             )}
-                            {!loading && debouncedQuery && results.length === 0 && (
+                            {!isLoading && debouncedQuery && results.length === 0 && docResults.length === 0 && (
                                 <Text c="dimmed" ta="center" py="xl">
-                                    {t("search.noResults", { query: debouncedQuery })}
+                                    {segment === "docs"
+                                        ? t("search.noDocResults", { query: debouncedQuery })
+                                        : t("search.noResults", { query: debouncedQuery })}
                                 </Text>
                             )}
-                            {!loading && groups.length > 0 && (
+
+                            {/* Chat results */}
+                            {!loading && groups.length > 0 && segment !== "docs" && (
                                 <>
+                                    {segment === "all" && docGroups.length > 0 && (
+                                        <Text fw={600} size="sm" c="dimmed">{t("search.chatsSection")}</Text>
+                                    )}
                                     {groups.map((g) => (
                                         <Box key={g.chatId}>
                                             <Button
@@ -387,6 +450,67 @@ export function SearchPage() {
                                                     );
                                                 })}
                                             </Stack>
+                                        </Box>
+                                    ))}
+                                </>
+                            )}
+
+                            {/* Document results */}
+                            {!docLoading && docGroups.length > 0 && segment !== "chats" && (
+                                <>
+                                    {segment === "all" && groups.length > 0 && (
+                                        <Text fw={600} size="sm" c="dimmed" mt="md">{t("search.documentsSection")}</Text>
+                                    )}
+                                    {segment === "docs" && (
+                                        <Text fw={600} size="sm" c="dimmed">{t("search.documentsSection")}</Text>
+                                    )}
+                                    {docGroups.map((kbGroup) => (
+                                        <Box key={kbGroup.kbId}>
+                                            <Group gap="xs" mb={8}>
+                                                <IconDatabase size={16} stroke={1.5} style={{ opacity: 0.6 }} />
+                                                <Text size="xs" c="dimmed" fw={500}>{kbGroup.kbName}</Text>
+                                            </Group>
+                                            {kbGroup.documents.map((doc) => (
+                                                <Box key={doc.documentId} mb="sm">
+                                                    <Text size="xs" c="dimmed" fw={500} mb={4} ml={24}>
+                                                        {doc.documentName}
+                                                    </Text>
+                                                    <Stack gap="xs">
+                                                        {doc.chunks.map((chunk) => (
+                                                            <Box
+                                                                key={chunk.chunkId}
+                                                                style={{
+                                                                    padding: 12,
+                                                                    borderRadius: 8,
+                                                                    border: "1px solid var(--mantine-color-default-border)",
+                                                                    cursor: "pointer",
+                                                                    marginLeft: 24,
+                                                                }}
+                                                                onClick={() => handleDocChunkClick(chunk)}
+                                                            >
+                                                                <Group justify="space-between" wrap="nowrap" align="flex-start">
+                                                                    <Group wrap="nowrap" gap="sm" style={{ minWidth: 0, flex: 1 }}>
+                                                                        <IconFileText size={18} stroke={1.5} style={{ flexShrink: 0 }} />
+                                                                        <Text size="sm" lineClamp={3} style={{ minWidth: 0 }}>
+                                                                            {chunk.content.length > PREVIEW_MAX
+                                                                                ? `${chunk.content.slice(0, PREVIEW_MAX)}...`
+                                                                                : chunk.content}
+                                                                        </Text>
+                                                                    </Group>
+                                                                    <Badge size="sm" variant="light" color="orange">
+                                                                        {chunk.score.toFixed(2)}
+                                                                    </Badge>
+                                                                </Group>
+                                                                {chunk.headingHierarchy && (
+                                                                    <Text size="xs" c="dimmed" mt={4}>
+                                                                        {chunk.headingHierarchy}
+                                                                    </Text>
+                                                                )}
+                                                            </Box>
+                                                        ))}
+                                                    </Stack>
+                                                </Box>
+                                            ))}
                                         </Box>
                                     ))}
                                 </>

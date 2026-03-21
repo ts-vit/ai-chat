@@ -92,6 +92,7 @@ export function AppHeader({
     const [visibleCount, setVisibleCount] = useState(Infinity);
 
     const isAssistantMode = activeMode === "assistant";
+    const isNotebookMode = activeMode === "notebook";
 
     useEffect(() => {
         loadMcpConnections();
@@ -158,7 +159,13 @@ export function AppHeader({
         { id: "theme", icon: colorScheme === "dark" ? IconSun : IconMoon, tooltipKey: "sidebar.toggleTheme", onClick: () => toggleColorScheme() },
         { id: "terminal", icon: IconTerminal2, tooltipKey: "terminal.tooltip", onClick: onToggleTerminal, active: terminalOpen },
         { id: "settings", icon: IconSettings, tooltipKey: "sidebar.settings", onClick: () => setView("settings"), active: currentView === "settings" },
-    ], [isAssistantMode, currentView, colorScheme, terminalOpen, onNewChat, onToggleTerminal, setView, toggleColorScheme]);
+    ], [isAssistantMode, currentView, colorScheme, terminalOpen, onNewChat, onToggleTerminal, setView, toggleColorScheme])
+        .filter((btn) => {
+            if (!isNotebookMode) return true;
+            // In notebook mode, hide chat-specific buttons
+            const hiddenInNotebook = ["newChat", "newProjectOrFolder", "comparisons", "search", "snippets", "memory", "skills", "plans", "scheduler", "knowledgeBases"];
+            return !hiddenInNotebook.includes(btn.id);
+        });
 
     const visible = headerButtons.slice(0, visibleCount);
     const overflow = headerButtons.slice(visibleCount);
@@ -204,8 +211,16 @@ export function AppHeader({
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 4,
-                                padding: "4px 8px",
+                                paddingTop: 4,
+                                paddingBottom: 4,
+                                paddingRight: 8,
+                                paddingLeft: (activeMode === "assistant" || activeMode === "notebook") ? 6 : 8,
                                 borderRadius: "var(--mantine-radius-sm)",
+                                ...(activeMode === "assistant" ? {
+                                    borderLeft: "2px solid var(--mantine-color-teal-5)",
+                                } : activeMode === "notebook" ? {
+                                    borderLeft: "2px solid var(--mantine-color-violet-5)",
+                                } : {}),
                             }}
                         >
                             <currentModeDefinition.icon size={16} stroke={1.5} />

@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
+    Badge,
     Box,
     Button,
     Collapse,
@@ -15,6 +16,7 @@ import {
     Text,
     Textarea,
     TextInput,
+    Loader,
     Tooltip,
     useMantineColorScheme,
 } from "@mantine/core";
@@ -28,10 +30,12 @@ import {
     IconFolderFilled,
     IconMessages,
     IconPencil,
+    IconPlayerStop,
     IconPlus,
     IconTrash,
     IconTarget,
     IconLayoutBoard,
+    IconX,
 } from "@tabler/icons-react";
 import { FOLDER_COLORS } from "../constants/folderColors";
 import { useChatStore } from "../store/chatStore";
@@ -46,6 +50,24 @@ interface SidebarProps {
     style?: React.CSSProperties;
     compact?: boolean;
     onNewChat: (projectId?: string) => void;
+}
+
+function ChatStatusIcon({ status }: { status?: string | null }) {
+    if (!status) return null;
+    switch (status) {
+        case "completed":
+            return <IconCheck size={12} color="var(--mantine-color-green-5)" />;
+        case "running":
+            return <Loader size={12} color="var(--mantine-color-teal-5)" />;
+        case "failed":
+            return <IconX size={12} color="var(--mantine-color-red-5)" />;
+        case "cancelled":
+            return <IconPlayerStop size={12} color="var(--mantine-color-yellow-5)" />;
+        case "paused_budget":
+            return <IconPlayerStop size={12} color="var(--mantine-color-orange-5)" />;
+        default:
+            return null;
+    }
 }
 
 function ChatRow({
@@ -92,6 +114,7 @@ function ChatRow({
                 <NavLink
                 active={chat.id === activeChatId}
                 label={chat.title}
+                rightSection={chat.mode === "assistant" ? <ChatStatusIcon status={chat.lastRunStatus} /> : undefined}
                 description={
                     chat.updatedAt != null ? (
                         <Text component="span" size="xs" c="dimmed">
@@ -171,6 +194,9 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
         openProjectDashboard,
     } = useChatStore();
     const activeMode = useChatStore((s) => s.activeMode);
+    const agentMemories = useChatStore((s) => s.agentMemories);
+    const knowledgeBases = useChatStore((s) => s.knowledgeBases);
+    const skills = useChatStore((s) => s.skills);
 
     const isAssistantMode = activeMode === "assistant";
     const modeChats = chats.filter((c) => (c.mode ?? "chat") === activeMode);
@@ -644,6 +670,11 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
                                 )}
                             </Group>
                         </div>
+                        {isExpanded && project.goal && (
+                            <Text size="xs" c="dimmed" pl={34} lineClamp={1} mb={2}>
+                                {project.goal}
+                            </Text>
+                        )}
                         <Collapse in={isExpanded}>
                             <Box pl="md" pr="xs">
                                 {renderChatList(
@@ -900,6 +931,22 @@ export function Sidebar({ width = 260, style, compact = false, onNewChat }: Side
             {!compact && (
                 <Box style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }} p="xs">
                     {mainContent}
+                </Box>
+            )}
+
+            {!compact && isAssistantMode && (
+                <Box p="xs" style={{ borderTop: "1px solid var(--mantine-color-default-border)", flexShrink: 0 }}>
+                    <Group gap="xs" justify="center">
+                        <Tooltip label={t("assistantDashboard.contextMemories")}>
+                            <Badge size="xs" variant="light" color="teal">{agentMemories.length} mem</Badge>
+                        </Tooltip>
+                        <Tooltip label={t("assistantDashboard.contextKBs")}>
+                            <Badge size="xs" variant="light" color="teal">{knowledgeBases.length} KB</Badge>
+                        </Tooltip>
+                        <Tooltip label={t("assistantDashboard.contextSkills")}>
+                            <Badge size="xs" variant="light" color="teal">{skills.length} skills</Badge>
+                        </Tooltip>
+                    </Group>
                 </Box>
             )}
 

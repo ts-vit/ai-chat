@@ -42,3 +42,5 @@ pub mod embedding_gemini;
 pub mod reranker_provider;
 pub mod reranker_cohere;
 pub mod reranker_jina;
+pub mod context_manager;
+pub mod spawn_tracker;

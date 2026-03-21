@@ -109,6 +109,7 @@ export interface Chat {
     negativePrompt?: string | null;
     mode?: string;
     autoSkillDetection?: boolean;
+    lastRunStatus?: string | null;
 }
 
 export interface ImageStyle {
@@ -590,6 +591,48 @@ export interface AgentRunLimitPayload {
 
 export type AgentStatus = "idle" | "running" | "paused" | "completed" | "failed" | "cancelled";
 
+// Agent Trace types
+export interface AgentRunTrace {
+    runId: string;
+    chatId: string;
+    model: string;
+    startedAt: number;
+    finishedAt: number | null;
+    status: string;
+    totalSteps: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+    totalCost: number;
+    terminationReason: string | null;
+    steps: AgentStepTrace[];
+}
+
+export interface AgentStepTrace {
+    step: number;
+    startedAt: number;
+    durationMs: number;
+    llmCall: LlmCallTrace;
+    toolCalls: ToolCallTrace[];
+}
+
+export interface LlmCallTrace {
+    inputTokens: number;
+    outputTokens: number;
+    cost: number;
+    durationMs: number;
+    hadToolCalls: boolean;
+    responsePreview: string;
+}
+
+export interface ToolCallTrace {
+    toolName: string;
+    argumentsPreview: string;
+    resultPreview: string;
+    durationMs: number;
+    isError: boolean;
+    isBuiltin: boolean;
+}
+
 // Agent Memory types
 export interface AgentMemory {
     id: string;
@@ -805,6 +848,29 @@ export interface KbSearchResultItem {
     chunkIndex: number;
     score: number;
     metadata: Record<string, unknown>;
+}
+
+export interface KbDocSearchResult {
+    chunkId: string;
+    kbId: string;
+    kbName: string;
+    documentId: string;
+    documentName: string;
+    content: string;
+    chunkIndex: number;
+    score: number;
+    headingHierarchy?: string;
+}
+
+export interface Notebook {
+    id: string;
+    name: string;
+    description: string;
+    kbId: string | null;
+    documentCount: number;
+    totalChunks: number;
+    createdAt: number;
+    updatedAt: number;
 }
 
 export interface RagSource {

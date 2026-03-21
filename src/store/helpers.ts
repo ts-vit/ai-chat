@@ -38,6 +38,7 @@ export interface DbChatResponse {
     imageN?: number | null;
     negativePrompt?: string | null;
     mode?: string;
+    lastRunStatus?: string | null;
 }
 
 export interface DbMessageResponse {
@@ -216,6 +217,7 @@ export async function reloadChatMessages(
 export const _initModeState: ModeStateMap = JSON.parse(localStorage.getItem('uni-mode-state') ?? 'null') ?? {
     chat: { activeChatId: null, activeComparisonId: null },
     assistant: { activeChatId: null, activeComparisonId: null },
+    notebook: { activeChatId: null, activeComparisonId: null },
 };
 
 export const _initActiveMode = localStorage.getItem('uni-active-mode') ?? 'chat';

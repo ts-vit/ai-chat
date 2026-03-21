@@ -11,6 +11,8 @@ import type {
     AgentStepPayload,
     AgentRunFinishedPayload,
     AgentRunLimitPayload,
+    AgentRunTrace,
+    AgentStepTrace,
     Skill,
     AgentPlan,
     AgentTask,
@@ -51,12 +53,17 @@ export interface AgentSlice {
     showPlanPanel: boolean;
     allPlans: AgentPlan[];
     scheduledTasks: ScheduledTask[];
+    contextUsage: { ratio: number; tokens: number; limit: number; trimmed: boolean } | null;
+    agentTrace: AgentStepTrace[];
+    showTracePanel: boolean;
 
     // Actions — Agent
     sendAgentMessage: (content: string) => Promise<void>;
     cancelAgentRun: () => Promise<void>;
     cancelSubAgentRun: (runId: string) => Promise<void>;
     resumeAgentRun: () => Promise<void>;
+    setShowTracePanel: (show: boolean) => void;
+    loadAgentRunTrace: (runId: string) => Promise<AgentRunTrace | null>;
 
     // Actions — Agent Memory
     loadAgentMemories: (category?: string, searchText?: string) => Promise<void>;
@@ -67,7 +74,7 @@ export interface AgentSlice {
 
     // Actions — Workspace
     setShowWorkspacePanel: (show: boolean) => void;
-    loadWorkspaceArtifacts: (chatId: string) => Promise<void>;
+    loadWorkspaceArtifacts: (chatId: string, projectId?: string | null) => Promise<void>;
     createWorkspaceArtifact: (chatId: string, name: string, contentType: string, content: string) => Promise<void>;
     updateWorkspaceArtifact: (id: string, name?: string, content?: string) => Promise<void>;
     deleteWorkspaceArtifact: (id: string) => Promise<void>;
@@ -134,6 +141,9 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
     showPlanPanel: false,
     allPlans: [],
     scheduledTasks: [],
+    contextUsage: null,
+    agentTrace: [],
+    showTracePanel: false,
 
     // ─── Agent actions ───────────────────────────────────────────
 
@@ -228,7 +238,13 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
                         agentStatus: "running",
                         agentIteration: 0,
                         agentMaxIterations: event.payload.maxIterations,
+                        agentTrace: [],
                     });
+                    // Update chat lastRunStatus to running
+                    const updatedChats = get().chats.map((c) =>
+                        c.id === chatId ? { ...c, lastRunStatus: "running" } : c
+                    );
+                    set({ chats: updatedChats });
                     try {
                         const runs = await invoke<AgentRun[]>("get_agent_runs", { chatId });
                         const run = runs?.find((r) => r.id === event.payload.runId) ?? null;
@@ -344,7 +360,8 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
             unlisteners.push(
                 await listen<StreamDonePayload>("agent-stream-done", () => {
                     agentStreamAccum = "";
-                    // Don't reload here — agent-run-finished will reload after DB commit
+                    const cid = get().activeChatId;
+                    if (cid) reloadChatMessages(cid, get, set);
                     set({
                         isStreaming: false,
                         agentToolCalls: [],
@@ -383,7 +400,15 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
             );
 
             unlisteners.push(
-                await listen<AgentRunFinishedPayload>("agent-run-finished", () => {
+                await listen<AgentStepTrace>("agent-step-trace", (event) => {
+                    set((state) => ({
+                        agentTrace: [...state.agentTrace, event.payload],
+                    }));
+                })
+            );
+
+            unlisteners.push(
+                await listen<AgentRunFinishedPayload>("agent-run-finished", (event) => {
                     agentStreamAccum = "";
                     set({
                         isStreaming: false,
@@ -393,13 +418,22 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
                         agentToolCalls: [],
                         agentIteration: 0,
                         agentMaxIterations: 25,
+                        contextUsage: null,
                     });
-                    // 2. Reload messages with small delay to ensure DB commit is flushed
+                    // Update chat's lastRunStatus in store
                     const cid = get().activeChatId;
+                    if (cid && event.payload?.status) {
+                        const updatedChats = get().chats.map((c) =>
+                            c.id === cid ? { ...c, lastRunStatus: event.payload.status } : c
+                        );
+                        set({ chats: updatedChats });
+                    }
+                    // Reload messages from DB (DB write is already committed before this event)
                     if (cid) {
-                        setTimeout(() => {
-                            reloadChatMessages(cid, get, set);
-                        }, 150);
+                        reloadChatMessages(cid, get, set);
+                        // Also reload workspace artifacts in case agent used workspace_write
+                        const chatForWs = get().chats.find((c) => c.id === cid);
+                        void get().loadWorkspaceArtifacts(cid, chatForWs?.projectId);
                     }
                     // Cleanup listeners
                     for (const unlisten of unlisteners) unlisten();
@@ -409,6 +443,19 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
             unlisteners.push(
                 await listen<AgentRunLimitPayload>("agent-run-limit", () => {
                     notify.warning(i18n.t("agent.maxIterationsReached"));
+                })
+            );
+
+            unlisteners.push(
+                await listen<{ usageRatio: number; totalTokens: number; modelLimit: number; wasTrimmed: boolean }>("agent-context-usage", (event) => {
+                    set({
+                        contextUsage: {
+                            ratio: event.payload.usageRatio,
+                            tokens: event.payload.totalTokens,
+                            limit: event.payload.modelLimit,
+                            trimmed: event.payload.wasTrimmed,
+                        },
+                    });
                 })
             );
 
@@ -480,6 +527,21 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
         }
     },
 
+    setShowTracePanel: (show: boolean) => set({ showTracePanel: show }),
+
+    loadAgentRunTrace: async (runId: string) => {
+        try {
+            const trace = await invoke<AgentRunTrace | null>("get_agent_run_trace", { runId });
+            if (trace) {
+                set({ agentTrace: trace.steps });
+            }
+            return trace;
+        } catch (e) {
+            console.error("Failed to load agent run trace:", e);
+            return null;
+        }
+    },
+
     // ─── Agent Memory ──────────────────────────────────────────
 
     loadAgentMemories: async (category, searchText) => {
@@ -543,10 +605,11 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
 
     setShowWorkspacePanel: (show) => set({ showWorkspacePanel: show }),
 
-    loadWorkspaceArtifacts: async (chatId) => {
+    loadWorkspaceArtifacts: async (chatId, explicitProjectId?) => {
         try {
-            const chat = get().chats.find((c) => c.id === chatId);
-            const projectId = chat?.projectId ?? undefined;
+            const projectId = explicitProjectId !== undefined
+                ? (explicitProjectId ?? undefined)
+                : (get().chats.find((c) => c.id === chatId)?.projectId ?? undefined);
             const list = await invoke<WorkspaceArtifact[]>("list_workspace_artifacts", { chatId, projectId });
             set({ workspaceArtifacts: list ?? [] });
         } catch (e) {
@@ -996,11 +1059,13 @@ export const createAgentSlice = (set: Set, get: Get): AgentSlice => ({
             if (!state.activeChatId) return;
             // Refresh if this is our chat, or if we share the same project
             if (state.activeChatId === chatId) {
-                void state.loadWorkspaceArtifacts(chatId);
+                void state.loadWorkspaceArtifacts(chatId, projectId);
+                if (!state.showWorkspacePanel) set({ showWorkspacePanel: true });
             } else if (projectId) {
                 const activeChat = state.chats.find((c) => c.id === state.activeChatId);
                 if (activeChat?.projectId === projectId) {
-                    void state.loadWorkspaceArtifacts(state.activeChatId);
+                    void state.loadWorkspaceArtifacts(state.activeChatId, projectId);
+                    if (!state.showWorkspacePanel) set({ showWorkspacePanel: true });
                 }
             }
         });

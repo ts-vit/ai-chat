@@ -324,7 +324,8 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
             }
         }
         // Load plan and workspace for assistant mode chats
-        if (activeMode === "assistant") {
+        const chatForMode = get().chats.find((c) => c.id === id);
+        if (activeMode === "assistant" || chatForMode?.mode === "assistant") {
             get().loadPlanForChat(id);
             get().loadWorkspaceArtifacts(id);
         }
@@ -358,6 +359,7 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
                 imageN: c.imageN ?? undefined,
                 negativePrompt: c.negativePrompt ?? undefined,
                 mode: c.mode ?? "chat",
+                lastRunStatus: c.lastRunStatus ?? null,
             }));
             set({ chats });
         } catch (e) {
@@ -540,6 +542,8 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
     // ── sendMessage ───────────────────────────────────────
 
     sendMessage: async (content: string) => {
+        if (get().isStreaming) return;
+
         const { settings, activeChatId, chats, customProviders, webSearchEnabled } = get();
 
         if (!activeChatId) return;
@@ -559,6 +563,7 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
         }
 
         const now = Math.floor(Date.now() / 1000);
+        set({ isStreaming: true });
 
         try {
             content = await resolveInjections(content);
@@ -862,7 +867,16 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
 
             unlisteners.push(
                 await listen<StreamDonePayload>("chat-stream-done", (event) => {
-                    const fullContent = event.payload.full_content;
+                    let fullContent = event.payload.full_content;
+                    // Fallback: if backend sends empty full_content but we have
+                    // streamed content in the store, keep the streamed version
+                    if (!fullContent) {
+                        const chat = get().chats.find((c) => c.id === activeChatId);
+                        const existing = chat?.messages.find((m) => m.id === assistantMsg.id);
+                        if (existing?.content) {
+                            fullContent = extractTextContent(existing.content);
+                        }
+                    }
                     let contentToSave: string;
                     if (streamImagePaths.length > 0) {
                         const sorted = [...streamImagePaths].sort((a, b) => a.index - b.index);
@@ -1320,7 +1334,16 @@ export const createChatSlice = (set: Set, get: Get): ChatSlice => ({
 
             unlisteners.push(
                 await listen<StreamDonePayload>("chat-stream-done", (event) => {
-                    const fullContentEdit = event.payload.full_content;
+                    let fullContentEdit = event.payload.full_content;
+                    // Fallback: if backend sends empty full_content but we have
+                    // streamed content in the store, keep the streamed version
+                    if (!fullContentEdit) {
+                        const chat = get().chats.find((c) => c.id === activeChatId);
+                        const existing = chat?.messages.find((m) => m.id === assistantMsg.id);
+                        if (existing?.content) {
+                            fullContentEdit = extractTextContent(existing.content);
+                        }
+                    }
                     let contentToSaveEdit: string;
                     if (streamImagePathsEdit.length > 0) {
                         const sorted = [...streamImagePathsEdit].sort((a, b) => a.index - b.index);

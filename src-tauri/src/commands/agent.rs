@@ -23,6 +23,8 @@ use crate::services::web_content;
 use crate::services::kb_vector_store::KbVectorStore;
 use crate::services::kb_search::KbSearchConfig;
 use crate::services::rag_context;
+use crate::services::context_manager;
+use crate::models::agent_trace::{AgentRunTrace, AgentStepTrace, LlmCallTrace, ToolCallTrace, safe_truncate, is_builtin_tool};
 
 type Pool = sqlx::SqlitePool;
 
@@ -431,6 +433,29 @@ pub async fn get_sub_agent_runs(
     Ok(runs)
 }
 
+#[tauri::command]
+pub async fn get_agent_run_trace(
+    pool: State<'_, Pool>,
+    run_id: String,
+) -> Result<Option<AgentRunTrace>, String> {
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT trace FROM agent_runs WHERE id = ?"
+    )
+    .bind(&run_id)
+    .fetch_optional(pool.inner())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    match row {
+        Some((Some(trace_json),)) => {
+            let trace: AgentRunTrace = serde_json::from_str(&trace_json)
+                .map_err(|e| e.to_string())?;
+            Ok(Some(trace))
+        }
+        _ => Ok(None),
+    }
+}
+
 // ─── Agent Loop ──────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
@@ -464,6 +489,13 @@ pub(crate) async fn agent_loop(
     depth: i64,
 ) {
     let skip_branching = scope_agent_run_id.is_some();
+
+    // Spawn tracker: prevents orchestrator from endlessly spawning failing sub-agents
+    let mut spawn_tracker = if depth == 0 {
+        Some(crate::services::spawn_tracker::SpawnTracker::new(10, 2))
+    } else {
+        None
+    };
 
     // Resolve project context for this chat
     let project_id: Option<String> = sqlx::query_scalar(
@@ -658,7 +690,7 @@ pub(crate) async fn agent_loop(
 
     // Append orchestrator guidance (depth 0 only) — prefer direct tools over sub-agents for simple tasks
     let system_prompt = if depth == 0 {
-        let orchestrator_hint = "\n\nIMPORTANT: Use your direct tools for simple tasks. Do NOT spawn sub-agents for tasks you can do yourself:\n- Use web_search/web_read directly for internet searches\n- Use memory_save/memory_search directly for managing memory\n- Use workspace_write/workspace_read/workspace_list directly for artifacts\n- Use kb_search directly for knowledge base lookups\n\nOnly spawn sub-agents for complex multi-step tasks that benefit from parallel execution or a dedicated agent with specific skills/model.";
+        let orchestrator_hint = "\n\nTool usage strategy:\n- For simple lookups (search memory, search KB, search web): use the tool directly. Do NOT spawn a sub-agent for a single search.\n- For reading a webpage: use web_read directly.\n- For saving a fact: use memory_save directly.\n- For writing a document: use workspace_write directly.\n- Spawn a sub-agent ONLY when:\n  a) The task requires multiple sequential steps (research \u{2192} analyze \u{2192} write)\n  b) Multiple independent tasks can run in parallel\n  c) The task needs a specialized skill or different model\n- After spawning sub-agents, WAIT before checking status. Sub-agents need at least 30 seconds to complete meaningful work. Spawn all needed sub-agents first, do other work, then check their status.";
         Some(system_prompt.unwrap_or_default() + orchestrator_hint)
     } else {
         system_prompt
@@ -669,6 +701,12 @@ pub(crate) async fn agent_loop(
         let date_str = chrono::Local::now().format("%Y-%m-%d %A").to_string();
         let date_line = format!("\n\nCurrent date: {}.", date_str);
         Some(system_prompt.unwrap_or_default() + &date_line)
+    };
+
+    // Inject tool routing hint — helps the model choose the right search tool
+    let system_prompt = {
+        let routing = build_tool_routing_hint(kb_id.is_some(), web_search_enabled, true);
+        if routing.is_empty() { system_prompt } else { Some(system_prompt.unwrap_or_default() + &routing) }
     };
 
     let base = base_url
@@ -687,7 +725,7 @@ pub(crate) async fn agent_loop(
     let client = match build_http_client(&app, None).await {
         Ok(c) => c,
         Err(e) => {
-            finish_run(&app, &pool, &run_id, "failed", 0, Some(e)).await;
+            finish_run(&app, &pool, &run_id, &chat_id, "failed", 0, Some(e), None).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
             return;
         }
@@ -748,18 +786,21 @@ pub(crate) async fn agent_loop(
     let mut iteration: i64 = 0;
     let mut last_parent_id = last_user_msg_id;
     let mut accumulated_content = String::new();
+    let mut run_trace = AgentRunTrace::new(run_id.clone(), chat_id.clone(), model.clone(), chrono::Utc::now().timestamp());
 
     loop {
         // Check cancellation
         if cancel_token.is_cancelled() {
-            finish_run(&app, &pool, &run_id, "cancelled", iteration, None).await;
+            run_trace.finish("cancelled", None);
+            finish_run(&app, &pool, &run_id, &chat_id, "cancelled", iteration, None, Some(&run_trace)).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
             return;
         }
 
         // Check budget before this LLM call
         if let Err(_) = check_budget(&pool, &app, &chat_id, plan_id.as_deref()).await {
-            finish_run(&app, &pool, &run_id, "paused_budget", iteration, None).await;
+            run_trace.finish("paused_budget", None);
+            finish_run(&app, &pool, &run_id, &chat_id, "paused_budget", iteration, None, Some(&run_trace)).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
             return;
         }
@@ -771,12 +812,15 @@ pub(crate) async fn agent_loop(
                 iteration,
                 max_iterations,
             });
-            finish_run(&app, &pool, &run_id, "completed", iteration, Some("Max iterations reached".to_string())).await;
+            run_trace.finish("completed", Some("max_steps".to_string()));
+            finish_run(&app, &pool, &run_id, &chat_id, "completed", iteration, Some("Max iterations reached".to_string()), Some(&run_trace)).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
             return;
         }
 
         iteration += 1;
+        let step_start = std::time::Instant::now();
+        let step_started_at = chrono::Utc::now().timestamp();
 
         // Emit step start
         log::info!("Agent iteration {} starting LLM call for run {}", iteration, run_id);
@@ -791,11 +835,35 @@ pub(crate) async fn agent_loop(
             Ok(m) => m,
             Err(e) => {
                 let _ = app.emit("agent-stream-error", StreamErrorPayload { error: e.clone() });
-                finish_run(&app, &pool, &run_id, "failed", iteration, Some(e)).await;
+                run_trace.finish("failed", None);
+                finish_run(&app, &pool, &run_id, &chat_id, "failed", iteration, Some(e), Some(&run_trace)).await;
                 cleanup_cancel_token(&cancel_tokens, &run_id).await;
                 return;
             }
         };
+
+        // Trim messages to fit context window
+        let trim_config = context_manager::TrimConfig {
+            model_context_limit: context_manager::get_model_context_limit(&model),
+            ..Default::default()
+        };
+        let trim_result = context_manager::trim_messages(&messages, &trim_config);
+        if trim_result.was_trimmed {
+            eprintln!(
+                "[Agent] Context trimmed: {} → {} messages, {} → {} tokens ({:.0}% of {})",
+                trim_result.original_count, trim_result.trimmed_count,
+                trim_result.original_tokens, trim_result.final_tokens,
+                trim_result.usage_ratio * 100.0, trim_config.model_context_limit
+            );
+        }
+        let _ = app.emit("agent-context-usage", serde_json::json!({
+            "runId": run_id,
+            "usageRatio": trim_result.usage_ratio,
+            "totalTokens": trim_result.final_tokens,
+            "modelLimit": trim_config.model_context_limit,
+            "wasTrimmed": trim_result.was_trimmed,
+        }));
+        let messages = trim_result.messages;
 
         // Build request body
         let mut body = serde_json::json!({
@@ -834,7 +902,8 @@ pub(crate) async fn agent_loop(
                 let _ = app.emit("agent-stream-done", StreamDonePayload {
                     full_content: accumulated_content.clone(),
                 });
-                finish_run(&app, &pool, &run_id, "cancelled", iteration, None).await;
+                run_trace.finish("cancelled", Some("cancelled".to_string()));
+                finish_run(&app, &pool, &run_id, &chat_id, "cancelled", iteration, None, Some(&run_trace)).await;
                 cleanup_cancel_token(&cancel_tokens, &run_id).await;
                 return;
             }
@@ -843,11 +912,13 @@ pub(crate) async fn agent_loop(
                     reqwest::StatusCode::INTERNAL_SERVER_ERROR, &e, &model
                 );
                 let _ = app.emit("agent-stream-error", StreamErrorPayload { error: user_error.clone() });
-                finish_run(&app, &pool, &run_id, "failed", iteration, Some(user_error)).await;
+                run_trace.finish("failed", None);
+                finish_run(&app, &pool, &run_id, &chat_id, "failed", iteration, Some(user_error), Some(&run_trace)).await;
                 cleanup_cancel_token(&cancel_tokens, &run_id).await;
                 return;
             }
             Ok(stream_result) => {
+                let llm_duration_ms = step_start.elapsed().as_millis() as u64;
                 log::info!("Agent iteration {} LLM call complete, tool_calls: {}, content_len: {}",
                     iteration, stream_result.tool_calls.len(), stream_result.content.len());
                 accumulated_content.push_str(&stream_result.content);
@@ -868,6 +939,16 @@ pub(crate) async fn agent_loop(
                 let provider = provider_from_base_url(&base);
                 let cat_id = catalog_id(provider, &model);
                 let cost = compute_cost_from_catalog(&pool, &cat_id, pt, ct).await;
+
+                let llm_trace = LlmCallTrace {
+                    input_tokens: pt as usize,
+                    output_tokens: ct as usize,
+                    cost,
+                    duration_ms: llm_duration_ms,
+                    had_tool_calls: !stream_result.tool_calls.is_empty(),
+                    response_preview: safe_truncate(&stream_result.content, 200),
+                };
+                let mut step_tool_traces: Vec<ToolCallTrace> = Vec::new();
 
                 let _ = sqlx::query(
                     "INSERT INTO messages (id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments, agent_step, agent_run_id) VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)"
@@ -923,10 +1004,26 @@ pub(crate) async fn agent_loop(
 
                 // No tool calls → agent is done
                 if stream_result.tool_calls.is_empty() {
+                    let step_trace = AgentStepTrace {
+                        step: iteration as usize,
+                        started_at: step_started_at,
+                        duration_ms: step_start.elapsed().as_millis() as u64,
+                        llm_call: llm_trace,
+                        tool_calls: step_tool_traces,
+                    };
+                    let _ = app.emit("agent-step-trace", &step_trace);
+                    run_trace.add_step(step_trace);
+                    run_trace.finish("completed", Some("natural".to_string()));
+                    // Emit step-done for the final iteration so frontend reloads DB messages
+                    let _ = app.emit("agent-step-done", AgentStepPayload {
+                        run_id: run_id.clone(),
+                        chat_id: chat_id.clone(),
+                        iteration,
+                    });
                     let _ = app.emit("agent-stream-done", StreamDonePayload {
                         full_content: accumulated_content,
                     });
-                    finish_run(&app, &pool, &run_id, "completed", iteration, None).await;
+                    finish_run(&app, &pool, &run_id, &chat_id, "completed", iteration, None, Some(&run_trace)).await;
                     cleanup_cancel_token(&cancel_tokens, &run_id).await;
                     // Auto-extract memories in background
                     let ext_app = app.clone();
@@ -947,7 +1044,8 @@ pub(crate) async fn agent_loop(
                 let mut tool_parent_id = asst_msg_id.clone();
                 for tool_call in &stream_result.tool_calls {
                     if cancel_token.is_cancelled() {
-                        finish_run(&app, &pool, &run_id, "cancelled", iteration, None).await;
+                        run_trace.finish("cancelled", Some("cancelled".to_string()));
+                        finish_run(&app, &pool, &run_id, &chat_id, "cancelled", iteration, None, Some(&run_trace)).await;
                         cleanup_cancel_token(&cancel_tokens, &run_id).await;
                         return;
                     }
@@ -964,6 +1062,8 @@ pub(crate) async fn agent_loop(
                     let args: serde_json::Value =
                         serde_json::from_str(&tool_call.arguments).unwrap_or(serde_json::json!({}));
 
+                    let tool_start = std::time::Instant::now();
+
                     // Intercept built-in tools (memory + workspace + orchestrator)
                     let (result_text, is_error) = if tool_call.name == "memory_save" || tool_call.name == "memory_search" {
                         handle_memory_tool(&pool, mem_store.as_ref().as_ref(), &tool_call.name, &args, Some(&chat_id), project_id.as_deref()).await
@@ -977,11 +1077,74 @@ pub(crate) async fn agent_loop(
                         }
                         res
                     } else if tool_call.name == "spawn_agent" || tool_call.name == "check_agent" || tool_call.name == "get_agent_result" || tool_call.name == "cancel_agent" {
-                        handle_orchestrator_tool(
-                            app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), kb_store.clone(), cancel_tokens.clone(),
-                            chat_id.clone(), run_id.clone(), api_key.clone(), base.clone(),
-                            model.clone(), depth, &tool_call.name, &args,
-                        ).await
+                        // Delegation loop prevention: check spawn limits before spawning
+                        if tool_call.name == "spawn_agent" {
+                            if let Some(ref tracker) = spawn_tracker {
+                                if let Some(warning) = tracker.check_limits() {
+                                    let msg = crate::services::spawn_tracker::SpawnTracker::format_warning(&warning);
+                                    (msg, true)
+                                } else {
+                                    let goal = args.get("goal").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    let res = handle_orchestrator_tool(
+                                        app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), kb_store.clone(), cancel_tokens.clone(),
+                                        chat_id.clone(), run_id.clone(), api_key.clone(), base.clone(),
+                                        model.clone(), depth, &tool_call.name, &args,
+                                    ).await;
+                                    if !res.1 {
+                                        if let Some(ref mut tracker) = spawn_tracker {
+                                            tracker.record_spawn(&goal, iteration);
+                                        }
+                                    }
+                                    res
+                                }
+                            } else {
+                                handle_orchestrator_tool(
+                                    app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), kb_store.clone(), cancel_tokens.clone(),
+                                    chat_id.clone(), run_id.clone(), api_key.clone(), base.clone(),
+                                    model.clone(), depth, &tool_call.name, &args,
+                                ).await
+                            }
+                        } else if tool_call.name == "get_agent_result" {
+                            let res = handle_orchestrator_tool(
+                                app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), kb_store.clone(), cancel_tokens.clone(),
+                                chat_id.clone(), run_id.clone(), api_key.clone(), base.clone(),
+                                model.clone(), depth, &tool_call.name, &args,
+                            ).await;
+                            // Track sub-agent result status for loop detection
+                            if !res.1 {
+                                if let Some(ref mut tracker) = spawn_tracker {
+                                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&res.0) {
+                                        if let (Some(status), Some(_)) = (
+                                            parsed.get("status").and_then(|v| v.as_str()),
+                                            parsed.get("agent_run_id"),
+                                        ) {
+                                            // Find goal from spawn_config in DB or use run_id to match
+                                            // For simplicity, we track by looking up the spawn record via DB
+                                            let target = args.get("agent_run_id").and_then(|v| v.as_str()).unwrap_or("");
+                                            if let Ok(Some(row)) = sqlx::query(
+                                                "SELECT spawn_config FROM agent_runs WHERE id = ?"
+                                            ).bind(target).fetch_optional(&pool).await {
+                                                let config_json: Option<String> = row.try_get("spawn_config").ok();
+                                                if let Some(config_str) = config_json {
+                                                    if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_str) {
+                                                        if let Some(goal) = config.get("goal").and_then(|v| v.as_str()) {
+                                                            tracker.record_result(goal, status);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            res
+                        } else {
+                            handle_orchestrator_tool(
+                                app.clone(), pool.clone(), mcp_mgr.clone(), mem_store.clone(), kb_store.clone(), cancel_tokens.clone(),
+                                chat_id.clone(), run_id.clone(), api_key.clone(), base.clone(),
+                                model.clone(), depth, &tool_call.name, &args,
+                            ).await
+                        }
                     } else if tool_call.name == "web_search" || tool_call.name == "web_read" {
                         handle_web_search_tool(&app, &tool_call.name, &args, &web_search_provider, ws_tavily_key.as_deref(), ws_brave_key.as_deref()).await
                     } else if tool_call.name == "kb_search" {
@@ -1000,6 +1163,16 @@ pub(crate) async fn agent_loop(
                             Err(e) => (e.to_string(), true),
                         }
                     };
+
+                    let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
+                    step_tool_traces.push(ToolCallTrace {
+                        tool_name: tool_call.name.clone(),
+                        arguments_preview: safe_truncate(&tool_call.arguments, 200),
+                        result_preview: safe_truncate(&result_text, 200),
+                        duration_ms: tool_duration_ms,
+                        is_error,
+                        is_builtin: is_builtin_tool(&tool_call.name),
+                    });
 
                     let _ = app.emit("agent-tool-result", StreamToolResultPayload {
                         tool_call_id: tool_call.id.clone(),
@@ -1049,6 +1222,17 @@ pub(crate) async fn agent_loop(
                     tool_parent_id = tool_msg_id;
                 }
 
+                // Build and emit step trace
+                let step_trace = AgentStepTrace {
+                    step: iteration as usize,
+                    started_at: step_started_at,
+                    duration_ms: step_start.elapsed().as_millis() as u64,
+                    llm_call: llm_trace,
+                    tool_calls: step_tool_traces,
+                };
+                let _ = app.emit("agent-step-trace", &step_trace);
+                run_trace.add_step(step_trace);
+
                 // Update last_parent_id for next iteration
                 last_parent_id = tool_parent_id;
 
@@ -1059,8 +1243,10 @@ pub(crate) async fn agent_loop(
                         chat_id: chat_id.clone(),
                         iteration,
                     });
-                    let _ = sqlx::query("UPDATE agent_runs SET status = 'paused', iterations = ? WHERE id = ?")
-                        .bind(iteration).bind(&run_id)
+                    // Save trace so far for resume to pick up
+                    let trace_json = serde_json::to_string(&run_trace).unwrap_or_default();
+                    let _ = sqlx::query("UPDATE agent_runs SET status = 'paused', iterations = ?, trace = ? WHERE id = ?")
+                        .bind(iteration).bind(&trace_json).bind(&run_id)
                         .execute(&pool).await;
                     // Don't cleanup cancel token — resume will use it
                     return;
@@ -1230,7 +1416,7 @@ async fn agent_loop_resume(
 
     // Append orchestrator guidance — resume is always depth 0 (sub-agents run in auto mode and never pause)
     let system_prompt = {
-        let orchestrator_hint = "\n\nIMPORTANT: Use your direct tools for simple tasks. Do NOT spawn sub-agents for tasks you can do yourself:\n- Use web_search/web_read directly for internet searches\n- Use memory_save/memory_search directly for managing memory\n- Use workspace_write/workspace_read/workspace_list directly for artifacts\n- Use kb_search directly for knowledge base lookups\n\nOnly spawn sub-agents for complex multi-step tasks that benefit from parallel execution or a dedicated agent with specific skills/model.";
+        let orchestrator_hint = "\n\nTool usage strategy:\n- For simple lookups (search memory, search KB, search web): use the tool directly. Do NOT spawn a sub-agent for a single search.\n- For reading a webpage: use web_read directly.\n- For saving a fact: use memory_save directly.\n- For writing a document: use workspace_write directly.\n- Spawn a sub-agent ONLY when:\n  a) The task requires multiple sequential steps (research \u{2192} analyze \u{2192} write)\n  b) Multiple independent tasks can run in parallel\n  c) The task needs a specialized skill or different model\n- After spawning sub-agents, WAIT before checking status. Sub-agents need at least 30 seconds to complete meaningful work. Spawn all needed sub-agents first, do other work, then check their status.";
         Some(system_prompt.unwrap_or_default() + orchestrator_hint)
     };
 
@@ -1241,12 +1427,18 @@ async fn agent_loop_resume(
         Some(system_prompt.unwrap_or_default() + &date_line)
     };
 
+    // Inject tool routing hint — helps the model choose the right search tool
+    let system_prompt = {
+        let routing = build_tool_routing_hint(kb_id.is_some(), web_search_enabled, true);
+        if routing.is_empty() { system_prompt } else { Some(system_prompt.unwrap_or_default() + &routing) }
+    };
+
     // For resume, we need the API key and base_url. Read from the chat's provider settings.
     // This is a simplified approach — read from the settings store.
     let (api_key, base_url) = match get_provider_credentials(&app, &pool, &chat_id).await {
         Ok(creds) => creds,
         Err(e) => {
-            finish_run(&app, &pool, &run_id, "failed", current_iterations, Some(e)).await;
+            finish_run(&app, &pool, &run_id, &chat_id, "failed", current_iterations, Some(e), None).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
             return;
         }
@@ -1279,7 +1471,7 @@ async fn agent_loop_resume(
     let client = match build_http_client(&app, None).await {
         Ok(c) => c,
         Err(e) => {
-            finish_run(&app, &pool, &run_id, "failed", current_iterations, Some(e)).await;
+            finish_run(&app, &pool, &run_id, &chat_id, "failed", current_iterations, Some(e), None).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
             return;
         }
@@ -1332,6 +1524,20 @@ async fn agent_loop_resume(
     let mut iteration = current_iterations;
     let mut accumulated_content = String::new();
 
+    // Load existing trace from DB (from previous steps) or create new
+    let mut run_trace: AgentRunTrace = {
+        let existing: Option<String> = sqlx::query_scalar("SELECT trace FROM agent_runs WHERE id = ?")
+            .bind(&run_id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap_or(None)
+            .flatten();
+        match existing.and_then(|s| serde_json::from_str::<AgentRunTrace>(&s).ok()) {
+            Some(t) => t,
+            None => AgentRunTrace::new(run_id.clone(), chat_id.clone(), model.clone(), chrono::Utc::now().timestamp()),
+        }
+    };
+
     // Find the last message's id for parent chaining
     let last_msg_id: String = sqlx::query_scalar(
         "SELECT id FROM messages WHERE chat_id = ? ORDER BY timestamp DESC LIMIT 1"
@@ -1345,7 +1551,8 @@ async fn agent_loop_resume(
 
     // Single iteration (step-by-step continues one step at a time)
     if cancel_token.is_cancelled() {
-        finish_run(&app, &pool, &run_id, "cancelled", iteration, None).await;
+        run_trace.finish("cancelled", Some("cancelled".to_string()));
+        finish_run(&app, &pool, &run_id, &chat_id, "cancelled", iteration, None, Some(&run_trace)).await;
         cleanup_cancel_token(&cancel_tokens, &run_id).await;
         return;
     }
@@ -1356,12 +1563,15 @@ async fn agent_loop_resume(
             iteration,
             max_iterations,
         });
-        finish_run(&app, &pool, &run_id, "completed", iteration, Some("Max iterations reached".to_string())).await;
+        run_trace.finish("completed", Some("max_steps".to_string()));
+        finish_run(&app, &pool, &run_id, &chat_id, "completed", iteration, Some("Max iterations reached".to_string()), Some(&run_trace)).await;
         cleanup_cancel_token(&cancel_tokens, &run_id).await;
         return;
     }
 
     iteration += 1;
+    let step_start = std::time::Instant::now();
+    let step_started_at = chrono::Utc::now().timestamp();
 
     let _ = app.emit("agent-step-start", AgentStepPayload {
         run_id: run_id.clone(),
@@ -1372,11 +1582,35 @@ async fn agent_loop_resume(
     let messages = match build_agent_messages(&pool, &chat_id, &system_prompt, mem_store.as_ref().as_ref(), &skill_content, None, project_id.as_deref(), kb_id.as_deref(), kb_store.as_ref().as_ref(), kb_provider.as_deref(), &client, kb_query_config.as_ref(), kb_reranker_config.as_ref()).await {
         Ok(m) => m,
         Err(e) => {
-            finish_run(&app, &pool, &run_id, "failed", iteration, Some(e)).await;
+            run_trace.finish("failed", None);
+            finish_run(&app, &pool, &run_id, &chat_id, "failed", iteration, Some(e), Some(&run_trace)).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
             return;
         }
     };
+
+    // Trim messages to fit context window
+    let trim_config = context_manager::TrimConfig {
+        model_context_limit: context_manager::get_model_context_limit(&model),
+        ..Default::default()
+    };
+    let trim_result = context_manager::trim_messages(&messages, &trim_config);
+    if trim_result.was_trimmed {
+        eprintln!(
+            "[Agent Resume] Context trimmed: {} → {} messages, {} → {} tokens ({:.0}% of {})",
+            trim_result.original_count, trim_result.trimmed_count,
+            trim_result.original_tokens, trim_result.final_tokens,
+            trim_result.usage_ratio * 100.0, trim_config.model_context_limit
+        );
+    }
+    let _ = app.emit("agent-context-usage", serde_json::json!({
+        "runId": run_id,
+        "usageRatio": trim_result.usage_ratio,
+        "totalTokens": trim_result.final_tokens,
+        "modelLimit": trim_config.model_context_limit,
+        "wasTrimmed": trim_result.was_trimmed,
+    }));
+    let messages = trim_result.messages;
 
     let mut body = serde_json::json!({
         "model": model,
@@ -1404,15 +1638,18 @@ async fn agent_loop_resume(
     match result {
         Err(e) if e == "__cancelled__" => {
             let _ = app.emit("agent-stream-done", StreamDonePayload { full_content: accumulated_content });
-            finish_run(&app, &pool, &run_id, "cancelled", iteration, None).await;
+            run_trace.finish("cancelled", Some("cancelled".to_string()));
+            finish_run(&app, &pool, &run_id, &chat_id, "cancelled", iteration, None, Some(&run_trace)).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
         }
         Err(e) => {
             let _ = app.emit("agent-stream-error", StreamErrorPayload { error: e.clone() });
-            finish_run(&app, &pool, &run_id, "failed", iteration, Some(e)).await;
+            run_trace.finish("failed", None);
+            finish_run(&app, &pool, &run_id, &chat_id, "failed", iteration, Some(e), Some(&run_trace)).await;
             cleanup_cancel_token(&cancel_tokens, &run_id).await;
         }
         Ok(stream_result) => {
+            let llm_duration_ms = step_start.elapsed().as_millis() as u64;
             accumulated_content.push_str(&stream_result.content);
 
             let asst_msg_id = Uuid::new_v4().to_string();
@@ -1426,6 +1663,16 @@ async fn agent_loop_resume(
             let provider = provider_from_base_url(&base);
             let cat_id = catalog_id(provider, &model);
             let cost = compute_cost_from_catalog(&pool, &cat_id, pt, ct).await;
+
+            let llm_trace = LlmCallTrace {
+                input_tokens: pt as usize,
+                output_tokens: ct as usize,
+                cost,
+                duration_ms: llm_duration_ms,
+                had_tool_calls: !stream_result.tool_calls.is_empty(),
+                response_preview: safe_truncate(&stream_result.content, 200),
+            };
+            let mut step_tool_traces: Vec<ToolCallTrace> = Vec::new();
 
             let _ = sqlx::query(
                 "INSERT INTO messages (id, chat_id, role, content, parent_id, timestamp, model, prompt_tokens, completion_tokens, cost, has_attachments, agent_step, agent_run_id) VALUES (?, ?, 'assistant', ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)"
@@ -1480,8 +1727,24 @@ async fn agent_loop_resume(
             }
 
             if stream_result.tool_calls.is_empty() {
+                let step_trace = AgentStepTrace {
+                    step: iteration as usize,
+                    started_at: step_started_at,
+                    duration_ms: step_start.elapsed().as_millis() as u64,
+                    llm_call: llm_trace,
+                    tool_calls: step_tool_traces,
+                };
+                let _ = app.emit("agent-step-trace", &step_trace);
+                run_trace.add_step(step_trace);
+                run_trace.finish("completed", Some("natural".to_string()));
+                // Emit step-done for the final iteration so frontend reloads DB messages
+                let _ = app.emit("agent-step-done", AgentStepPayload {
+                    run_id: run_id.clone(),
+                    chat_id: chat_id.clone(),
+                    iteration,
+                });
                 let _ = app.emit("agent-stream-done", StreamDonePayload { full_content: accumulated_content });
-                finish_run(&app, &pool, &run_id, "completed", iteration, None).await;
+                finish_run(&app, &pool, &run_id, &chat_id, "completed", iteration, None, Some(&run_trace)).await;
                 cleanup_cancel_token(&cancel_tokens, &run_id).await;
                 // Auto-extract memories in background
                 let ext_app = app.clone();
@@ -1513,6 +1776,8 @@ async fn agent_loop_resume(
                 let args: serde_json::Value =
                     serde_json::from_str(&tool_call.arguments).unwrap_or(serde_json::json!({}));
 
+                let tool_start = std::time::Instant::now();
+
                 // Intercept built-in tools (memory + workspace + web search)
                 let (result_text, is_error) = if tool_call.name == "memory_save" || tool_call.name == "memory_search" {
                     handle_memory_tool(&pool, mem_store.as_ref().as_ref(), &tool_call.name, &args, Some(&chat_id), project_id.as_deref()).await
@@ -1543,6 +1808,16 @@ async fn agent_loop_resume(
                         Err(e) => (e.to_string(), true),
                     }
                 };
+
+                let tool_duration_ms = tool_start.elapsed().as_millis() as u64;
+                step_tool_traces.push(ToolCallTrace {
+                    tool_name: tool_call.name.clone(),
+                    arguments_preview: safe_truncate(&tool_call.arguments, 200),
+                    result_preview: safe_truncate(&result_text, 200),
+                    duration_ms: tool_duration_ms,
+                    is_error,
+                    is_builtin: is_builtin_tool(&tool_call.name),
+                });
 
                 let _ = app.emit("agent-tool-result", StreamToolResultPayload {
                     tool_call_id: tool_call.id.clone(),
@@ -1591,14 +1866,27 @@ async fn agent_loop_resume(
                 tool_parent_id = tool_msg_id;
             }
 
+            // Build and emit step trace
+            let step_trace = AgentStepTrace {
+                step: iteration as usize,
+                started_at: step_started_at,
+                duration_ms: step_start.elapsed().as_millis() as u64,
+                llm_call: llm_trace,
+                tool_calls: step_tool_traces,
+            };
+            let _ = app.emit("agent-step-trace", &step_trace);
+            run_trace.add_step(step_trace);
+
             // Pause again (step-by-step continues one step per resume)
             let _ = app.emit("agent-step-pause", AgentStepPayload {
                 run_id: run_id.clone(),
                 chat_id: chat_id.clone(),
                 iteration,
             });
-            let _ = sqlx::query("UPDATE agent_runs SET status = 'paused', iterations = ? WHERE id = ?")
-                .bind(iteration).bind(&run_id)
+            // Save trace so far for resume to pick up
+            let trace_json = serde_json::to_string(&run_trace).unwrap_or_default();
+            let _ = sqlx::query("UPDATE agent_runs SET status = 'paused', iterations = ?, trace = ? WHERE id = ?")
+                .bind(iteration).bind(&trace_json).bind(&run_id)
                 .execute(&pool).await;
         }
     }
@@ -1959,9 +2247,11 @@ async fn finish_run(
     app: &AppHandle,
     pool: &Pool,
     run_id: &str,
+    chat_id: &str,
     status: &str,
     iterations: i64,
     error: Option<String>,
+    trace: Option<&AgentRunTrace>,
 ) {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1977,11 +2267,23 @@ async fn finish_run(
         .and_then(|row| row.try_get::<f64, _>("total").ok())
         .unwrap_or(0.0);
 
+    let trace_json: Option<String> = trace.and_then(|t| serde_json::to_string(t).ok());
+
     let _ = sqlx::query(
-        "UPDATE agent_runs SET status = ?, iterations = ?, finished_at = ?, error = ?, cost = ? WHERE id = ?"
+        "UPDATE agent_runs SET status = ?, iterations = ?, finished_at = ?, error = ?, cost = ?, trace = ? WHERE id = ?"
     )
-    .bind(status).bind(iterations).bind(now).bind(&error).bind(run_cost).bind(run_id)
+    .bind(status).bind(iterations).bind(now).bind(&error).bind(run_cost).bind(&trace_json).bind(run_id)
     .execute(pool).await;
+
+    // Update chat's last_run_status for sidebar indicators
+    let _ = sqlx::query("UPDATE chats SET last_run_status = ? WHERE id = ?")
+        .bind(status).bind(chat_id)
+        .execute(pool).await;
+
+    // Emit trace event if available
+    if let Some(t) = trace {
+        let _ = app.emit("agent-run-trace", t);
+    }
 
     let _ = app.emit("agent-run-finished", AgentRunFinishedPayload {
         run_id: run_id.to_string(),
@@ -2011,7 +2313,7 @@ fn memory_tool_definitions() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "memory_save",
-                "description": "Save an important fact, decision, preference or learning for future reference. Use this when you discover something worth remembering about the user, their project, preferences, or decisions made during the conversation.",
+                "description": "Save an important fact to your personal memory for future conversations. Use for: user preferences, project decisions, key information the user shared, things you should remember. Do NOT use for long documents or code — use workspace_write for those.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2033,7 +2335,7 @@ fn memory_tool_definitions() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "memory_search",
-                "description": "Search your memory for relevant facts, decisions, and context from past interactions. Use before starting complex tasks to recall what you know.",
+                "description": "Search your personal memory for facts you previously saved about the user, their preferences, project details, or past conversations. Use this for questions like 'what is the user\\'s favorite language?' or 'what did we discuss about X?' This searches YOUR saved notes — not documents, not the internet.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2059,7 +2361,7 @@ fn workspace_tool_definitions() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "workspace_write",
-                "description": "Save or update an artifact in the shared workspace. Use for code files, documents, data, or any output that should persist and be accessible to other agents.",
+                "description": "Save a document, code file, report, or other artifact to the shared workspace. Use for structured output that the user will reference later: generated code, reports, analysis results, plans. Do NOT use for saving short facts — use memory_save for those.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2075,7 +2377,7 @@ fn workspace_tool_definitions() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "workspace_read",
-                "description": "Read an artifact from the shared workspace by name.",
+                "description": "Read a previously saved artifact from the workspace by name.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2089,7 +2391,7 @@ fn workspace_tool_definitions() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "workspace_list",
-                "description": "List all artifacts in the shared workspace.",
+                "description": "List all artifacts currently in the workspace.",
                 "parameters": {
                     "type": "object",
                     "properties": {}
@@ -2183,7 +2485,7 @@ fn web_search_tool_definitions() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "web_search",
-                "description": "Search the web for current information. Use this when you need up-to-date facts, news, documentation, or any information you don't have. Returns search results with titles, URLs, and snippets.",
+                "description": "Search the internet for current information. Use for: recent events, real-time data, topics not covered in the Knowledge Base or memory, general knowledge questions, fact-checking. This searches the web — not the user's documents, not your memory.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2200,7 +2502,7 @@ fn web_search_tool_definitions() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "web_read",
-                "description": "Read the content of a specific web page. Use this to get full article text, documentation, or detailed information from a URL found via web_search.",
+                "description": "Read the full content of a specific web page URL. Use after web_search to get detailed content from a search result, or when the user provides a specific URL to read.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2254,7 +2556,7 @@ async fn handle_web_search_tool(
             match results {
                 Ok(items) => {
                     if items.is_empty() {
-                        return ("No search results found.".to_string(), false);
+                        return ("No web results found. Consider: try kb_search if the topic might be in the user's documents, or rephrase your search query.".to_string(), false);
                     }
                     let mut output = format!("Search results for \"{}\":\n\n", query);
                     for (i, item) in items.iter().take(5).enumerate() {
@@ -2307,7 +2609,7 @@ fn kb_search_tool_definitions() -> Vec<serde_json::Value> {
             "type": "function",
             "function": {
                 "name": "kb_search",
-                "description": "Search the knowledge base attached to this chat for relevant information. Use this to find facts, documentation, procedures, or any information stored in the knowledge base. Returns the most relevant text chunks with source references.",
+                "description": "Search the attached Knowledge Base documents for information. Use this when the user asks about topics that are likely covered in their uploaded documents (documentation, guides, reports, codebases). This searches document content — not your memory, not the internet.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -2325,6 +2627,37 @@ fn kb_search_tool_definitions() -> Vec<serde_json::Value> {
             }
         }),
     ]
+}
+
+fn build_tool_routing_hint(has_kb: bool, has_web_search: bool, has_memory: bool) -> String {
+    let mut hints = vec![];
+    if has_memory {
+        hints.push("- Questions about user preferences or past decisions \u{2192} memory_search");
+        hints.push("- Save a fact for future reference \u{2192} memory_save");
+        hints.push("- Produce a document, code, or report \u{2192} workspace_write");
+    }
+    if has_kb {
+        hints.push("- Questions about uploaded documents or project files \u{2192} kb_search");
+    }
+    if has_web_search {
+        hints.push("- Current events, general knowledge, external APIs \u{2192} web_search");
+    }
+    if hints.is_empty() {
+        return String::new();
+    }
+    let mut result = String::from("\n\n<tool_routing>\nChoose the right tool for each information need:\n");
+    for hint in &hints {
+        result.push_str(hint);
+        result.push('\n');
+    }
+    if has_kb && has_web_search {
+        result.push_str("\nWhen in doubt: try kb_search first for domain questions, web_search for general knowledge.\n");
+    }
+    if has_memory {
+        result.push_str("Use memory_search only for personal/project context you previously saved.\n");
+    }
+    result.push_str("</tool_routing>");
+    result
 }
 
 async fn handle_kb_search_tool(
@@ -2376,7 +2709,7 @@ async fn handle_kb_search_tool(
         Ok(orchestrated) => {
             let results = orchestrated.results;
             if results.is_empty() {
-                ("No relevant information found in the knowledge base.".to_string(), false)
+                ("No relevant information found in the knowledge base. Consider: the KB may not cover this topic — try web_search for general information, or rephrase your query with different keywords.".to_string(), false)
             } else {
                 let mut output = format!("Found {} relevant results:\n\n", results.len());
                 for (i, r) in results.iter().enumerate() {
@@ -2495,39 +2828,54 @@ async fn handle_orchestrator_tool(
                 config, run_id.clone(), chat_id.clone(),
                 api_key.clone(), base_url.clone(), parent_model.clone(),
             ).await {
-                Ok(sub_run_id) => (format!("Sub-agent spawned. Run ID: {}", sub_run_id), false),
+                Ok(sub_run_id) => (format!("Sub-agent spawned. Run ID: {}\n\nIMPORTANT: Do NOT call check_agent or get_agent_result for at least 30 seconds. Proceed with other tasks or spawn additional sub-agents first.", sub_run_id), false),
                 Err(e) => (format!("Failed to spawn sub-agent: {}", e), true),
             }
         }
         "check_agent" => {
             let target = args.get("agent_run_id").and_then(|v| v.as_str()).unwrap_or("");
-            let row = sqlx::query(
-                "SELECT id, status, iterations, max_iterations, error, cost FROM agent_runs WHERE id = ? AND parent_run_id = ?"
-            ).bind(target).bind(&run_id).fetch_optional(&pool).await;
-            match row {
-                Ok(Some(r)) => {
-                    let status: String = r.get("status");
-                    let iterations: i64 = r.get("iterations");
-                    let max_iterations: i64 = r.get("max_iterations");
-                    let error: Option<String> = r.try_get::<Option<String>, _>("error").ok().flatten();
-                    let cost: Option<f64> = r.try_get("cost").ok();
-                    let info = serde_json::json!({
-                        "agent_run_id": target,
-                        "status": status,
-                        "iterations": iterations,
-                        "max_iterations": max_iterations,
-                        "error": error,
-                        "cost": cost,
-                    });
-                    if status == "running" {
-                        (format!("{}\nSub-agent is still running. You can check again later or do other work.", serde_json::to_string_pretty(&info).unwrap()), false)
-                    } else {
-                        (serde_json::to_string_pretty(&info).unwrap(), false)
+            // Poll for up to 10 seconds before returning "still running"
+            let mut final_result: Option<(String, bool)> = None;
+            for attempt in 0..10 {
+                let row = sqlx::query(
+                    "SELECT id, status, iterations, max_iterations, error, cost FROM agent_runs WHERE id = ? AND parent_run_id = ?"
+                ).bind(target).bind(&run_id).fetch_optional(&pool).await;
+                match row {
+                    Ok(Some(r)) => {
+                        let status: String = r.get("status");
+                        let iterations: i64 = r.get("iterations");
+                        let max_iterations: i64 = r.get("max_iterations");
+                        let error: Option<String> = r.try_get::<Option<String>, _>("error").ok().flatten();
+                        let cost: Option<f64> = r.try_get("cost").ok();
+                        let info = serde_json::json!({
+                            "agent_run_id": target,
+                            "status": status,
+                            "iterations": iterations,
+                            "max_iterations": max_iterations,
+                            "error": error,
+                            "cost": cost,
+                        });
+                        if status != "running" {
+                            final_result = Some((serde_json::to_string_pretty(&info).unwrap(), false));
+                            break;
+                        }
+                        if attempt == 9 {
+                            final_result = Some((format!("{}\nSub-agent is still running. You can check again later or do other work.", serde_json::to_string_pretty(&info).unwrap()), false));
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    }
+                    Ok(None) => {
+                        final_result = Some((format!("Sub-agent '{}' not found or not owned by this orchestrator", target), true));
+                        break;
+                    }
+                    Err(e) => {
+                        final_result = Some((format!("DB error: {}", e), true));
+                        break;
                     }
                 }
-                Ok(None) => (format!("Sub-agent '{}' not found or not owned by this orchestrator", target), true),
-                Err(e) => (format!("DB error: {}", e), true),
             }
+            final_result.unwrap_or_else(|| ("Unexpected check_agent error".to_string(), true))
         }
         "get_agent_result" => {
             let target = args.get("agent_run_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -2832,7 +3180,7 @@ async fn handle_memory_tool(
             {
                 Ok(results) => {
                     if results.is_empty() {
-                        ("No relevant memories found.".to_string(), false)
+                        ("No matching memories found. This might be new information — try kb_search (for documents) or web_search (for general knowledge).".to_string(), false)
                     } else {
                         let mut text = format!("Found {} memories:\n", results.len());
                         for r in &results {
@@ -3037,5 +3385,47 @@ Return ONLY valid JSON array, no markdown, no explanation."#
 
     if saved_count > 0 {
         log::info!("Auto-extraction: saved {} memories from chat {}", saved_count, chat_id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_tool_routing_hint;
+
+    #[test]
+    fn test_routing_hint_all_tools() {
+        let hint = build_tool_routing_hint(true, true, true);
+        assert!(hint.contains("memory_search"));
+        assert!(hint.contains("kb_search"));
+        assert!(hint.contains("web_search"));
+        assert!(hint.contains("<tool_routing>"));
+        assert!(hint.contains("</tool_routing>"));
+    }
+
+    #[test]
+    fn test_routing_hint_no_kb() {
+        let hint = build_tool_routing_hint(false, true, true);
+        assert!(!hint.contains("kb_search"));
+        assert!(hint.contains("web_search"));
+        assert!(hint.contains("memory_search"));
+    }
+
+    #[test]
+    fn test_routing_hint_no_web() {
+        let hint = build_tool_routing_hint(true, false, true);
+        assert!(hint.contains("kb_search"));
+        assert!(!hint.contains("web_search"));
+    }
+
+    #[test]
+    fn test_routing_hint_no_tools() {
+        let hint = build_tool_routing_hint(false, false, false);
+        assert!(hint.is_empty());
+    }
+
+    #[test]
+    fn test_routing_hint_kb_and_web_has_disambiguation() {
+        let hint = build_tool_routing_hint(true, true, false);
+        assert!(hint.contains("kb_search first for domain questions"));
     }
 }

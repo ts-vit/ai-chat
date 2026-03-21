@@ -9,3 +9,4 @@ mod memory_tests;
 mod skill_tests;
 mod kb_tests;
 mod misc_tests;
+mod notebook_tests;

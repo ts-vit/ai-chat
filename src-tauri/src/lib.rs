@@ -86,7 +86,7 @@ use commands::prompt_library::{
 };
 use commands::agent::{
     send_agent_message, cancel_agent_run, resume_agent_run, get_agent_runs,
-    get_sub_agent_runs,
+    get_sub_agent_runs, get_agent_run_trace,
 };
 use commands::agent_memory::{
     list_agent_memories, create_agent_memory, update_agent_memory,
@@ -131,8 +131,12 @@ use commands::knowledge_base::{
     update_knowledge_base, delete_knowledge_base, list_kb_documents,
     add_kb_document, remove_kb_document, add_kb_documents_bulk, get_kb_stats,
     index_kb_document, index_all_kb_documents, reindex_knowledge_base,
-    search_knowledge_base, attach_kb_to_chat, detach_kb_from_chat, get_chat_kb,
+    search_knowledge_base, search_all_knowledge_bases, attach_kb_to_chat, detach_kb_from_chat, get_chat_kb,
     export_knowledge_base, import_knowledge_base,
+};
+use commands::notebook::{
+    list_notebooks, get_notebook, create_notebook, update_notebook, delete_notebook,
+    list_notebook_documents, add_notebook_documents, add_notebook_source, remove_notebook_document,
 };
 use services::telegram_bot::TelegramBotManager;
 use services::scheduler::SchedulerManager;
@@ -475,6 +479,15 @@ pub(crate) const DB_MIGRATIONS: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_kb_documents_kb_id ON kb_documents(kb_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_id ON kb_chunks(document_id)",
     "CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb_id ON kb_chunks(kb_id)",
+    // Notebooks
+    "CREATE TABLE IF NOT EXISTS notebooks (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        kb_id TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    )",
 ];
 
 pub(crate) const ALTER_QUERIES: &[&str] = &[
@@ -546,6 +559,12 @@ pub(crate) const ALTER_QUERIES: &[&str] = &[
     "ALTER TABLE knowledge_bases ADD COLUMN context_token_budget INTEGER NOT NULL DEFAULT 4000",
     "ALTER TABLE knowledge_bases ADD COLUMN context_sentence_extraction INTEGER NOT NULL DEFAULT 1",
     "ALTER TABLE knowledge_bases ADD COLUMN context_redundancy_removal INTEGER NOT NULL DEFAULT 1",
+    // Agent tracing
+    "ALTER TABLE agent_runs ADD COLUMN trace TEXT",
+    // Chat last run status for sidebar indicators
+    "ALTER TABLE chats ADD COLUMN last_run_status TEXT",
+    // Notebooks
+    "ALTER TABLE knowledge_bases ADD COLUMN notebook_id TEXT",
 ];
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1363,6 +1382,7 @@ pub fn run() {
             resume_agent_run,
             get_agent_runs,
             get_sub_agent_runs,
+            get_agent_run_trace,
             list_agent_memories,
             create_agent_memory,
             update_agent_memory,
@@ -1436,11 +1456,22 @@ pub fn run() {
             index_all_kb_documents,
             reindex_knowledge_base,
             search_knowledge_base,
+            search_all_knowledge_bases,
             attach_kb_to_chat,
             detach_kb_from_chat,
             get_chat_kb,
             export_knowledge_base,
             import_knowledge_base,
+            // Notebooks
+            list_notebooks,
+            get_notebook,
+            create_notebook,
+            update_notebook,
+            delete_notebook,
+            list_notebook_documents,
+            add_notebook_documents,
+            add_notebook_source,
+            remove_notebook_document,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

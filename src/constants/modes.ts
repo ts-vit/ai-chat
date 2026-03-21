@@ -1,6 +1,6 @@
-import { IconMessage, IconRobot } from '@tabler/icons-react';
+import { IconMessage, IconRobot, IconNotebook } from '@tabler/icons-react';
 
-export type AppMode = 'chat' | 'assistant';
+export type AppMode = 'chat' | 'assistant' | 'notebook';
 
 export interface ModeDefinition {
   id: AppMode;
@@ -26,6 +26,14 @@ export const MODE_DEFINITIONS: ModeDefinition[] = [
     labelKey: 'modes.assistant',
     descriptionKey: 'modes.assistantDescription',
     color: 'teal',
+    defaultEnabled: true,
+  },
+  {
+    id: 'notebook',
+    icon: IconNotebook,
+    labelKey: 'modes.notebook',
+    descriptionKey: 'modes.notebookDescription',
+    color: 'violet',
     defaultEnabled: true,
   },
 ];

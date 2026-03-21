@@ -196,6 +196,7 @@ async fn get_chat_by_id(pool: &Pool, chat_id: &str) -> Result<Option<DbChat>, St
         negative_prompt: row.try_get::<Option<String>, _>("negative_prompt").ok().flatten(),
         active_child_map: row.try_get::<Option<String>, _>("active_child_map").ok().flatten(),
         mode: row.try_get::<String, _>("mode").unwrap_or_else(|_| "chat".to_string()),
+        last_run_status: row.try_get::<Option<String>, _>("last_run_status").ok().flatten(),
     }))
 }
 
@@ -235,6 +236,7 @@ async fn get_all_chats_internal(pool: &Pool) -> Result<Vec<DbChat>, String> {
             negative_prompt: row.try_get::<Option<String>, _>("negative_prompt").ok().flatten(),
             active_child_map: row.try_get::<Option<String>, _>("active_child_map").ok().flatten(),
             mode: row.try_get::<String, _>("mode").unwrap_or_else(|_| "chat".to_string()),
+            last_run_status: None,
         })
         .collect())
 }

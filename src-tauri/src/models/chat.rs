@@ -173,6 +173,8 @@ pub struct DbChat {
     pub active_child_map: Option<String>,
     #[serde(rename = "mode", default = "default_mode")]
     pub mode: String,
+    #[serde(rename = "lastRunStatus", skip_serializing_if = "Option::is_none")]
+    pub last_run_status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

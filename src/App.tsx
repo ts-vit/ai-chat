@@ -20,6 +20,8 @@ import { PlansPage } from "./components/PlansPage";
 import { ProjectDashboardPage } from "./components/ProjectDashboardPage";
 import { SchedulerPage } from "./components/SchedulerPage";
 import { KnowledgeBasesPage } from "./components/KnowledgeBasesPage";
+import NotebookPage from "./components/NotebookPage";
+import NotebookWorkspace from "./components/NotebookWorkspace";
 import { PlanPanel } from "./components/PlanPanel";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { TerminalPanel } from "./components/TerminalPanel";
@@ -58,6 +60,8 @@ function App() {
     const showPlanPanel = useChatStore((s) => s.showPlanPanel);
     const activePlan = useChatStore((s) => s.activePlan);
     const showWorkspacePanel = useChatStore((s) => s.showWorkspacePanel);
+    const activeMode = useChatStore((s) => s.activeMode);
+    const activeNotebookId = useChatStore((s) => s.activeNotebookId);
 
     const { isCompact, isNarrow, isVeryNarrow } = useWindowSize();
     const [leftSidebarWidth, setLeftSidebarWidth] = useState(260);
@@ -207,6 +211,29 @@ function App() {
             <TerminalPanel width={terminalWidth} {...terminalProps} />
         </>
     );
+
+    // Notebook mode: full-page, no sidebar
+    if (activeMode === "notebook") {
+        return (
+            <Box style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
+                <AppHeader
+                    activeChat={undefined}
+                    onNewChat={() => {}}
+                    onToggleSidebar={() => {}}
+                    leftSidebarOpen={false}
+                    terminalOpen={terminalOpen}
+                    onToggleTerminal={toggleTerminal}
+                />
+                <Box style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
+                    <Box style={{ flex: 1, overflow: "hidden" }}>
+                        {activeNotebookId ? <NotebookWorkspace /> : <NotebookPage />}
+                    </Box>
+                    {terminalRight}
+                </Box>
+                {terminalBottom}
+            </Box>
+        );
+    }
 
     if (currentView === "settings" || currentView === "snippets" || currentView === "search" || currentView === "comparisons" || currentView === "promptLibrary" || currentView === "memory" || currentView === "skills" || currentView === "plans" || currentView === "projectDashboard" || currentView === "scheduler" || currentView === "knowledgeBases") {
         const PageComponent = {

@@ -3,19 +3,21 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("@tabler/icons-react", () => ({
   IconMessage: () => null,
   IconRobot: () => null,
+  IconNotebook: () => null,
 }));
 
 import { MODE_DEFINITIONS, DEFAULT_MODE } from "../modes";
 
 describe("MODE_DEFINITIONS", () => {
-  it("has exactly 2 modes", () => {
-    expect(MODE_DEFINITIONS).toHaveLength(2);
+  it("has exactly 3 modes", () => {
+    expect(MODE_DEFINITIONS).toHaveLength(3);
   });
 
-  it("contains chat and assistant modes", () => {
+  it("contains chat, assistant and notebook modes", () => {
     const ids = MODE_DEFINITIONS.map((m) => m.id);
     expect(ids).toContain("chat");
     expect(ids).toContain("assistant");
+    expect(ids).toContain("notebook");
   });
 
   it("all modes have required fields", () => {

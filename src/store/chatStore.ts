@@ -26,6 +26,8 @@ import type {
     AgentStatus,
     AgentMemory,
     AgentRun,
+    AgentRunTrace,
+    AgentStepTrace,
     Skill,
     AgentPlan,
     PlanWithTasks,
@@ -36,6 +38,7 @@ import type {
     KnowledgeBase,
     KbDocument,
     KbSearchResultItem,
+    Notebook,
 } from "../types";
 import { createSnippetsSlice } from "./slices/snippetsSlice";
 import { createSettingsSlice } from "./slices/settingsSlice";
@@ -43,6 +46,7 @@ import { createUiSlice } from "./slices/uiSlice";
 import { createAgentSlice } from "./slices/agentSlice";
 import { createChatSlice } from "./slices/chatSlice";
 import { createKbSlice } from "./slices/kbSlice";
+import { createNotebookSlice } from "./slices/notebookSlice";
 
 export interface ChatState {
     chats: Chat[];
@@ -77,8 +81,8 @@ export interface ChatState {
 
     ragMode: import("../types").RagMode;
     setRagMode: (mode: import("../types").RagMode) => void;
-    currentView: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases";
-    setView: (view: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases") => void;
+    currentView: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases" | "notebooks";
+    setView: (view: "chat" | "settings" | "snippets" | "search" | "compare" | "comparisons" | "promptLibrary" | "memory" | "skills" | "plans" | "projectDashboard" | "scheduler" | "knowledgeBases" | "notebooks") => void;
     openProjectDashboard: (projectId: string) => void;
     scrollTargetId: string | null;
     setScrollTargetId: (id: string | null) => void;
@@ -225,11 +229,16 @@ export interface ChatState {
     agentIteration: number;
     agentMaxIterations: number;
     agentToolCalls: ToolCallInfo[];
+    contextUsage: { ratio: number; tokens: number; limit: number; trimmed: boolean } | null;
+    agentTrace: AgentStepTrace[];
+    showTracePanel: boolean;
 
     sendAgentMessage: (content: string) => Promise<void>;
     cancelAgentRun: () => Promise<void>;
     cancelSubAgentRun: (runId: string) => Promise<void>;
     resumeAgentRun: () => Promise<void>;
+    setShowTracePanel: (show: boolean) => void;
+    loadAgentRunTrace: (runId: string) => Promise<AgentRunTrace | null>;
 
     // Agent Memory
     agentMemories: AgentMemory[];
@@ -260,7 +269,7 @@ export interface ChatState {
     workspaceArtifacts: WorkspaceArtifact[];
     showWorkspacePanel: boolean;
     setShowWorkspacePanel: (show: boolean) => void;
-    loadWorkspaceArtifacts: (chatId: string) => Promise<void>;
+    loadWorkspaceArtifacts: (chatId: string, projectId?: string | null) => Promise<void>;
     createWorkspaceArtifact: (chatId: string, name: string, contentType: string, content: string) => Promise<void>;
     updateWorkspaceArtifact: (id: string, name?: string, content?: string) => Promise<void>;
     deleteWorkspaceArtifact: (id: string) => Promise<void>;
@@ -360,6 +369,21 @@ export interface ChatState {
     searchKnowledgeBase: (kbId: string, query: string, topK?: number) => Promise<KbSearchResultItem[]>;
     exportKnowledgeBase: (kbId: string) => Promise<void>;
     importKnowledgeBase: (zipPath: string) => Promise<void>;
+
+    // Notebooks
+    notebooks: Notebook[];
+    activeNotebookId: string | null;
+    notebookDocuments: KbDocument[];
+    notebookLoading: boolean;
+    loadNotebooks: () => Promise<void>;
+    createNotebook: (name: string, description: string) => Promise<Notebook | null>;
+    updateNotebook: (id: string, name: string, description: string) => Promise<void>;
+    deleteNotebook: (id: string) => Promise<void>;
+    setActiveNotebook: (id: string | null) => void;
+    loadNotebookDocuments: (notebookId: string) => Promise<void>;
+    addNotebookDocuments: (notebookId: string, filePaths: string[]) => Promise<void>;
+    addNotebookSource: (notebookId: string, sourceType: string, opts?: { filePaths?: string[]; url?: string; name?: string; content?: string }) => Promise<void>;
+    removeNotebookDocument: (notebookId: string, documentId: string) => Promise<void>;
 }
 
 
@@ -370,4 +394,5 @@ export const useChatStore = create<ChatState>((set, get) => ({
     ...createUiSlice(set, get),
     ...createAgentSlice(set, get),
     ...createKbSlice(set, get),
+    ...createNotebookSlice(set, get),
 }));

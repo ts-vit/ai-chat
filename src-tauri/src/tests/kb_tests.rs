@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::test_db::test_helpers::*;
+    use crate::services::kb_fts;
 
     #[tokio::test]
     async fn test_create_knowledge_base() {
@@ -165,5 +166,57 @@ mod tests {
             .bind(&chat_id).fetch_one(&pool).await.unwrap();
 
         assert_eq!(row.0, Some(kb_id));
+    }
+
+    #[tokio::test]
+    async fn test_search_all_kb_fts() {
+        let pool = setup_test_db().await;
+
+        // Create 2 KBs
+        let kb1 = insert_kb_auto(&pool, "KB Alpha").await;
+        let kb2 = insert_kb_auto(&pool, "KB Beta").await;
+
+        // Create documents
+        let doc1 = uuid::Uuid::new_v4().to_string();
+        let doc2 = uuid::Uuid::new_v4().to_string();
+        insert_kb_document(&pool, &doc1, &kb1, "rust_guide.md").await;
+        insert_kb_document(&pool, &doc2, &kb2, "python_guide.md").await;
+
+        // Create chunks
+        let c1 = uuid::Uuid::new_v4().to_string();
+        let c2 = uuid::Uuid::new_v4().to_string();
+        let c3 = uuid::Uuid::new_v4().to_string();
+        insert_kb_chunk(&pool, &c1, &kb1, &doc1, "Rust is a systems programming language", 0).await;
+        insert_kb_chunk(&pool, &c2, &kb1, &doc1, "Memory safety without garbage collection", 1).await;
+        insert_kb_chunk(&pool, &c3, &kb2, &doc2, "Python is a dynamic programming language", 0).await;
+
+        // Index into FTS
+        kb_fts::index_kb_chunks(&pool, &[
+            (c1.clone(), kb1.clone(), doc1.clone(), "Rust is a systems programming language".to_string()),
+            (c2.clone(), kb1.clone(), doc1.clone(), "Memory safety without garbage collection".to_string()),
+            (c3.clone(), kb2.clone(), doc2.clone(), "Python is a dynamic programming language".to_string()),
+        ]).await.unwrap();
+
+        // Search for "programming" — should find chunks from both KBs
+        let results = kb_fts::search_all_kb_fts(&pool, "programming", 10).await.unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Search for "Rust" — should find only KB1 chunks
+        let results = kb_fts::search_all_kb_fts(&pool, "Rust", 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].chunk_id, c1);
+
+        // Search for "memory" — should find only KB1 chunk 2
+        let results = kb_fts::search_all_kb_fts(&pool, "memory", 10).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].chunk_id, c2);
+
+        // Empty query
+        let results = kb_fts::search_all_kb_fts(&pool, "", 10).await.unwrap();
+        assert_eq!(results.len(), 0);
+
+        // Search with limit
+        let results = kb_fts::search_all_kb_fts(&pool, "programming", 1).await.unwrap();
+        assert_eq!(results.len(), 1);
     }
 }

@@ -160,7 +160,7 @@ pub async fn update_artifact_impl(
         .await
     } else {
         sqlx::query(
-            "UPDATE workspace_artifacts SET content = ?, updated_by = ?, updated_at = ? WHERE chat_id = ? AND name = ?"
+            "UPDATE workspace_artifacts SET content = ?, updated_by = ?, updated_at = ? WHERE chat_id = ? AND project_id IS NULL AND name = ?"
         )
         .bind(content)
         .bind(updated_by)

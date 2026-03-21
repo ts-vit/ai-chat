@@ -483,6 +483,41 @@ pub mod test_helpers {
         id.to_string()
     }
 
+    /// Insert a notebook with associated KB, returns (notebook_id, kb_id).
+    pub async fn insert_notebook_auto(pool: &SqlitePool, name: &str) -> (String, String) {
+        let now = now_secs();
+        let notebook_id = uuid::Uuid::new_v4().to_string();
+        let kb_id = uuid::Uuid::new_v4().to_string();
+
+        sqlx::query(
+            "INSERT INTO knowledge_bases (id, name, description, embedding_model, notebook_id, created_at, updated_at)
+             VALUES (?, ?, '', 'e5-small', ?, ?, ?)",
+        )
+        .bind(&kb_id)
+        .bind(format!("__notebook__{}", name))
+        .bind(&notebook_id)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("insert_notebook kb failed");
+
+        sqlx::query(
+            "INSERT INTO notebooks (id, name, description, kb_id, created_at, updated_at)
+             VALUES (?, ?, '', ?, ?, ?)",
+        )
+        .bind(&notebook_id)
+        .bind(name)
+        .bind(&kb_id)
+        .bind(now)
+        .bind(now)
+        .execute(pool)
+        .await
+        .expect("insert_notebook failed");
+
+        (notebook_id, kb_id)
+    }
+
     /// Count rows in a table.
     pub async fn count_rows(pool: &SqlitePool, table: &str) -> i64 {
         let sql = format!("SELECT COUNT(*) FROM {}", table);

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
     ActionIcon,
@@ -48,8 +48,16 @@ export function WorkspacePanel() {
     const workspaceArtifacts = useChatStore((s) => s.workspaceArtifacts);
     const setShowWorkspacePanel = useChatStore((s) => s.setShowWorkspacePanel);
     const activeChatId = useChatStore((s) => s.activeChatId);
+    const loadWorkspaceArtifacts = useChatStore((s) => s.loadWorkspaceArtifacts);
     const createWorkspaceArtifact = useChatStore((s) => s.createWorkspaceArtifact);
     const deleteWorkspaceArtifact = useChatStore((s) => s.deleteWorkspaceArtifact);
+
+    // Reload artifacts when panel mounts or chat changes
+    useEffect(() => {
+        if (activeChatId) {
+            loadWorkspaceArtifacts(activeChatId);
+        }
+    }, [activeChatId, loadWorkspaceArtifacts]);
 
     const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
     const [addModalOpen, setAddModalOpen] = useState(false);

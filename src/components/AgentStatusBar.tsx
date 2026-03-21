@@ -1,5 +1,5 @@
 import { ActionIcon, Box, Group, Text, Button, Progress, Badge, Tooltip } from "@mantine/core";
-import { IconPlayerStop, IconPlayerPlay, IconLoader2, IconRoute, IconUsers, IconX } from "@tabler/icons-react";
+import { IconPlayerStop, IconPlayerPlay, IconLoader2, IconRoute, IconUsers, IconX, IconScissors, IconTimeline } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import type { AgentStatus, SubAgentInfo } from "../types";
 
@@ -19,6 +19,10 @@ interface AgentStatusBarProps {
     chatDefaultModel?: string;
     subAgents?: SubAgentInfo[];
     onCancelSubAgent?: (runId: string) => void;
+    contextUsage?: { ratio: number; tokens: number; limit: number; trimmed: boolean } | null;
+    traceStepCount?: number;
+    showTracePanel?: boolean;
+    onToggleTrace?: () => void;
 }
 
 export function AgentStatusBar({
@@ -32,6 +36,10 @@ export function AgentStatusBar({
     chatDefaultModel,
     subAgents,
     onCancelSubAgent,
+    contextUsage,
+    traceStepCount,
+    showTracePanel,
+    onToggleTrace,
 }: AgentStatusBarProps) {
     const { t } = useTranslation();
     const progress = maxIterations > 0 ? (iteration / maxIterations) * 100 : 0;
@@ -83,6 +91,36 @@ export function AgentStatusBar({
                             style={{ flex: 1 }}
                             color="orange"
                         />
+                        {contextUsage && (
+                            <Group gap={4}>
+                                <Progress
+                                    value={contextUsage.ratio * 100}
+                                    size="xs"
+                                    w={40}
+                                    color={contextUsage.ratio > 0.85 ? "red" : contextUsage.ratio > 0.7 ? "yellow" : "blue"}
+                                />
+                                <Text size="xs" c="dimmed">
+                                    {Math.round(contextUsage.ratio * 100)}%
+                                </Text>
+                                {contextUsage.trimmed && (
+                                    <Tooltip label={t("agent.contextTrimmed")}>
+                                        <IconScissors size={12} stroke={1.5} color="var(--mantine-color-yellow-6)" />
+                                    </Tooltip>
+                                )}
+                            </Group>
+                        )}
+                        {traceStepCount != null && traceStepCount > 0 && onToggleTrace && (
+                            <Tooltip label={t("agent.tracePanel")}>
+                                <ActionIcon
+                                    size="xs"
+                                    variant={showTracePanel ? "filled" : "subtle"}
+                                    color="orange"
+                                    onClick={onToggleTrace}
+                                >
+                                    <IconTimeline size={14} stroke={1.5} />
+                                </ActionIcon>
+                            </Tooltip>
+                        )}
                         <Button
                             size="xs"
                             variant="subtle"
@@ -110,6 +148,18 @@ export function AgentStatusBar({
                             <Text size="xs" c="dimmed">
                                 {formatRunCost(runCost!)}
                             </Text>
+                        )}
+                        {traceStepCount != null && traceStepCount > 0 && onToggleTrace && (
+                            <Tooltip label={t("agent.tracePanel")}>
+                                <ActionIcon
+                                    size="xs"
+                                    variant={showTracePanel ? "filled" : "subtle"}
+                                    color="orange"
+                                    onClick={onToggleTrace}
+                                >
+                                    <IconTimeline size={14} stroke={1.5} />
+                                </ActionIcon>
+                            </Tooltip>
                         )}
                         {onResume && (
                             <Button

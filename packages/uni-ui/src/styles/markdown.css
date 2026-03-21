@@ -1,0 +1,315 @@
+/* highlight.js: тёмная тема (github-dark) */
+[data-mantine-color-scheme="dark"] pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 1em;
+}
+[data-mantine-color-scheme="dark"] code.hljs {
+  padding: 3px 5px;
+}
+[data-mantine-color-scheme="dark"] .hljs {
+  color: #c9d1d9;
+  background: #0d1117;
+}
+[data-mantine-color-scheme="dark"] .hljs-doctag,
+[data-mantine-color-scheme="dark"] .hljs-keyword,
+[data-mantine-color-scheme="dark"] .hljs-meta .hljs-keyword,
+[data-mantine-color-scheme="dark"] .hljs-template-tag,
+[data-mantine-color-scheme="dark"] .hljs-template-variable,
+[data-mantine-color-scheme="dark"] .hljs-type,
+[data-mantine-color-scheme="dark"] .hljs-variable.language_ {
+  color: #ff7b72;
+}
+[data-mantine-color-scheme="dark"] .hljs-title,
+[data-mantine-color-scheme="dark"] .hljs-title.class_,
+[data-mantine-color-scheme="dark"] .hljs-title.class_.inherited__,
+[data-mantine-color-scheme="dark"] .hljs-title.function_ {
+  color: #d2a8ff;
+}
+[data-mantine-color-scheme="dark"] .hljs-attr,
+[data-mantine-color-scheme="dark"] .hljs-attribute,
+[data-mantine-color-scheme="dark"] .hljs-literal,
+[data-mantine-color-scheme="dark"] .hljs-meta,
+[data-mantine-color-scheme="dark"] .hljs-number,
+[data-mantine-color-scheme="dark"] .hljs-operator,
+[data-mantine-color-scheme="dark"] .hljs-variable,
+[data-mantine-color-scheme="dark"] .hljs-selector-attr,
+[data-mantine-color-scheme="dark"] .hljs-selector-class,
+[data-mantine-color-scheme="dark"] .hljs-selector-id {
+  color: #79c0ff;
+}
+[data-mantine-color-scheme="dark"] .hljs-regexp,
+[data-mantine-color-scheme="dark"] .hljs-string,
+[data-mantine-color-scheme="dark"] .hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+[data-mantine-color-scheme="dark"] .hljs-built_in,
+[data-mantine-color-scheme="dark"] .hljs-symbol {
+  color: #ffa657;
+}
+[data-mantine-color-scheme="dark"] .hljs-comment,
+[data-mantine-color-scheme="dark"] .hljs-code,
+[data-mantine-color-scheme="dark"] .hljs-formula {
+  color: #8b949e;
+}
+[data-mantine-color-scheme="dark"] .hljs-name,
+[data-mantine-color-scheme="dark"] .hljs-quote,
+[data-mantine-color-scheme="dark"] .hljs-selector-tag,
+[data-mantine-color-scheme="dark"] .hljs-selector-pseudo {
+  color: #7ee787;
+}
+[data-mantine-color-scheme="dark"] .hljs-subst {
+  color: #c9d1d9;
+}
+[data-mantine-color-scheme="dark"] .hljs-section {
+  color: #1f6feb;
+  font-weight: bold;
+}
+[data-mantine-color-scheme="dark"] .hljs-bullet {
+  color: #f2cc60;
+}
+[data-mantine-color-scheme="dark"] .hljs-emphasis {
+  color: #c9d1d9;
+  font-style: italic;
+}
+[data-mantine-color-scheme="dark"] .hljs-strong {
+  color: #c9d1d9;
+  font-weight: bold;
+}
+[data-mantine-color-scheme="dark"] .hljs-addition {
+  color: #aff5b4;
+  background-color: #033a16;
+}
+[data-mantine-color-scheme="dark"] .hljs-deletion {
+  color: #ffdcd7;
+  background-color: #67060c;
+}
+[data-mantine-color-scheme="dark"] .hljs-char.escape_,
+[data-mantine-color-scheme="dark"] .hljs-link,
+[data-mantine-color-scheme="dark"] .hljs-params,
+[data-mantine-color-scheme="dark"] .hljs-property,
+[data-mantine-color-scheme="dark"] .hljs-punctuation,
+[data-mantine-color-scheme="dark"] .hljs-tag {
+}
+
+/* highlight.js: светлая тема (github) */
+[data-mantine-color-scheme="light"] pre code.hljs {
+  display: block;
+  overflow-x: auto;
+  padding: 1em;
+}
+[data-mantine-color-scheme="light"] code.hljs {
+  padding: 3px 5px;
+}
+[data-mantine-color-scheme="light"] .hljs {
+  color: #24292e;
+  background: #ffffff;
+}
+[data-mantine-color-scheme="light"] .hljs-doctag,
+[data-mantine-color-scheme="light"] .hljs-keyword,
+[data-mantine-color-scheme="light"] .hljs-meta .hljs-keyword,
+[data-mantine-color-scheme="light"] .hljs-template-tag,
+[data-mantine-color-scheme="light"] .hljs-template-variable,
+[data-mantine-color-scheme="light"] .hljs-type,
+[data-mantine-color-scheme="light"] .hljs-variable.language_ {
+  color: #d73a49;
+}
+[data-mantine-color-scheme="light"] .hljs-title,
+[data-mantine-color-scheme="light"] .hljs-title.class_,
+[data-mantine-color-scheme="light"] .hljs-title.class_.inherited__,
+[data-mantine-color-scheme="light"] .hljs-title.function_ {
+  color: #6f42c1;
+}
+[data-mantine-color-scheme="light"] .hljs-attr,
+[data-mantine-color-scheme="light"] .hljs-attribute,
+[data-mantine-color-scheme="light"] .hljs-literal,
+[data-mantine-color-scheme="light"] .hljs-meta,
+[data-mantine-color-scheme="light"] .hljs-number,
+[data-mantine-color-scheme="light"] .hljs-operator,
+[data-mantine-color-scheme="light"] .hljs-variable,
+[data-mantine-color-scheme="light"] .hljs-selector-attr,
+[data-mantine-color-scheme="light"] .hljs-selector-class,
+[data-mantine-color-scheme="light"] .hljs-selector-id {
+  color: #005cc5;
+}
+[data-mantine-color-scheme="light"] .hljs-regexp,
+[data-mantine-color-scheme="light"] .hljs-string,
+[data-mantine-color-scheme="light"] .hljs-meta .hljs-string {
+  color: #032f62;
+}
+[data-mantine-color-scheme="light"] .hljs-built_in,
+[data-mantine-color-scheme="light"] .hljs-symbol {
+  color: #e36209;
+}
+[data-mantine-color-scheme="light"] .hljs-comment,
+[data-mantine-color-scheme="light"] .hljs-code,
+[data-mantine-color-scheme="light"] .hljs-formula {
+  color: #6a737d;
+}
+[data-mantine-color-scheme="light"] .hljs-name,
+[data-mantine-color-scheme="light"] .hljs-quote,
+[data-mantine-color-scheme="light"] .hljs-selector-tag,
+[data-mantine-color-scheme="light"] .hljs-selector-pseudo {
+  color: #22863a;
+}
+[data-mantine-color-scheme="light"] .hljs-subst {
+  color: #24292e;
+}
+[data-mantine-color-scheme="light"] .hljs-section {
+  color: #005cc5;
+  font-weight: bold;
+}
+[data-mantine-color-scheme="light"] .hljs-bullet {
+  color: #735c0f;
+}
+[data-mantine-color-scheme="light"] .hljs-emphasis {
+  color: #24292e;
+  font-style: italic;
+}
+[data-mantine-color-scheme="light"] .hljs-strong {
+  color: #24292e;
+  font-weight: bold;
+}
+[data-mantine-color-scheme="light"] .hljs-addition {
+  color: #22863a;
+  background-color: #f0fff4;
+}
+[data-mantine-color-scheme="light"] .hljs-deletion {
+  color: #b31d28;
+  background-color: #ffeef0;
+}
+[data-mantine-color-scheme="light"] .hljs-char.escape_,
+[data-mantine-color-scheme="light"] .hljs-link,
+[data-mantine-color-scheme="light"] .hljs-params,
+[data-mantine-color-scheme="light"] .hljs-property,
+[data-mantine-color-scheme="light"] .hljs-punctuation,
+[data-mantine-color-scheme="light"] .hljs-tag {
+}
+
+/* Блоки кода (pre) */
+.markdown-body pre {
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+}
+
+[data-mantine-color-scheme="dark"] .markdown-body pre {
+    background: #1e1e2e;
+}
+
+[data-mantine-color-scheme="light"] .markdown-body pre {
+    background: #f5f5f5;
+}
+
+/* Кликабельные ссылки на источники Web Search [1], [2] */
+.source-reference {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    margin: 0 1px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--mantine-color-brand-6);
+    background: var(--mantine-color-brand-0);
+    border-radius: 4px;
+    cursor: pointer;
+    vertical-align: super;
+    transition: background 0.15s;
+}
+
+.source-reference:hover {
+    background: var(--mantine-color-brand-1);
+    text-decoration: none;
+}
+
+[data-mantine-color-scheme="dark"] .source-reference {
+    color: var(--mantine-color-brand-4);
+    background: var(--mantine-color-brand-9);
+}
+
+[data-mantine-color-scheme="dark"] .source-reference:hover {
+    background: var(--mantine-color-brand-8);
+}
+
+/* KB source citation badges — uses teal to distinguish from web citations */
+.source-reference--kb {
+    color: var(--mantine-color-teal-7);
+    background: var(--mantine-color-teal-0);
+}
+
+.source-reference--kb:hover {
+    background: var(--mantine-color-teal-1);
+}
+
+[data-mantine-color-scheme="dark"] .source-reference--kb {
+    color: var(--mantine-color-teal-4);
+    background: var(--mantine-color-teal-9);
+}
+
+[data-mantine-color-scheme="dark"] .source-reference--kb:hover {
+    background: var(--mantine-color-teal-8);
+}
+
+/* Инлайн-код (code не внутри pre) */
+.markdown-body :not(pre) > code {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+[data-mantine-color-scheme="dark"] .markdown-body :not(pre) > code {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+[data-mantine-color-scheme="light"] .markdown-body :not(pre) > code {
+    color: var(--mantine-color-brand-9);
+    background: var(--mantine-color-brand-0);
+}
+
+/* Таблицы */
+.markdown-body table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.markdown-body th,
+.markdown-body td {
+    border: 1px solid var(--mantine-color-default-border);
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.markdown-body tbody tr:nth-child(even) {
+    background: var(--mantine-color-default-hover);
+}
+
+/* Кнопка копирования кода */
+.markdown-body .code-block-wrapper .copy-button {
+    opacity: 0.4;
+}
+
+.markdown-body .code-block-wrapper:hover .copy-button {
+    opacity: 1;
+}
+
+[data-mantine-color-scheme="light"] .markdown-body .code-block-wrapper .copy-button {
+    color: var(--mantine-color-brand-7);
+    background: var(--mantine-color-brand-1);
+    border-radius: 4px;
+}
+
+[data-mantine-color-scheme="light"] .markdown-body .code-block-wrapper:hover .copy-button {
+    background: var(--mantine-color-brand-2);
+}
+
+/* Шрифт кода из темы Mantine */
+.markdown-body code {
+    font-family: var(--mantine-font-family-monospace);
+}
+.markdown-body pre code {
+    font-family: var(--mantine-font-family-monospace);
+}

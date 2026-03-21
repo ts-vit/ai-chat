@@ -1,0 +1,12 @@
+[script]
+name = "document-converter"
+version = "1.0.0"
+description = "Convert documents (PDF, DOCX, XLSX, PPTX, EPUB) to Markdown"
+entry = "main.py"
+mode = "one-shot"
+
+[requirements]
+file = "requirements.txt"
+
+[capabilities]
+formats = ["pdf", "docx", "xlsx", "pptx", "epub"]

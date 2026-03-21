@@ -17,7 +17,8 @@ ai-chat/
 ├── UNI_NOTEBOOK_SPEC.md
 ├── docs/                    # Documentation
 ├── crates/                  # Shared Rust crates (`uni-common`, `uni-http`, `uni-llm`, `uni-embedding`, `uni-search`, …)
-├── packages/                # Shared npm packages (future)
+├── packages/                # Shared npm packages
+│   └── uni-ui/              # @uni/ui — React components + Mantine theme
 └── apps/
     └── desktop/             # UNI AI Desktop (main app)
         ├── src/             # React frontend
@@ -93,9 +94,21 @@ When adding new features, include tests:
   - `settings/` — Settings sections (OpenRouter, Audio, Mcp, Proxy, Terminal, WebSearch, CustomProviders, Templates, TelegramSection, etc.)
 - `apps/desktop/src/i18n/locales/{en,ru}.json` — i18n translations (both must be kept in sync)
 - `apps/desktop/src/utils/` — notify, injections, tokenCount, formatDate
-- `apps/desktop/src/styles/` — markdown.css, app.css, resize.css
+- `apps/desktop/src/styles/` — app.css, resize.css; duplicate `markdown.css` kept for reference (global highlight.js styles are loaded from `@uni/ui` in `main.tsx`)
 - `apps/desktop/src/constants/` — mcpPresets, folderColors, modes (`MODE_DEFINITIONS`), promptCategories, skillIcons
 - UI: Mantine 8, icons from @tabler/icons-react
+
+### Shared React Package: @uni/ui (`packages/uni-ui/`)
+
+Re-usable React components and theme for UNI apps. Wraps Mantine 8.
+
+- **Theme:** `uniTheme` (brand orange palette, Inter + JetBrains Mono, component overrides), `uniCssResolver`, `brandOrange`
+- **UniProvider:** Drop-in MantineProvider + Notifications + theme. Default dark color scheme.
+- **MarkdownRenderer:** react-markdown + remark-gfm + rehype-highlight. Import `@uni/ui/src/styles/markdown.css` for highlight.js theming.
+- **ConfirmModal:** Reusable confirm/cancel dialog.
+- **Re-exports:** `export * from '@mantine/core'`, `@mantine/hooks`, `@mantine/notifications`.
+- Apps can import Mantine components from `@uni/ui` or from `@mantine/core` directly (both work).
+- Desktop depends on `@uni/ui` via `file:../../packages/uni-ui` in `apps/desktop/package.json` (npm workspaces link).
 
 ### Shared Crates (`crates/`)
 
@@ -107,6 +120,8 @@ When adding new features, include tests:
 | `uni-embedding` | Embedding trait (`EmbeddingProvider`), API providers (OpenAI `text-embedding-3-small`, Gemini `gemini-embedding`), factory (`create_embedding_provider`), `default_dimensions` |
 | `uni-search` | Text chunking (`chunk_text`, `chunk_document_enriched`), reranker trait + providers (Cohere, Jina), FTS utilities (`fts_escape_query`) |
 | `uni-audio` | Whisper STT (`transcribe_whisper` — OpenAI + Groq via base_url), OpenAI TTS (`speak_openai`, `openai_voice_ids`, `openai_model_ids`) |
+| `uni-python` | Managed Python runtime: discovery (`discover_python`), venv management (`PythonEnvironment`), script execution via JSON-RPC (`PythonExecutor`), script registry (`ScriptRegistry`), sandbox (`Sandbox`), bridge library extraction (`ensure_bridge`) |
+| `uni-converter` | Document→Markdown converter: `convert_file` (TXT, MD, HTML, CSV, PDF, RTF), `convert_url` (Jina Reader), `convert_youtube` (captions), `convert_text`, `guess_mime_type`. Python-enhanced via `uni-python`: `convert_file_with_python` (PDF/pymupdf, DOCX/mammoth, XLSX/openpyxl, PPTX/python-pptx, EPUB/ebooklib). PDF fallback: Python→Rust. |
 
 ### Backend — Commands (`apps/desktop/src-tauri/src/commands/`)
 

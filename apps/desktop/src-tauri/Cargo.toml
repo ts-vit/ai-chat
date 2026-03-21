@@ -24,6 +24,8 @@ uni-llm = { path = "../../../crates/uni-llm" }
 uni-embedding = { path = "../../../crates/uni-embedding" }
 uni-search = { path = "../../../crates/uni-search" }
 uni-audio = { path = "../../../crates/uni-audio" }
+uni-python = { path = "../../../crates/uni-python" }
+uni-converter = { path = "../../../crates/uni-converter" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }

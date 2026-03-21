@@ -7,9 +7,15 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+
+# Build output
 dist
 dist-ssr
+target
+
+# Local env
 *.local
 
 # Editor directories and files
@@ -22,5 +28,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude
 .claude/*
-src-tauri/resources/ort/
+
+# ONNX Runtime (downloaded separately)
+**/resources/ort/

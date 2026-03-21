@@ -1,0 +1,11 @@
+[workspace]
+members = [
+    "crates/uni-common",
+    "crates/uni-http",
+    "crates/uni-llm",
+    "crates/uni-embedding",
+    "crates/uni-search",
+    "crates/uni-audio",
+    "apps/desktop/src-tauri",
+]
+resolver = "2"

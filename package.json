@@ -1,53 +1,16 @@
 {
-  "name": "ai-chat",
+  "name": "uni-ai",
   "private": true,
-  "version": "0.1.0",
-  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "tauri dev",
-    "vite:dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "tauri": "tauri",
-    "tauri:debug": "set RUST_LOG=debug&& tauri dev",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:rust": "cd src-tauri && cargo test",
-    "test:all": "npm run typecheck && npm run test && npm run test:rust"
-  },
-  "dependencies": {
-    "@fontsource/inter": "^5.2.8",
-    "@fontsource/jetbrains-mono": "^5.2.8",
-    "@mantine/core": "^8.3.15",
-    "@mantine/hooks": "^8.3.15",
-    "@mantine/notifications": "^8.3.15",
-    "@tabler/icons-react": "^3",
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
-    "@tauri-apps/plugin-dialog": "^2.6.0",
-    "@tauri-apps/plugin-opener": "^2",
-    "@tauri-apps/plugin-shell": "^2.3.5",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/addon-web-links": "^0.12.0",
-    "@xterm/xterm": "^6.0.0",
-    "i18next": "^25.8.13",
-    "i18next-browser-languagedetector": "^8.2.1",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "react-i18next": "^16.5.4",
-    "react-markdown": "^10.1.0",
-    "rehype-highlight": "^7.0.2",
-    "remark-gfm": "^4.0.1",
-    "zustand": "^5.0.11"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4",
-    "vitest": "^4.1.0"
+    "dev": "npm run dev -w apps/desktop",
+    "build": "npm run build -w apps/desktop",
+    "typecheck": "npm run typecheck -w apps/desktop",
+    "test": "npm run test -w apps/desktop",
+    "test:rust": "cargo test --workspace",
+    "test:all": "npm run typecheck -w apps/desktop && npm run test -w apps/desktop && cargo test --workspace"
   }
 }

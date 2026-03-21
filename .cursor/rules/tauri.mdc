@@ -1,0 +1,86 @@
+---
+alwaysApply: true
+---
+
+# AI-Chat Project Rules
+
+## Tauri 2 Command Pattern (CRITICAL)
+
+All Tauri commands MUST use **individual parameters**, NOT struct wrappers. This is the Tauri 2 pattern.
+
+### ❌ WRONG (Tauri 1 pattern — NEVER use this):
+```rust
+#[derive(Deserialize)]
+pub struct CreateItemInput {
+    name: String,
+    value: String,
+}
+
+#[tauri::command]
+pub async fn create_item(pool: State<'_, Pool>, input: CreateItemInput) -> Result<(), String> {
+    // input.name, input.value
+}
+```
+```typescript
+// Frontend requires { input: {...} } wrapper — BAD
+await invoke("create_item", { input: { name: "foo", value: "bar" } });
+```
+
+### ✅ CORRECT (Tauri 2 pattern — ALWAYS use this):
+```rust
+#[tauri::command]
+pub async fn create_item(pool: State<'_, Pool>, name: String, value: String) -> Result<(), String> {
+    // use name, value directly
+}
+```
+```typescript
+// Frontend passes parameters directly — GOOD
+await invoke("create_item", { name: "foo", value: "bar" });
+```
+
+### Rules:
+- **Never** create input/args/params structs for Tauri commands
+- **Never** use `#[serde(rename)]` on Tauri command parameters — Tauri 2 auto-converts camelCase → snake_case
+- **Always** pass parameters as individual arguments to `#[tauri::command]` functions
+- **Always** use camelCase in frontend `invoke()` calls — Tauri 2 converts to snake_case automatically
+- The only exception is `State<'_>` which is injected by Tauri, not passed from frontend
+
+## Database Migrations
+
+- Use `let _ =` for ALTER TABLE statements (ignore duplicate column errors)
+- Use `CREATE TABLE IF NOT EXISTS` for new tables
+- All migrations run in `lib.rs` setup
+
+## Timestamps
+
+- Store as Unix seconds (not milliseconds) in SQLite
+- Frontend: `Math.floor(Date.now() / 1000)` when writing
+- Frontend: `new Date(timestamp * 1000)` when displaying
+- Use `toUnixSeconds()` for normalization of legacy data
+
+## Frontend Conventions
+
+- **State management:** Zustand store in `apps/desktop/src/store/chatStore.ts`
+- **UI library:** Mantine 8 — use Mantine CSS variables, not hex/rgba
+- **Icons:** @tabler/icons-react, size 18/16/14, stroke={1.5}
+- **ActionIcon without text:** always wrap in Tooltip
+- **Button "Cancel":** variant="subtle"
+- **Modal:** size="sm" unless content requires more
+- **Spacing:** Stack gap="lg" between sections, gap="sm" inside
+- **Notifications:** notify.error (5s), notify.success (3s)
+- **i18n:** useTranslation() in components, i18next.t() in store/utils
+- **Regex with /g flag:** create inside function, not at module level
+
+## Rust Conventions
+
+- SQLite via sqlx with full control over queries
+- Streaming via SSE + Tauri Events (chat-stream, chat-stream-done, chat-stream-error, chat-stream-usage)
+- CancellationToken for stopping generation
+- HTTP API for Ollama (not CLI)
+- Error handling: `map_err(|e| e.to_string())?` with eprintln for logging
+
+## Project Language
+
+- Communication language: Russian
+- Code comments: English
+- i18n: Russian (ru) and English (en) supported

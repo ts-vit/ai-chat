@@ -161,6 +161,7 @@ export async function generateApp(config: AppConfig) {
     ["frontend/vite.config.ts.hbs", "vite.config.ts"],
     ["frontend/tsconfig.json.hbs", "tsconfig.json"],
     ["frontend/tsconfig.node.json.hbs", "tsconfig.node.json"],
+    ["frontend/vite-env.d.ts.hbs", "src/vite-env.d.ts"],
     ["frontend/main.tsx.hbs", "src/main.tsx"],
     ["frontend/App.tsx.hbs", "src/App.tsx"],
     ["frontend/App.css.hbs", "src/App.css"],

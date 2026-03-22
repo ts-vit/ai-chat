@@ -10872,17 +10872,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-app"
+name = "test-app2"
 version = "0.1.0"
 dependencies = [
+ "reqwest 0.13.2",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tauri-plugin-dialog",
  "tauri-plugin-shell",
  "tokio",
  "uni-common",
+ "uni-http",
  "uni-settings",
+ "uni-ssh",
+ "uni-terminal",
 ]
 
 [[package]]

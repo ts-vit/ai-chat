@@ -1,15 +1,17 @@
 // Команды управления Ollama через HTTP API (check/list/pull/delete)
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_store::StoreExt;
+use tauri::{AppHandle, Emitter, Manager};
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 use crate::commands::settings::fetch_ollama_models;
 use crate::services::http_client::build_http_client;
 
-const STORE_NAME: &str = "settings.json";
+type SettingsState = Arc<JsonSettingsStore>;
+
 const OLLAMA_CHECK_TIMEOUT_SECS: u64 = 3;
 const OLLAMA_DELETE_TIMEOUT_SECS: u64 = 30;
 
@@ -21,21 +23,19 @@ pub struct OllamaLocalModel {
 }
 
 /// Возвращает URL Ollama из store (с /v1).
-fn get_ollama_url_from_store(app: &AppHandle) -> String {
-    let store = match app.store(STORE_NAME) {
-        Ok(s) => s,
-        Err(_) => return "http://localhost:11434/v1".to_string(),
-    };
+async fn get_ollama_url_from_store(app: &AppHandle) -> String {
+    let store = app.state::<SettingsState>();
     store
-        .get("ollamaUrl")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("llm.ollama.url")
+        .await
+        .unwrap_or_default()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "http://localhost:11434/v1".to_string())
 }
 
 /// Базовый URL Ollama без суффикса /v1 (для /api/pull, /api/delete и т.д.).
-fn get_ollama_base_url(app: &AppHandle) -> String {
-    let url = get_ollama_url_from_store(app);
+async fn get_ollama_base_url(app: &AppHandle) -> String {
+    let url = get_ollama_url_from_store(app).await;
     let base = if url.ends_with("/v1") {
         url.trim_end_matches("/v1").trim_end_matches('/')
     } else {
@@ -51,7 +51,7 @@ fn get_ollama_base_url(app: &AppHandle) -> String {
 /// Проверяет доступность Ollama по HTTP (GET базовый URL, таймаут 3 с).
 #[tauri::command]
 pub async fn check_ollama_status(app: AppHandle) -> Result<bool, String> {
-    let base = get_ollama_base_url(&app);
+    let base = get_ollama_base_url(&app).await;
 
     let client = match build_http_client(&app, Some(Duration::from_secs(OLLAMA_CHECK_TIMEOUT_SECS))).await {
         Ok(c) => c,
@@ -66,7 +66,7 @@ pub async fn check_ollama_status(app: AppHandle) -> Result<bool, String> {
 /// Возвращает список локальных моделей Ollama через HTTP API.
 #[tauri::command]
 pub async fn get_local_ollama_models(app: AppHandle) -> Result<Vec<OllamaLocalModel>, String> {
-    let url = get_ollama_url_from_store(&app);
+    let url = get_ollama_url_from_store(&app).await;
     let client = build_http_client(&app, Some(Duration::from_secs(15))).await?;
     let models = fetch_ollama_models(&client, &url).await?;
     Ok(models
@@ -102,7 +102,7 @@ pub struct OllamaPullErrorPayload {
 /// Прогресс и результат приходят через события: ollama-pull-progress, ollama-pull-done, ollama-pull-error.
 #[tauri::command]
 pub async fn pull_ollama_model(app: AppHandle, model_name: String) -> Result<(), String> {
-    let base = get_ollama_base_url(&app);
+    let base = get_ollama_base_url(&app).await;
     let pull_url = format!("{}/api/pull", base.trim_end_matches('/'));
     let client = build_http_client(&app, Some(Duration::from_secs(600))).await?;
 
@@ -209,7 +209,7 @@ pub async fn pull_ollama_model(app: AppHandle, model_name: String) -> Result<(),
 /// Удаляет локальную модель Ollama через HTTP API (DELETE /api/delete).
 #[tauri::command]
 pub async fn delete_ollama_model(app: AppHandle, model_name: String) -> Result<(), String> {
-    let base = get_ollama_base_url(&app);
+    let base = get_ollama_base_url(&app).await;
     let delete_url = format!("{}/api/delete", base.trim_end_matches('/'));
     let client = build_http_client(&app, Some(Duration::from_secs(OLLAMA_DELETE_TIMEOUT_SECS))).await?;
 

@@ -1,12 +1,12 @@
 // Cost calculation, cost_ledger writes, and budget checks
+use std::sync::Arc;
 use sqlx::Row;
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_store::StoreExt;
-
-const STORE_NAME: &str = "settings.json";
+use tauri::{AppHandle, Emitter, Manager, State};
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 type Pool = sqlx::SqlitePool;
+type SettingsState = Arc<JsonSettingsStore>;
 
 /// Compute cost from model_catalog for given model. Returns 0.0 if model not found or costs are NULL.
 /// catalog_id: e.g. "openrouter:anthropic/claude-sonnet-4" or "ollama:qwen2.5:3b"
@@ -98,13 +98,13 @@ pub async fn check_budget(
     chat_id: &str,
     plan_id: Option<&str>,
 ) -> Result<(), String> {
-    let store = app.store(STORE_NAME).map_err(|e: tauri_plugin_store::Error| e.to_string())?;
+    let store = app.state::<SettingsState>();
 
-    let plan_enabled: bool = store.get("budgetPlanEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    let plan_limit: f64 = store.get("budgetPlanLimit").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let global_enabled: bool = store.get("budgetGlobalEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    let global_limit: f64 = store.get("budgetGlobalLimit").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let period: String = store.get("budgetGlobalPeriod").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "daily".to_string());
+    let plan_enabled = store.get("budget.plan.enabled").await.unwrap_or_default().map(|v| v == "true").unwrap_or(false);
+    let plan_limit: f64 = store.get("budget.plan.limit").await.unwrap_or_default().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    let global_enabled = store.get("budget.global.enabled").await.unwrap_or_default().map(|v| v == "true").unwrap_or(false);
+    let global_limit: f64 = store.get("budget.global.limit").await.unwrap_or_default().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    let period: String = store.get("budget.global.period").await.unwrap_or_default().unwrap_or_else(|| "daily".to_string());
 
     if let Some(pid) = plan_id {
         if plan_enabled && plan_limit > 0.0 {
@@ -164,10 +164,10 @@ pub async fn get_budget_status(
     app: &AppHandle,
     plan_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let store = app.store(STORE_NAME).map_err(|e: tauri_plugin_store::Error| e.to_string())?;
-    let plan_limit: f64 = store.get("budgetPlanLimit").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let global_limit: f64 = store.get("budgetGlobalLimit").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let period: String = store.get("budgetGlobalPeriod").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "daily".to_string());
+    let store = app.state::<SettingsState>();
+    let plan_limit: f64 = store.get("budget.plan.limit").await.unwrap_or_default().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    let global_limit: f64 = store.get("budget.global.limit").await.unwrap_or_default().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+    let period: String = store.get("budget.global.period").await.unwrap_or_default().unwrap_or_else(|| "daily".to_string());
 
     let plan_spend: f64 = if let Some(ref pid) = plan_id {
         sqlx::query("SELECT COALESCE(SUM(cost), 0) as total FROM cost_ledger WHERE plan_id = ?")

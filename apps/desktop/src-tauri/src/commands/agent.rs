@@ -25,6 +25,7 @@ use crate::services::context_manager;
 use crate::models::agent_trace::{AgentRunTrace, AgentStepTrace, LlmCallTrace, ToolCallTrace, is_builtin_tool};
 use uni_common::safe_truncate_chars;
 use uni_embedding::EmbeddingProvider;
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 type Pool = sqlx::SqlitePool;
 
@@ -32,17 +33,12 @@ async fn build_kb_embedding_provider(
     app: &AppHandle,
     emb_model: &str,
 ) -> Option<Box<dyn EmbeddingProvider>> {
-    use tauri_plugin_store::StoreExt;
-    let store = app.store("settings.json").ok()?;
+    let settings = app.state::<Arc<JsonSettingsStore>>();
     let api_key = match emb_model {
-        "gemini" | "gemini-embedding" => store
-            .get("embeddingGeminiKey")
-            .and_then(|v| v.as_str().map(String::from))
-            .filter(|s| !s.is_empty()),
-        _ => store
-            .get("embeddingOpenaiKey")
-            .and_then(|v| v.as_str().map(String::from))
-            .filter(|s| !s.is_empty()),
+        "gemini" | "gemini-embedding" => settings.get("embedding.gemini.api_key")
+            .await.unwrap_or_default().filter(|s| !s.is_empty()),
+        _ => settings.get("embedding.openai.api_key")
+            .await.unwrap_or_default().filter(|s| !s.is_empty()),
     }?;
     let model_id = match emb_model {
         "gemini" | "gemini-embedding" => "gemini",
@@ -133,9 +129,11 @@ pub async fn send_agent_message(
     let mut run_api_key = api_key.clone();
     let mut assigned_model: Option<String> = None;
 
-    let store = tauri_plugin_store::StoreExt::store(&app, "settings.json").map_err(|e: tauri_plugin_store::Error| e.to_string())?;
-    let routing_enabled: bool = store.get("routingEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    let routing_strategy: String = store.get("routingStrategy").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "rules".to_string());
+    let settings = app.state::<Arc<JsonSettingsStore>>();
+    let routing_enabled = settings.get("routing.enabled").await
+        .unwrap_or_default().map(|v| v == "true").unwrap_or(false);
+    let routing_strategy = settings.get("routing.strategy").await
+        .unwrap_or_default().unwrap_or_else(|| "rules".to_string());
 
     if routing_enabled {
         let catalog_id_opt = if routing_strategy == "llm" {
@@ -631,13 +629,11 @@ pub(crate) async fn agent_loop(
         } else {
             ("none".to_string(), 4)
         };
-        let (ck, jk) = {
-            use tauri_plugin_store::StoreExt;
-            let store_settings = app.store("settings.json").ok();
-            let ck = store_settings.as_ref().and_then(|s| s.get("rerankerCohereKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
-            let jk = store_settings.as_ref().and_then(|s| s.get("rerankerJinaKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
-            (ck, jk)
-        };
+        let settings = app.state::<Arc<JsonSettingsStore>>();
+        let ck = settings.get("reranker.cohere.api_key").await
+            .unwrap_or_default().filter(|s| !s.is_empty());
+        let jk = settings.get("reranker.jina.api_key").await
+            .unwrap_or_default().filter(|s| !s.is_empty());
         Some(crate::commands::knowledge_base::build_reranker_config_from_kb(&rt, rof, &ck, &jk))
     } else {
         None
@@ -663,18 +659,15 @@ pub(crate) async fn agent_loop(
     };
 
     // Read web search settings from store
-    let (web_search_enabled, web_search_provider, ws_tavily_key, ws_brave_key) = {
-        use tauri_plugin_store::StoreExt;
-        if let Ok(store) = app.store("settings.json") {
-            let enabled = store.get("webSearchEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-            let provider = store.get("webSearchProvider").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "duckduckgo".to_string());
-            let tavily = store.get("tavilyApiKey").and_then(|v| v.as_str().map(String::from));
-            let brave = store.get("braveApiKey").and_then(|v| v.as_str().map(String::from));
-            (enabled, provider, tavily, brave)
-        } else {
-            (false, "duckduckgo".to_string(), None, None)
-        }
-    };
+    let settings = app.state::<Arc<JsonSettingsStore>>();
+    let web_search_enabled = settings.get("search.enabled").await
+        .unwrap_or_default().map(|v| v == "true").unwrap_or(false);
+    let web_search_provider = settings.get("search.provider").await
+        .unwrap_or_default().unwrap_or_else(|| "duckduckgo".to_string());
+    let ws_tavily_key = settings.get("search.tavily.api_key").await
+        .unwrap_or_default().filter(|s| !s.is_empty());
+    let ws_brave_key = settings.get("search.brave.api_key").await
+        .unwrap_or_default().filter(|s| !s.is_empty());
 
     // Append web search hint to system prompt
     let system_prompt = if web_search_enabled {
@@ -1346,13 +1339,11 @@ async fn agent_loop_resume(
                 use sqlx::Row;
                 let rt: String = r.try_get("reranker_type").unwrap_or("none".to_string());
                 let rof: i64 = r.try_get("reranker_overfetch_factor").unwrap_or(4);
-                let (ck, jk) = {
-                    use tauri_plugin_store::StoreExt;
-                    let store_settings = app.store("settings.json").ok();
-                    let ck = store_settings.as_ref().and_then(|s| s.get("rerankerCohereKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
-                    let jk = store_settings.as_ref().and_then(|s| s.get("rerankerJinaKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
-                    (ck, jk)
-                };
+                let settings = app.state::<Arc<JsonSettingsStore>>();
+                let ck = settings.get("reranker.cohere.api_key").await
+                    .unwrap_or_default().filter(|s| !s.is_empty());
+                let jk = settings.get("reranker.jina.api_key").await
+                    .unwrap_or_default().filter(|s| !s.is_empty());
                 Some(crate::commands::knowledge_base::build_reranker_config_from_kb(&rt, rof, &ck, &jk))
             }
             None => None,
@@ -1362,18 +1353,15 @@ async fn agent_loop_resume(
     };
 
     // Read web search settings from store
-    let (web_search_enabled, web_search_provider, ws_tavily_key, ws_brave_key) = {
-        use tauri_plugin_store::StoreExt;
-        if let Ok(store) = app.store("settings.json") {
-            let enabled = store.get("webSearchEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-            let provider = store.get("webSearchProvider").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "duckduckgo".to_string());
-            let tavily = store.get("tavilyApiKey").and_then(|v| v.as_str().map(String::from));
-            let brave = store.get("braveApiKey").and_then(|v| v.as_str().map(String::from));
-            (enabled, provider, tavily, brave)
-        } else {
-            (false, "duckduckgo".to_string(), None, None)
-        }
-    };
+    let settings = app.state::<Arc<JsonSettingsStore>>();
+    let web_search_enabled = settings.get("search.enabled").await
+        .unwrap_or_default().map(|v| v == "true").unwrap_or(false);
+    let web_search_provider = settings.get("search.provider").await
+        .unwrap_or_default().unwrap_or_else(|| "duckduckgo".to_string());
+    let ws_tavily_key = settings.get("search.tavily.api_key").await
+        .unwrap_or_default().filter(|s| !s.is_empty());
+    let ws_brave_key = settings.get("search.brave.api_key").await
+        .unwrap_or_default().filter(|s| !s.is_empty());
 
     // Append web search hint to system prompt
     let system_prompt = if web_search_enabled {
@@ -2195,7 +2183,6 @@ pub(crate) async fn get_provider_credentials(
     pool: &Pool,
     chat_id: &str,
 ) -> Result<(String, Option<String>), String> {
-    use tauri_plugin_store::StoreExt;
     let provider_id: String = sqlx::query("SELECT provider_id FROM chats WHERE id = ?")
         .bind(chat_id)
         .fetch_one(pool)
@@ -2203,16 +2190,14 @@ pub(crate) async fn get_provider_credentials(
         .map(|row| row.try_get("provider_id").unwrap_or_else(|_| "openrouter".to_string()))
         .unwrap_or_else(|_| "openrouter".to_string());
 
+    let settings = app.state::<Arc<JsonSettingsStore>>();
     if provider_id == "openrouter" {
-        let store = app.store("settings.json").map_err(|e: tauri_plugin_store::Error| e.to_string())?;
-        let api_key = store.get("apiKey")
-            .and_then(|v: serde_json::Value| v.as_str().map(String::from))
-            .unwrap_or_default();
+        let api_key = settings.get("llm.openrouter.api_key").await
+            .unwrap_or_default().unwrap_or_default();
         Ok((api_key, None))
     } else if provider_id == "ollama" {
-        let store = app.store("settings.json").map_err(|e: tauri_plugin_store::Error| e.to_string())?;
-        let url = store.get("ollamaUrl")
-            .and_then(|v: serde_json::Value| v.as_str().map(String::from))
+        let url = settings.get("llm.ollama.url").await
+            .unwrap_or_default()
             .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
         Ok((String::new(), Some(url)))
     } else {

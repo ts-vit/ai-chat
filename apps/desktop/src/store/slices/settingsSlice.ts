@@ -123,26 +123,95 @@ export const createSettingsSlice = (set: Set, get: Get): SettingsSlice => ({
 
     loadSettings: async () => {
         try {
-            const loaded = await invoke<AppSettings>("load_settings");
-            const settings: AppSettings = {
-                ...loaded,
-                ollamaUrl: loaded.ollamaUrl ?? "http://localhost:11434/v1",
-                openrouterEnabledModels: Array.isArray(loaded.openrouterEnabledModels) ? loaded.openrouterEnabledModels : [],
-                ollamaEnabledModels: Array.isArray(loaded.ollamaEnabledModels) ? loaded.ollamaEnabledModels : [],
-                customProviderEnabledModels: loaded.customProviderEnabledModels && typeof loaded.customProviderEnabledModels === "object"
-                    ? loaded.customProviderEnabledModels
-                    : {},
-                language: loaded.language ?? "",
-                sendByEnter: loaded.sendByEnter ?? true,
-                messageDensity: loaded.messageDensity ?? "standard",
-                chatWidth: loaded.chatWidth ?? "standard",
-                showStatusBar: loaded.showStatusBar ?? true,
-                statusBarMetrics: Array.isArray(loaded.statusBarMetrics) && loaded.statusBarMetrics.length > 0
-                    ? loaded.statusBarMetrics
-                    : ["balance", "context", "tokens", "cost"],
+            const all = await invoke<Array<{ key: string; value: string; is_sensitive: boolean }>>(
+                "get_all_settings",
+                { prefix: "" }
+            );
+            const map: Record<string, string> = {};
+            for (const s of all) {
+                map[s.key] = s.value;
+            }
+
+            const bool = (k: string, def: boolean) =>
+                k in map ? map[k] === "true" : def;
+            const str = (k: string, def = "") =>
+                map[k] ?? def;
+            const num = (k: string, def: number) =>
+                k in map ? Number(map[k]) : def;
+            const optStr = (k: string) =>
+                map[k] && map[k].trim() ? map[k] : undefined;
+            const jsonArr = (k: string): string[] => {
+                try { return map[k] ? JSON.parse(map[k]) : []; }
+                catch { return []; }
             };
+            const jsonObj = (k: string): Record<string, string[]> => {
+                try { return map[k] ? JSON.parse(map[k]) : {}; }
+                catch { return {}; }
+            };
+
+            const settings: AppSettings = {
+                api_key:                    str("llm.openrouter.api_key"),
+                management_key:             str("llm.openrouter.mgmt_key"),
+                model:                      str("llm.openrouter.model", "anthropic/claude-sonnet-4-20250514"),
+                temperature:                num("llm.temperature", 0.7),
+                max_tokens:                 num("llm.max_tokens", 4096),
+                font_size:                  num("ui.font_size", 14),
+                ollamaUrl:                  str("llm.ollama.url", "http://localhost:11434/v1"),
+                openrouterEnabledModels:    jsonArr("llm.openrouter.models"),
+                ollamaEnabledModels:        jsonArr("llm.ollama.models"),
+                customProviderEnabledModels: jsonObj("llm.custom.models"),
+                language:                   str("ui.language"),
+                sendByEnter:                bool("ui.send_by_enter", true),
+                topP:                       map["llm.top_p"] ? Number(map["llm.top_p"]) : undefined,
+                topK:                       map["llm.top_k"] ? Number(map["llm.top_k"]) : undefined,
+                frequencyPenalty:           map["llm.frequency_penalty"] ? Number(map["llm.frequency_penalty"]) : undefined,
+                presencePenalty:            map["llm.presence_penalty"] ? Number(map["llm.presence_penalty"]) : undefined,
+                sttProvider:                optStr("audio.stt.provider"),
+                sttLanguage:                optStr("audio.stt.language"),
+                openaiApiKey:               optStr("audio.stt.openai.api_key"),
+                groqSttApiKey:              optStr("audio.stt.groq.api_key"),
+                ttsProvider:                optStr("audio.tts.provider") as AppSettings["ttsProvider"],
+                ttsVoice:                   optStr("audio.tts.voice"),
+                ttsModel:                   optStr("audio.tts.model"),
+                messageDensity:             (str("ui.message_density", "standard")) as AppSettings["messageDensity"],
+                chatWidth:                  (str("ui.chat_width", "standard")) as AppSettings["chatWidth"],
+                showStatusBar:              bool("ui.show_status_bar", true),
+                statusBarMetrics:           jsonArr("ui.status_bar_metrics").length > 0
+                                                ? jsonArr("ui.status_bar_metrics")
+                                                : ["balance", "context", "tokens", "cost"],
+                webSearchProvider:          optStr("search.provider"),
+                tavilyApiKey:               optStr("search.tavily.api_key"),
+                braveApiKey:                optStr("search.brave.api_key"),
+                terminalFontSize:           map["terminal.font_size"] ? Number(map["terminal.font_size"]) : undefined,
+                terminalShell:              optStr("terminal.shell"),
+                sshHost:                    optStr("ssh.host"),
+                sshPort:                    map["ssh.port"] ? Number(map["ssh.port"]) : undefined,
+                sshUsername:                optStr("ssh.username"),
+                sshAuthType:                optStr("ssh.auth_type"),
+                sshPassword:                optStr("ssh.password"),
+                sshKeyPath:                 optStr("ssh.key_path"),
+                sshAutoConnect:             bool("ssh.auto_connect", false),
+                routingEnabled:             bool("routing.enabled", false),
+                routingStrategy:            optStr("routing.strategy") as AppSettings["routingStrategy"],
+                budgetPlanEnabled:          bool("budget.plan.enabled", false),
+                budgetPlanLimit:            map["budget.plan.limit"] ? Number(map["budget.plan.limit"]) : undefined,
+                budgetGlobalEnabled:        bool("budget.global.enabled", false),
+                budgetGlobalLimit:          map["budget.global.limit"] ? Number(map["budget.global.limit"]) : undefined,
+                budgetGlobalPeriod:         optStr("budget.global.period") as AppSettings["budgetGlobalPeriod"],
+                modelCatalogLastSync:       map["model.catalog.last_sync"] ? Number(map["model.catalog.last_sync"]) : undefined,
+                telegramBotToken:           optStr("telegram.bot_token"),
+                telegramEnabled:            bool("telegram.enabled", false),
+                telegramAutoStart:          bool("telegram.auto_start", false),
+                telegramModel:              optStr("telegram.model"),
+                embeddingOpenaiKey:         optStr("embedding.openai.api_key"),
+                embeddingGeminiKey:         optStr("embedding.gemini.api_key"),
+                rerankerCohereKey:          optStr("reranker.cohere.api_key"),
+                rerankerJinaKey:            optStr("reranker.jina.api_key"),
+            };
+
             set({ settings });
-            const lang = settings.language?.trim() || (navigator.language.startsWith("ru") ? "ru" : "en");
+            const lang = settings.language?.trim() ||
+                (navigator.language.startsWith("ru") ? "ru" : "en");
             i18n.changeLanguage(lang);
             get().loadImageStyles();
         } catch (e) {
@@ -152,8 +221,44 @@ export const createSettingsSlice = (set: Set, get: Get): SettingsSlice => ({
 
     saveSettings: async (settings: AppSettings) => {
         try {
-            await invoke("save_settings", { settings });
-            set({ settings });
+            const s = (key: string, value: string | undefined | null) => {
+                if (value !== undefined && value !== null) {
+                    return invoke("set_setting", { key, value: String(value) });
+                }
+                return invoke("delete_setting", { key });
+            };
+
+            await Promise.all([
+                s("llm.openrouter.model",            settings.model),
+                s("llm.custom.models",               JSON.stringify(settings.customProviderEnabledModels)),
+                s("audio.stt.provider",              settings.sttProvider),
+                s("audio.stt.language",              settings.sttLanguage),
+                s("audio.stt.openai.api_key",        settings.openaiApiKey),
+                s("audio.stt.groq.api_key",          settings.groqSttApiKey),
+                s("audio.tts.provider",              settings.ttsProvider),
+                s("audio.tts.voice",                 settings.ttsVoice),
+                s("audio.tts.model",                 settings.ttsModel),
+                s("ssh.host",                        settings.sshHost),
+                s("ssh.port",                        settings.sshPort != null ? String(settings.sshPort) : null),
+                s("ssh.username",                    settings.sshUsername),
+                s("ssh.auth_type",                   settings.sshAuthType),
+                s("ssh.password",                    settings.sshPassword),
+                s("ssh.key_path",                    settings.sshKeyPath),
+                s("ssh.auto_connect",                String(settings.sshAutoConnect ?? false)),
+                s("routing.enabled",                 String(settings.routingEnabled ?? false)),
+                s("routing.strategy",                settings.routingStrategy),
+                s("model.catalog.last_sync",         settings.modelCatalogLastSync != null ? String(settings.modelCatalogLastSync) : null),
+                s("telegram.bot_token",              settings.telegramBotToken),
+                s("telegram.enabled",                String(settings.telegramEnabled ?? false)),
+                s("telegram.auto_start",             String(settings.telegramAutoStart ?? false)),
+                s("telegram.model",                  settings.telegramModel),
+                s("embedding.openai.api_key",        settings.embeddingOpenaiKey),
+                s("embedding.gemini.api_key",        settings.embeddingGeminiKey),
+                s("reranker.cohere.api_key",         settings.rerankerCohereKey),
+                s("reranker.jina.api_key",           settings.rerankerJinaKey),
+            ]);
+
+            set({ settings: { ...get().settings, ...settings } });
             notify.success(i18n.t("notifications.settingsSaved"));
         } catch (e) {
             notify.error(String(e));
@@ -299,7 +404,9 @@ export const createSettingsSlice = (set: Set, get: Get): SettingsSlice => ({
         if (!force && models.length > 0) return;
         set({ modelsLoading: true, modelsError: null, ...(force ? { models: [] } : {}) });
         try {
-            const response = await invoke<{ data: unknown }>("get_models");
+            const res = await fetch("https://openrouter.ai/api/v1/models");
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const response = await res.json();
             const raw = response?.data;
             if (!Array.isArray(raw)) {
                 set({ models: [], modelsLoading: false, modelsError: i18n.t("notifications.modelsLoadError") });

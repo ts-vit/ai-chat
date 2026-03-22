@@ -1,15 +1,15 @@
 // Model catalog: sync from OpenRouter/Ollama, get/update entries
+use std::sync::Arc;
 use sqlx::Row;
-use tauri::{AppHandle, State};
-use tauri_plugin_store::StoreExt;
+use tauri::{AppHandle, Manager, State};
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 use crate::commands::budget::catalog_id;
 use crate::models::catalog::ModelCatalogEntry;
 use crate::services::http_client::build_http_client;
 
 type Pool = sqlx::SqlitePool;
-
-const STORE_NAME: &str = "settings.json";
+type SettingsState = Arc<JsonSettingsStore>;
 
 /// Heuristic category from OpenRouter model name/id
 fn category_from_name(name: &str) -> &'static str {
@@ -137,10 +137,12 @@ pub async fn sync_model_catalog(app: AppHandle, pool: State<'_, Pool>) -> Result
     }
 
     // 2. Ollama (from store ollama_url)
-    let store = app.store(STORE_NAME).map_err(|e| e.to_string())?;
-    let ollama_url: String = store
-        .get("ollamaUrl")
-        .and_then(|v| v.as_str().map(String::from))
+    let settings = app.state::<SettingsState>();
+    let ollama_url: String = settings
+        .get("llm.ollama.url")
+        .await
+        .unwrap_or_default()
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
 
     let base = ollama_url.trim_end_matches('/').replace("/v1", "");
@@ -189,8 +191,7 @@ pub async fn sync_model_catalog(app: AppHandle, pool: State<'_, Pool>) -> Result
     }
 
     // Update last sync timestamp in store
-    store.set("modelCatalogLastSync", serde_json::json!(now));
-    let _ = store.save();
+    let _ = settings.set("model.catalog.last_sync", &now.to_string()).await;
 
     Ok(synced_count as i64)
 }

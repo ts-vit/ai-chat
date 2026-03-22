@@ -284,7 +284,9 @@
       "managementKey": "Management key",
       "managementKeyHint": "For displaying balance and statistics. Optional",
       "modelsTitle": "OpenRouter models (show when creating chat)",
-      "selectedCount": "Selected: {{count}}/5",
+      "selectedCount": "Selected: {{count}}",
+      "saved": "Saved",
+      "loadError": "Failed to load models",
       "all": "All",
       "popular": "Popular",
       "free": "Free",
@@ -331,7 +333,8 @@
       "frequencyPenalty": "Frequency Penalty",
       "frequencyPenaltyDescription": "Penalizes repeated tokens to reduce repetition",
       "presencePenalty": "Presence Penalty",
-      "presencePenaltyDescription": "Encourages the model to explore new topics"
+      "presencePenaltyDescription": "Encourages the model to explore new topics",
+      "saved": "Saved"
     },
     "interface": {
       "fontSize": "Message font size",
@@ -359,7 +362,8 @@
       "metricBalance": "Balance",
       "metricContext": "Context",
       "metricTokens": "Tokens",
-      "metricCost": "Cost"
+      "metricCost": "Cost",
+      "saved": "Saved"
     },
     "presets": {
       "title": "System prompts",
@@ -402,12 +406,11 @@
       "braveApiKey": "Brave Search API key",
       "tavilyHint": "tavily.com — 1000 free requests/month",
       "braveHint": "brave.com/search/api — 2000 free requests/month",
-      "uniDescription": "Built-in UNI AI search — free, no API key, works out of the box"
+      "uniDescription": "Built-in UNI AI search — free, no API key, works out of the box",
+      "saved": "Saved"
     },
     "vpn": {
-      "title": "VPN / Proxy",
-      "sshTunnel": "SSH Tunnel",
-      "manualProxy": "Manual Proxy",
+      "title": "SSH Tunnel",
       "ssh": {
         "host": "SSH Host",
         "hostPlaceholder": "example.com",
@@ -437,25 +440,9 @@
         "hostKeyChanged": "SSH host key changed",
         "hostKeyChangedMessage": "The SSH host key for {{host}}:{{port}} has changed. This could indicate a security issue.",
         "resetHostKey": "Reset host key",
-        "hostKeyReset": "Host key removed. You can reconnect now."
+        "hostKeyReset": "Host key removed. You can reconnect now.",
+        "saved": "Saved"
       }
-    },
-    "proxy": {
-      "title": "Proxy",
-      "enabled": "Enable proxy",
-      "enabledDescription": "All API requests will be routed through the proxy server",
-      "type": "Type",
-      "host": "Host",
-      "hostPlaceholder": "127.0.0.1",
-      "port": "Port",
-      "portPlaceholder": "1080",
-      "username": "Username",
-      "usernamePlaceholder": "Optional",
-      "password": "Password",
-      "passwordPlaceholder": "Optional",
-      "testConnection": "Test connection",
-      "testSuccess": "Proxy works. External IP: {{ip}}",
-      "testError": "Failed to connect through proxy"
     },
     "audio": {
       "title": "Voice Input",
@@ -656,7 +643,8 @@
     "fontSize": "Font size",
     "shell": "Shell",
     "shellAuto": "Auto",
-    "proxyChanged": "Proxy settings changed. New terminal tabs will use updated settings."
+    "proxyChanged": "Proxy settings changed. New terminal tabs will use updated settings.",
+    "saved": "Saved"
   },
   "imageConfig": {
     "size": "Size",
@@ -712,7 +700,8 @@
     "installOllama": "Install Ollama",
     "installedModels": "Installed models",
     "noInstalledModels": "No installed models",
-    "selectedCount": "Selected: {{count}}/{{total}}",
+    "selectedCount": "Selected: {{count}}",
+    "saved": "Saved",
     "showWhenSelectingChat": "Show when selecting chat",
     "deleteModel": "Delete model",
     "downloadModel": "Download model",
@@ -857,7 +846,8 @@
     "totalCost": "Total cost",
     "pause": "Paused — budget exceeded",
     "runCost": "Run cost",
-    "messageCost": "Message cost"
+    "messageCost": "Message cost",
+    "saved": "Saved"
   },
   "agent": {
     "working": "Agent working… Step {{step}}/{{max}}",

@@ -6,15 +6,25 @@ import { invoke } from '../../__mocks__/@tauri-apps/api/core'
  * Grouped by store slice. Tests that required params reject undefined.
  */
 
+describe('invoke audit — uni_settings', () => {
+  it('get_setting rejects undefined key', async () => {
+    await expect(invoke('get_setting', { key: undefined })).rejects.toThrow('CONTRACT VIOLATION');
+  });
+  it('set_setting rejects undefined key', async () => {
+    await expect(invoke('set_setting', { key: undefined, value: 'v' })).rejects.toThrow('CONTRACT VIOLATION');
+  });
+  it('set_setting rejects undefined value', async () => {
+    await expect(invoke('set_setting', { key: 'k', value: undefined })).rejects.toThrow('CONTRACT VIOLATION');
+  });
+  it('delete_setting rejects undefined key', async () => {
+    await expect(invoke('delete_setting', { key: undefined })).rejects.toThrow('CONTRACT VIOLATION');
+  });
+  it('get_all_settings rejects undefined prefix', async () => {
+    await expect(invoke('get_all_settings', { prefix: undefined })).rejects.toThrow('CONTRACT VIOLATION');
+  });
+});
+
 describe('invoke audit — settingsSlice', () => {
-  it('save_settings rejects undefined settings', async () => {
-    await expect(invoke('save_settings', { settings: undefined })).rejects.toThrow('CONTRACT VIOLATION');
-  });
-
-  it('save_settings accepts valid settings object', async () => {
-    await expect(invoke('save_settings', { settings: '{}' })).resolves.not.toThrow();
-  });
-
   it('create_custom_provider rejects undefined input', async () => {
     await expect(invoke('create_custom_provider', { input: undefined })).rejects.toThrow('CONTRACT VIOLATION');
   });
@@ -316,11 +326,10 @@ describe('invoke audit — no-param commands accept empty call', () => {
   const noParamCommands = [
     'get_all_chats',
     'get_all_folders',
-    'load_settings',
+
     'get_custom_providers',
     'check_ollama_status',
     'get_local_ollama_models',
-    'get_models',
     'mcp_get_servers',
     'mcp_list_connections',
     'get_fs_mcp_config',

@@ -10,7 +10,7 @@ use zip::ZipWriter;
 use zip::ZipArchive;
 use serde::{Deserialize, Serialize};
 
-use tauri_plugin_store::StoreExt;
+use uni_settings::{JsonSettingsStore, SettingsStore};
 use crate::models::knowledge_base::{KbDocument, KbStats, KnowledgeBase};
 use crate::services::kb_vector_store::KbVectorStore;
 use crate::services::kb_indexer;
@@ -1418,16 +1418,18 @@ pub async fn import_knowledge_base(
 // --- Helpers ---
 
 /// Read embedding API key from settings store based on model_id
-fn read_embedding_api_key(app: &AppHandle, model_id: &str) -> Option<String> {
-    let store = app.store("settings.json").ok()?;
+async fn read_embedding_api_key(app: &AppHandle, model_id: &str) -> Option<String> {
+    let store = app.state::<Arc<JsonSettingsStore>>();
     match model_id {
         "openai" | "text-embedding-3-small" | "e5-small" => store
-            .get("embeddingOpenaiKey")
-            .and_then(|v| v.as_str().map(String::from))
+            .get("embedding.openai.api_key")
+            .await
+            .unwrap_or_default()
             .filter(|s| !s.is_empty()),
         "gemini" | "gemini-embedding" => store
-            .get("embeddingGeminiKey")
-            .and_then(|v| v.as_str().map(String::from))
+            .get("embedding.gemini.api_key")
+            .await
+            .unwrap_or_default()
             .filter(|s| !s.is_empty()),
         _ => None,
     }
@@ -1445,7 +1447,7 @@ pub async fn build_provider_for_embedding_model(
     app: &AppHandle,
     embedding_model: &str,
 ) -> Result<Box<dyn uni_embedding::EmbeddingProvider>, String> {
-    let api_key = read_embedding_api_key(app, embedding_model).ok_or_else(|| {
+    let api_key = read_embedding_api_key(app, embedding_model).await.ok_or_else(|| {
         "Embedding API key not configured for this model (settings: OpenAI or Gemini key)".to_string()
     })?;
     let client = build_http_client(app, None).await?;

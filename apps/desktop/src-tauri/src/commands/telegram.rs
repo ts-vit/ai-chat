@@ -1,13 +1,13 @@
 // Telegram bot Tauri commands — start/stop/status/auth
 use std::sync::Arc;
 use serde::Serialize;
-use tauri::{AppHandle, State};
-use tauri_plugin_store::StoreExt;
+use tauri::{AppHandle, Manager, State};
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 use crate::services::telegram_bot::{TelegramBotManager, get_bot_info};
 
 type Pool = sqlx::SqlitePool;
-const STORE_NAME: &str = "settings.json";
+type SettingsState = Arc<JsonSettingsStore>;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,9 +30,10 @@ pub async fn start_telegram_bot(
     pool: State<'_, Pool>,
     telegram_state: State<'_, Arc<TelegramBotManager>>,
 ) -> Result<(), String> {
-    let store = app.store(STORE_NAME).map_err(|e| e.to_string())?;
-    let token = store.get("telegramBotToken")
-        .and_then(|v| v.as_str().map(String::from))
+    let store = app.state::<SettingsState>();
+    let token = store.get("telegram.bot_token")
+        .await
+        .unwrap_or_default()
         .unwrap_or_default();
 
     if token.is_empty() {
@@ -60,9 +61,11 @@ pub async fn get_telegram_status(
     let running = telegram_state.is_running().await;
     let bot_username = telegram_state.bot_username().await;
 
-    let store = app.store(STORE_NAME).map_err(|e| e.to_string())?;
-    let authorized_user = store.get("telegramUserName")
-        .and_then(|v| v.as_str().map(String::from));
+    let store = app.state::<SettingsState>();
+    let authorized_user = store.get("telegram.user_name")
+        .await
+        .unwrap_or_default()
+        .filter(|s| !s.is_empty());
 
     Ok(TelegramStatus {
         running,
@@ -79,8 +82,10 @@ pub async fn authorize_telegram_user(
     last_name: Option<String>,
     username: Option<String>,
 ) -> Result<(), String> {
-    let store = app.store(STORE_NAME).map_err(|e| e.to_string())?;
-    store.set("telegramUserId", serde_json::json!(user_id));
+    let store = app.state::<SettingsState>();
+    store.set("telegram.user_id", &user_id.to_string())
+        .await
+        .map_err(|e| e.to_string())?;
 
     let display_name = if let Some(ref uname) = username {
         format!("{} (@{})", first_name, uname)
@@ -90,8 +95,9 @@ pub async fn authorize_telegram_user(
         first_name
     };
 
-    store.set("telegramUserName", serde_json::json!(display_name));
-    store.save().map_err(|e| e.to_string())?;
+    store.set("telegram.user_name", &display_name)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -100,10 +106,13 @@ pub async fn authorize_telegram_user(
 pub async fn revoke_telegram_user(
     app: AppHandle,
 ) -> Result<(), String> {
-    let store = app.store(STORE_NAME).map_err(|e| e.to_string())?;
-    store.delete("telegramUserId");
-    store.delete("telegramUserName");
-    store.save().map_err(|e| e.to_string())?;
+    let store = app.state::<SettingsState>();
+    store.delete("telegram.user_id")
+        .await
+        .map_err(|e| e.to_string())?;
+    store.delete("telegram.user_name")
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }

@@ -42,8 +42,8 @@ use commands::providers::{
     update_custom_provider,
 };
 use commands::settings::{
-    fetch_custom_provider_models, get_balance, get_credits, get_mode_settings, get_models,
-    get_ollama_models, load_settings, save_settings, test_proxy, update_mode_settings,
+    fetch_custom_provider_models, get_balance, get_credits, get_mode_settings,
+    get_ollama_models, update_mode_settings,
     validate_openrouter_key,
 };
 use commands::embeddings::{index_message, reindex_all};
@@ -137,15 +137,18 @@ use commands::notebook::{
     list_notebooks, get_notebook, create_notebook, update_notebook, delete_notebook,
     list_notebook_documents, add_notebook_documents, add_notebook_source, remove_notebook_document,
 };
+use commands::uni_settings::{
+    get_setting, set_setting, delete_setting, get_all_settings,
+};
+use uni_settings::{JsonSettingsStore, SettingsStore};
 use services::telegram_bot::TelegramBotManager;
 use services::scheduler::SchedulerManager;
 use services::audio_recorder::AudioRecorder;
-use services::terminal::TerminalManager;
+use uni_terminal::TerminalManager;
 use services::mcp_manager::McpManager;
-use services::ssh_tunnel::SshTunnelManager;
+use uni_ssh::SshTunnelManager;
 use services::builtin_fs_server::BuiltinFsServer;
 use models::mcp::FsMcpConfig;
-use tauri_plugin_store::StoreExt;
 use sqlx::sqlite::SqlitePool;
 use services::vector_store::VectorStore;
 use services::memory_vector_store::MemoryVectorStore;
@@ -577,7 +580,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -807,13 +809,23 @@ pub fn run() {
                 );
             }
             app.manage(pool.clone());
+
+            // Settings store (uni-settings)
+            let settings_path = app
+                .path()
+                .app_config_dir()
+                .map_err(|e| e.to_string())?
+                .join("uni-settings.json");
+            let settings_store = Arc::new(JsonSettingsStore::new(settings_path));
+            app.manage(settings_store);
+
             app.manage(StreamState {
                 chat_cancel_token: Arc::new(Mutex::new(None)),
                 comparison_cancel_token: Arc::new(Mutex::new(None)),
             });
             app.manage(AgentCancelTokens::default());
 
-            let embedding_dim = services::embedding_helper::get_embedding_dimensions(&app.handle());
+            let embedding_dim = tauri::async_runtime::block_on(services::embedding_helper::get_embedding_dimensions(&app.handle()));
 
             // Vector Store (LanceDB) — Arc для передачи в tokio::spawn
             let store: Option<VectorStore> = match app.path().app_data_dir() {
@@ -934,12 +946,70 @@ pub fn run() {
             };
             let fs_server = Arc::new(BuiltinFsServer::new(fs_config, pool.clone()));
             app.manage(fs_server.clone());
-            app.manage(std::sync::Mutex::new(TerminalManager::new()));
+            let (terminal_manager, terminal_rx) = TerminalManager::new();
+            app.manage(std::sync::Mutex::new(terminal_manager));
+
+            // Bridge uni-terminal events to Tauri events
+            {
+                let app_handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    while let Ok(event) = terminal_rx.recv() {
+                        match event {
+                            uni_terminal::TerminalEvent::Data { session_id, data } => {
+                                let _ = app_handle.emit("pty-data", serde_json::json!({
+                                    "sessionId": session_id, "data": data
+                                }));
+                            }
+                            uni_terminal::TerminalEvent::Exit { session_id, code } => {
+                                let _ = app_handle.emit("pty-exit", serde_json::json!({
+                                    "sessionId": session_id, "code": code
+                                }));
+                            }
+                        }
+                    }
+                });
+            }
             app.manage(Arc::new(AudioRecorder::new()));
             app.manage(commands::audio::TtsState::new());
 
             let ssh_tunnel_manager = Arc::new(SshTunnelManager::new());
             app.manage(ssh_tunnel_manager.clone());
+
+            // Bridge uni-ssh events to Tauri events
+            {
+                let mut rx = ssh_tunnel_manager.subscribe();
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    while let Ok(event) = rx.recv().await {
+                        match event {
+                            uni_ssh::SshEvent::Connected { host, port } => {
+                                let _ = app_handle.emit("ssh-tunnel-connected", serde_json::json!({ "host": host, "port": port }));
+                            }
+                            uni_ssh::SshEvent::Disconnected => {
+                                let _ = app_handle.emit("ssh-tunnel-disconnected", serde_json::json!({}));
+                            }
+                            uni_ssh::SshEvent::Reconnecting => {
+                                let _ = app_handle.emit("ssh-tunnel-reconnecting", serde_json::json!({}));
+                            }
+                            uni_ssh::SshEvent::ReconnectAttempt { attempt, max_attempts } => {
+                                let _ = app_handle.emit("ssh-tunnel-reconnect-attempt", serde_json::json!({ "attempt": attempt, "maxAttempts": max_attempts }));
+                            }
+                            uni_ssh::SshEvent::Reconnected { port } => {
+                                let _ = app_handle.emit("ssh-tunnel-reconnected", serde_json::json!({ "port": port }));
+                            }
+                            uni_ssh::SshEvent::ReconnectFailed => {
+                                let _ = app_handle.emit("ssh-tunnel-reconnect-failed", serde_json::json!({}));
+                            }
+                            uni_ssh::SshEvent::HostKeyChanged { host, port } => {
+                                let _ = app_handle.emit("ssh-host-key-changed", serde_json::json!({ "host": host, "port": port }));
+                            }
+                            uni_ssh::SshEvent::ProxySettingsChanged => {
+                                let _ = app_handle.emit("proxy-settings-changed", ());
+                            }
+                        }
+                    }
+                });
+            }
 
             let telegram_bot_manager = Arc::new(TelegramBotManager::new());
             app.manage(telegram_bot_manager.clone());
@@ -1079,21 +1149,34 @@ pub fn run() {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                    let store = match app_handle.store("settings.json") {
-                        Ok(s) => s,
-                        Err(_) => return,
-                    };
-                    let auto_connect = store.get("sshAutoConnect").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let settings = app_handle.state::<Arc<uni_settings::JsonSettingsStore>>();
+                    let auto_connect = settings.get("ssh.auto_connect").await
+                        .unwrap_or_default().map(|v| v == "true").unwrap_or(false);
                     if !auto_connect { return; }
-                    let host = store.get("sshHost").and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
-                    let port = store.get("sshPort").and_then(|v| v.as_u64()).map(|v| v as u16).unwrap_or(22);
-                    let username = store.get("sshUsername").and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
-                    let auth_type = store.get("sshAuthType").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "password".into());
-                    let password = store.get("sshPassword").and_then(|v| v.as_str().map(String::from));
-                    let key_path = store.get("sshKeyPath").and_then(|v| v.as_str().map(String::from));
+                    let host = settings.get("ssh.host").await
+                        .unwrap_or_default().unwrap_or_default();
+                    let port = settings.get("ssh.port").await
+                        .unwrap_or_default()
+                        .and_then(|v| v.parse::<u16>().ok()).unwrap_or(22);
+                    let username = settings.get("ssh.username").await
+                        .unwrap_or_default().unwrap_or_default();
+                    let auth_type = settings.get("ssh.auth_type").await
+                        .unwrap_or_default().unwrap_or_else(|| "password".into());
+                    let password = settings.get("ssh.password").await
+                        .unwrap_or_default();
+                    let key_path = settings.get("ssh.key_path").await
+                        .unwrap_or_default();
                     if host.is_empty() || username.is_empty() { return; }
                     let private_key = key_path.and_then(|p| std::fs::read_to_string(&p).ok());
-                    match ssh_mgr.connect(app_handle.clone(), host.clone(), port, username, auth_type, password, private_key).await {
+                    let app_data_dir = match app_handle.path().app_data_dir() {
+                        Ok(d) => d,
+                        Err(e) => { log::error!("[ssh-autoconnect] app_data_dir: {}", e); return; }
+                    };
+                    let config = uni_ssh::SshConfig {
+                        host: host.clone(), port, username, auth_type, password, private_key,
+                        known_hosts_path: app_data_dir.join("ssh_known_hosts"),
+                    };
+                    match ssh_mgr.connect(config).await {
                         Ok(local_port) => log::info!("[ssh-autoconnect] connected to {}:{}, local SOCKS5 on 127.0.0.1:{}", host, port, local_port),
                         Err(e) => log::error!("[ssh-autoconnect] failed: {}", e),
                     }
@@ -1107,13 +1190,13 @@ pub fn run() {
                 let pool_tg = pool.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
-                    let store = match tauri_plugin_store::StoreExt::store(&app_handle, "settings.json") {
-                        Ok(s) => s,
-                        Err(_) => return,
-                    };
-                    let enabled = store.get("telegramEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let auto_start = store.get("telegramAutoStart").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let token = store.get("telegramBotToken").and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+                    let settings = app_handle.state::<Arc<uni_settings::JsonSettingsStore>>();
+                    let enabled = settings.get("telegram.enabled").await
+                        .unwrap_or_default().map(|v| v == "true").unwrap_or(false);
+                    let auto_start = settings.get("telegram.auto_start").await
+                        .unwrap_or_default().map(|v| v == "true").unwrap_or(false);
+                    let token = settings.get("telegram.bot_token").await
+                        .unwrap_or_default().unwrap_or_default();
                     if !enabled || !auto_start || token.is_empty() { return; }
                     match tg_mgr.start(app_handle, pool_tg, token).await {
                         Ok(username) => log::info!("[telegram-autostart] bot started: @{}", username),
@@ -1140,9 +1223,7 @@ pub fn run() {
             send_message,
             stop_generation,
             stop_comparison_generation,
-            save_settings,
-            load_settings,
-            get_models,
+
             get_ollama_models,
             fetch_custom_provider_models,
             get_balance,
@@ -1241,7 +1322,6 @@ pub fn run() {
             stream_comparison_responses,
             web_search,
             update_message_web_sources,
-            test_proxy,
             validate_openrouter_key,
             get_provider_chat_count,
             terminal_create,
@@ -1363,6 +1443,10 @@ pub fn run() {
             add_notebook_documents,
             add_notebook_source,
             remove_notebook_document,
+            get_setting,
+            set_setting,
+            delete_setting,
+            get_all_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

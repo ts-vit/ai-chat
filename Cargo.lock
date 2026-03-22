@@ -98,7 +98,6 @@ dependencies = [
  "lancedb",
  "log",
  "pdf-extract",
- "portable-pty",
  "rand 0.8.5",
  "regex",
  "reqwest 0.13.2",
@@ -116,7 +115,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tauri-plugin-shell",
- "tauri-plugin-store",
  "tiktoken-rs",
  "tokio",
  "tokio-util",
@@ -128,6 +126,9 @@ dependencies = [
  "uni-llm",
  "uni-python",
  "uni-search",
+ "uni-settings",
+ "uni-ssh",
+ "uni-terminal",
  "uuid",
  "windows-sys 0.52.0",
  "zip",
@@ -10737,22 +10738,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tauri-plugin-store"
-version = "2.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca1a8ff83c269b115e98726ffc13f9e548a10161544a92ad121d6d0a96e16ea"
-dependencies = [
- "dunce",
- "serde",
- "serde_json",
- "tauri",
- "tauri-plugin",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "tauri-runtime"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11518,6 +11503,41 @@ dependencies = [
  "serde_json",
  "uni-common",
  "uni-http",
+]
+
+[[package]]
+name = "uni-settings"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uni-common",
+]
+
+[[package]]
+name = "uni-ssh"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "log",
+ "russh",
+ "russh-keys",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "uni-terminal"
+version = "0.1.0"
+dependencies = [
+ "dirs 5.0.1",
+ "log",
+ "portable-pty",
+ "serde",
 ]
 
 [[package]]

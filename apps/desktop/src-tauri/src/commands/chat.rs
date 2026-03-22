@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use base64::Engine;
 use sqlx::Row;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -340,10 +340,10 @@ pub async fn send_message(
                     let kb_rt: String = kb_row.try_get("reranker_type").unwrap_or("none".to_string());
                     let kb_rof: i64 = kb_row.try_get("reranker_overfetch_factor").unwrap_or(4);
                     let (reranker_cohere_key, reranker_jina_key) = {
-                        use tauri_plugin_store::StoreExt;
-                        let store_settings = app.store("settings.json").ok();
-                        let ck = store_settings.as_ref().and_then(|s| s.get("rerankerCohereKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
-                        let jk = store_settings.as_ref().and_then(|s| s.get("rerankerJinaKey").and_then(|v| v.as_str().map(String::from)).filter(|s| !s.is_empty()));
+                        use uni_settings::SettingsStore;
+                        let settings_store = app.state::<std::sync::Arc<uni_settings::JsonSettingsStore>>();
+                        let ck: Option<String> = settings_store.get("reranker.cohere.api_key").await.unwrap_or_default().filter(|s| !s.is_empty());
+                        let jk: Option<String> = settings_store.get("reranker.jina.api_key").await.unwrap_or_default().filter(|s| !s.is_empty());
                         (ck, jk)
                     };
                     let reranker_config = crate::commands::knowledge_base::build_reranker_config_from_kb(

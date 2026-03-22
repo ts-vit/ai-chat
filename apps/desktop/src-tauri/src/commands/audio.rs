@@ -5,14 +5,15 @@ use std::thread;
 
 use rodio::DeviceSinkBuilder;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_store::StoreExt;
+use tauri::{AppHandle, Emitter, Manager, State};
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 use crate::services::audio_recorder::AudioRecorder;
 use crate::services::http_client::build_http_client;
 
 const SAMPLE_RATE: u32 = 16000;
-const STORE_NAME: &str = "settings.json";
+
+type SettingsState = Arc<JsonSettingsStore>;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -103,21 +104,26 @@ pub async fn tts_speak(
         ));
     }
 
-    let store = app.store(STORE_NAME).map_err(|e| e.to_string())?;
+    let store = app.state::<SettingsState>();
     let api_key = store
-        .get("openaiApiKey")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("audio.stt.openai.api_key")
+        .await
+        .unwrap_or_default()
         .unwrap_or_default();
     if api_key.is_empty() {
         return Err("OpenAI API key is not set. Set it in Settings → Audio.".to_string());
     }
     let tts_voice = store
-        .get("ttsVoice")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("audio.tts.voice")
+        .await
+        .unwrap_or_default()
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "alloy".to_string());
     let tts_model = store
-        .get("ttsModel")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("audio.tts.model")
+        .await
+        .unwrap_or_default()
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "tts-1".to_string());
     let voice_param = voice.unwrap_or(tts_voice);
 
@@ -194,7 +200,7 @@ async fn transcribe_whisper_api_openai(
     samples: &[i16],
     language: Option<&str>,
 ) -> Result<String, String> {
-    let api_key = load_openai_api_key(app)?;
+    let api_key = load_openai_api_key(app).await?;
     let wav_bytes = encode_wav(samples)?;
     let client = build_http_client(app, Some(std::time::Duration::from_secs(30))).await?;
     uni_audio::transcribe_whisper(
@@ -213,7 +219,7 @@ async fn transcribe_whisper_api_groq(
     samples: &[i16],
     language: Option<&str>,
 ) -> Result<String, String> {
-    let api_key = load_groq_stt_api_key(app)?;
+    let api_key = load_groq_stt_api_key(app).await?;
     let wav_bytes = encode_wav(samples)?;
     let client = build_http_client(app, Some(std::time::Duration::from_secs(30))).await?;
     uni_audio::transcribe_whisper(
@@ -227,11 +233,12 @@ async fn transcribe_whisper_api_groq(
     .await
 }
 
-fn load_openai_api_key(app: &AppHandle) -> Result<String, String> {
-    let store = app.store(STORE_NAME).map_err(|e| e.to_string())?;
+async fn load_openai_api_key(app: &AppHandle) -> Result<String, String> {
+    let store = app.state::<SettingsState>();
     let key = store
-        .get("openaiApiKey")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("audio.stt.openai.api_key")
+        .await
+        .unwrap_or_default()
         .unwrap_or_default();
 
     if key.is_empty() {
@@ -241,11 +248,12 @@ fn load_openai_api_key(app: &AppHandle) -> Result<String, String> {
     Ok(key)
 }
 
-fn load_groq_stt_api_key(app: &AppHandle) -> Result<String, String> {
-    let store = app.store(STORE_NAME).map_err(|e| e.to_string())?;
+async fn load_groq_stt_api_key(app: &AppHandle) -> Result<String, String> {
+    let store = app.state::<SettingsState>();
     let key = store
-        .get("groqSttApiKey")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("audio.stt.groq.api_key")
+        .await
+        .unwrap_or_default()
         .unwrap_or_default();
 
     if key.is_empty() {

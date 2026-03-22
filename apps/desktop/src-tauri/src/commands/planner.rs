@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sqlx::Row;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::AgentCancelTokens;
 use crate::models::plan::{AgentPlan, AgentPlanWithProgress, AgentTask, PlanWithTasks};
@@ -11,6 +11,7 @@ use crate::commands::budget::check_budget;
 use crate::services::http_client::build_http_client;
 use crate::services::mcp_manager::McpManager;
 use crate::services::memory_vector_store::MemoryVectorStore;
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 type Pool = sqlx::SqlitePool;
 
@@ -45,7 +46,6 @@ pub async fn resolve_catalog_id_to_credentials(
     app: &AppHandle,
     catalog_id: &str,
 ) -> Result<(String, Option<String>, String), String> {
-    use tauri_plugin_store::StoreExt;
     let row = sqlx::query("SELECT provider, model_id FROM model_catalog WHERE id = ?")
         .bind(catalog_id)
         .fetch_optional(pool)
@@ -55,14 +55,17 @@ pub async fn resolve_catalog_id_to_credentials(
     let provider: String = row.get("provider");
     let model_id: String = row.get("model_id");
 
-    let store = app.store("settings.json").map_err(|e: tauri_plugin_store::Error| e.to_string())?;
+    let settings = app.state::<Arc<JsonSettingsStore>>();
     match provider.as_str() {
         "openrouter" => {
-            let api_key = store.get("api_key").and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+            let api_key = settings.get("llm.openrouter.api_key").await
+                .unwrap_or_default().unwrap_or_default();
             Ok((model_id, None, api_key))
         }
         "ollama" => {
-            let base_url = store.get("ollamaUrl").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+            let base_url = settings.get("llm.ollama.url").await
+                .unwrap_or_default()
+                .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
             Ok((model_id, Some(base_url), String::new()))
         }
         "custom" => {
@@ -311,9 +314,11 @@ pub async fn generate_plan(
     }
 
     // Routing: assign model per task if enabled (use chat's model/base_url/api_key for LLM routing call)
-    let store = tauri_plugin_store::StoreExt::store(&app, "settings.json").map_err(|e: tauri_plugin_store::Error| e.to_string())?;
-    let routing_enabled: bool = store.get("routingEnabled").and_then(|v| v.as_bool()).unwrap_or(false);
-    let routing_strategy: String = store.get("routingStrategy").and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "rules".to_string());
+    let settings = app.state::<Arc<JsonSettingsStore>>();
+    let routing_enabled = settings.get("routing.enabled").await
+        .unwrap_or_default().map(|v| v == "true").unwrap_or(false);
+    let routing_strategy = settings.get("routing.strategy").await
+        .unwrap_or_default().unwrap_or_else(|| "rules".to_string());
 
     let base_url_str = base_url.as_deref().unwrap_or("https://openrouter.ai/api/v1");
 

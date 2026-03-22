@@ -7,6 +7,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 use crate::models::scheduler::ScheduledTask;
 use crate::services::mcp_manager::McpManager;
@@ -14,6 +15,7 @@ use crate::services::memory_vector_store::MemoryVectorStore;
 use crate::{AgentCancelTokens, TelegramRunNotifier};
 
 type Pool = sqlx::SqlitePool;
+type SettingsState = Arc<JsonSettingsStore>;
 
 struct SchedulerRunState {
     handle: JoinHandle<()>,
@@ -148,22 +150,32 @@ async fn execute_task(app: &AppHandle, pool: &Pool, task: &ScheduledTask) -> Res
     }));
 
     // Read credentials from store
-    let store = tauri_plugin_store::StoreExt::store(app, "settings.json")
-        .map_err(|e| format!("store error: {}", e))?;
+    let settings = app.state::<SettingsState>();
 
-    let api_key = store.get("api_key")
-        .and_then(|v| v.as_str().map(String::from))
+    let api_key = settings.get("llm.openrouter.api_key")
+        .await
+        .unwrap_or_default()
         .unwrap_or_default();
 
     if api_key.is_empty() {
         return Err("API key not configured".to_string());
     }
 
-    let model = task.model.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| {
-        store.get("model")
-            .and_then(|v| v.as_str().map(String::from))
+    let model = if let Some(ref m) = task.model {
+        if !m.is_empty() {
+            m.clone()
+        } else {
+            settings.get("llm.openrouter.model")
+                .await
+                .unwrap_or_default()
+                .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".to_string())
+        }
+    } else {
+        settings.get("llm.openrouter.model")
+            .await
+            .unwrap_or_default()
             .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".to_string())
-    });
+    };
 
     // Find or create chat for this task
     let chat_id = find_or_create_task_chat(pool, task, now).await?;
@@ -418,16 +430,16 @@ async fn deliver_to_telegram(app: &AppHandle, task_name: &str, content: &str, cr
     }
 
     // Get Telegram token and chat_id from store
-    let store = match tauri_plugin_store::StoreExt::store(app, "settings.json") {
-        Ok(s) => s,
-        Err(_) => return,
-    };
+    let settings = app.state::<SettingsState>();
 
-    let token = store.get("telegramBotToken")
-        .and_then(|v| v.as_str().map(String::from))
+    let token = settings.get("telegram.bot_token")
+        .await
+        .unwrap_or_default()
         .unwrap_or_default();
-    let chat_id = store.get("telegramAuthorizedUserId")
-        .and_then(|v| v.as_i64())
+    let chat_id: i64 = settings.get("telegram.user_id")
+        .await
+        .unwrap_or_default()
+        .and_then(|v| v.parse().ok())
         .unwrap_or(0);
 
     if token.is_empty() || chat_id == 0 {

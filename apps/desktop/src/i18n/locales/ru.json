@@ -284,7 +284,9 @@
       "managementKey": "Management key",
       "managementKeyHint": "Для отображения баланса и статистики. Необязательный",
       "modelsTitle": "Модели OpenRouter (показывать при создании чата)",
-      "selectedCount": "Выбрано: {{count}}/5",
+      "selectedCount": "Выбрано: {{count}}",
+      "saved": "Сохранено",
+      "loadError": "Не удалось загрузить модели",
       "all": "Все",
       "popular": "Популярные",
       "free": "Бесплатные",
@@ -331,7 +333,8 @@
       "frequencyPenalty": "Штраф за частоту",
       "frequencyPenaltyDescription": "Штраф за повторение. Снижает вероятность уже использованных слов",
       "presencePenalty": "Штраф за присутствие",
-      "presencePenaltyDescription": "Штраф за присутствие. Поощряет использование новых тем"
+      "presencePenaltyDescription": "Штраф за присутствие. Поощряет использование новых тем",
+      "saved": "Сохранено"
     },
     "interface": {
       "fontSize": "Размер шрифта сообщений",
@@ -359,7 +362,8 @@
       "metricBalance": "Баланс",
       "metricContext": "Контекст",
       "metricTokens": "Токены",
-      "metricCost": "Стоимость"
+      "metricCost": "Стоимость",
+      "saved": "Сохранено"
     },
     "presets": {
       "title": "Системные промпты",
@@ -402,12 +406,11 @@
       "braveApiKey": "Brave Search API-ключ",
       "tavilyHint": "tavily.com — 1000 бесплатных запросов/мес",
       "braveHint": "brave.com/search/api — 2000 бесплатных запросов/мес",
-      "uniDescription": "Встроенный поиск UNI AI — бесплатно, без API-ключа, работает сразу"
+      "uniDescription": "Встроенный поиск UNI AI — бесплатно, без API-ключа, работает сразу",
+      "saved": "Сохранено"
     },
     "vpn": {
-      "title": "VPN / Прокси",
-      "sshTunnel": "SSH-туннель",
-      "manualProxy": "Ручной прокси",
+      "title": "SSH-туннель",
       "ssh": {
         "host": "SSH хост",
         "hostPlaceholder": "example.com",
@@ -437,25 +440,9 @@
         "hostKeyChanged": "Ключ SSH-хоста изменился",
         "hostKeyChangedMessage": "Ключ SSH-хоста для {{host}}:{{port}} изменился. Это может указывать на проблему безопасности.",
         "resetHostKey": "Сбросить ключ хоста",
-        "hostKeyReset": "Ключ хоста удалён. Можно переподключиться."
+        "hostKeyReset": "Ключ хоста удалён. Можно переподключиться.",
+        "saved": "Сохранено"
       }
-    },
-    "proxy": {
-      "title": "Прокси",
-      "enabled": "Включить прокси",
-      "enabledDescription": "Все запросы к API будут проходить через прокси-сервер",
-      "type": "Тип",
-      "host": "Хост",
-      "hostPlaceholder": "127.0.0.1",
-      "port": "Порт",
-      "portPlaceholder": "1080",
-      "username": "Имя пользователя",
-      "usernamePlaceholder": "Необязательно",
-      "password": "Пароль",
-      "passwordPlaceholder": "Необязательно",
-      "testConnection": "Проверить соединение",
-      "testSuccess": "Прокси работает. Внешний IP: {{ip}}",
-      "testError": "Не удалось подключиться через прокси"
     },
     "audio": {
       "title": "Голосовой ввод",
@@ -656,7 +643,8 @@
     "fontSize": "Размер шрифта",
     "shell": "Оболочка",
     "shellAuto": "Авто",
-    "proxyChanged": "Настройки прокси изменились. Новые табы будут использовать обновлённые настройки."
+    "proxyChanged": "Настройки прокси изменились. Новые табы будут использовать обновлённые настройки.",
+    "saved": "Сохранено"
   },
   "imageConfig": {
     "size": "Размер",
@@ -712,7 +700,8 @@
     "installOllama": "Установить Ollama",
     "installedModels": "Установленные модели",
     "noInstalledModels": "Нет установленных моделей",
-    "selectedCount": "Выбрано: {{count}}/{{total}}",
+    "selectedCount": "Выбрано: {{count}}",
+    "saved": "Сохранено",
     "showWhenSelectingChat": "Показывать при выборе чата",
     "deleteModel": "Удалить модель",
     "downloadModel": "Скачать модель",
@@ -857,7 +846,8 @@
     "totalCost": "Общая стоимость",
     "pause": "Пауза — бюджет превышен",
     "runCost": "Стоимость запуска",
-    "messageCost": "Стоимость сообщения"
+    "messageCost": "Стоимость сообщения",
+    "saved": "Сохранено"
   },
   "agent": {
     "working": "Агент работает… Шаг {{step}}/{{max}}",

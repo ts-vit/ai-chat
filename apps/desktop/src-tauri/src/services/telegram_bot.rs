@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use tauri::{AppHandle, Emitter, Manager};
-// tauri_plugin_store::StoreExt used via full path
+use uni_settings::{JsonSettingsStore, SettingsStore};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -17,7 +17,6 @@ use crate::services::memory_vector_store::MemoryVectorStore;
 
 type Pool = sqlx::SqlitePool;
 
-const STORE_NAME: &str = "settings.json";
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org/bot";
 const MAX_MESSAGE_LENGTH: usize = 4096;
 const TELEGRAM_SYSTEM_PROMPT: &str = r#"You are a personal AI assistant communicating via Telegram. Keep responses concise and well-structured. Use short paragraphs.
@@ -384,16 +383,10 @@ async fn process_message(app: &AppHandle, pool: &Pool, token: &str, msg: &Telegr
     let telegram_chat_id = msg.chat.id;
 
     // Read auth settings
-    let store = match tauri_plugin_store::StoreExt::store(app, STORE_NAME) {
-        Ok(s) => s,
-        Err(e) => {
-            log::error!("[telegram] failed to open store: {}", e);
-            return;
-        }
-    };
-
-    let authorized_user_id: Option<i64> = store.get("telegramUserId")
-        .and_then(|v| v.as_i64());
+    let settings = app.state::<Arc<JsonSettingsStore>>();
+    let authorized_user_id: Option<i64> = settings.get("telegram.user_id").await
+        .unwrap_or_default()
+        .and_then(|v| v.parse::<i64>().ok());
 
     // Auth check
     match authorized_user_id {
@@ -476,18 +469,13 @@ async fn handle_new_command(app: &AppHandle, pool: &Pool, token: &str, telegram_
 }
 
 async fn handle_status_command(app: &AppHandle, pool: &Pool, token: &str, telegram_chat_id: i64) {
-    let store = match tauri_plugin_store::StoreExt::store(app, STORE_NAME) {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-
-    let telegram_model = store.get("telegramModel")
-        .and_then(|v| v.as_str().map(String::from))
-        .filter(|s| !s.is_empty());
+    let settings = app.state::<Arc<JsonSettingsStore>>();
+    let telegram_model = settings.get("telegram.model").await
+        .unwrap_or_default().filter(|s| !s.is_empty());
     let model = match &telegram_model {
         Some(m) => m.clone(),
-        None => store.get("model")
-            .and_then(|v| v.as_str().map(String::from))
+        None => settings.get("llm.openrouter.model").await
+            .unwrap_or_default()
             .unwrap_or_else(|| "unknown".to_string()),
     };
     let model_suffix = if telegram_model.is_none() { " (авто)" } else { "" };
@@ -534,26 +522,16 @@ async fn handle_agent_message(
     };
 
     // Read credentials from settings
-    let store = match tauri_plugin_store::StoreExt::store(app, STORE_NAME) {
-        Ok(s) => s,
-        Err(e) => {
-            log::error!("[telegram] store error: {}", e);
-            let _ = send_message(app, token, telegram_chat_id, "❌ Ошибка настроек.", None).await;
-            return;
-        }
+    let settings = app.state::<Arc<JsonSettingsStore>>();
+    let api_key = settings.get("llm.openrouter.api_key").await
+        .unwrap_or_default().unwrap_or_default();
+    let model = match settings.get("telegram.model").await
+        .unwrap_or_default().filter(|s| !s.is_empty()) {
+        Some(m) => m,
+        None => settings.get("llm.openrouter.model").await
+            .unwrap_or_default()
+            .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".to_string()),
     };
-
-    let api_key = store.get("api_key")
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default();
-    let telegram_model = store.get("telegramModel")
-        .and_then(|v| v.as_str().map(String::from))
-        .filter(|s| !s.is_empty());
-    let model = telegram_model.unwrap_or_else(|| {
-        store.get("model")
-            .and_then(|v| v.as_str().map(String::from))
-            .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".to_string())
-    });
 
     if api_key.is_empty() {
         let _ = send_message(app, token, telegram_chat_id,

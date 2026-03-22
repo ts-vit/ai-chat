@@ -22,7 +22,7 @@ import { SchedulerPage } from "./components/SchedulerPage";
 import { KnowledgeBasesPage } from "./components/KnowledgeBasesPage";
 import { PlanPanel } from "./components/PlanPanel";
 import { WorkspacePanel } from "./components/WorkspacePanel";
-import { TerminalPanel } from "./components/TerminalPanel";
+import { TerminalPanel } from "@uni/terminal-ui";
 import { useChatStore } from "./store/chatStore";
 import { useAppHotkeys } from "./hooks/useHotkeys";
 import { useWindowSize } from "./hooks/useWindowSize";

@@ -16,9 +16,11 @@ ai-chat/
 ├── UNI_FRAMEWORK_SPEC.md
 ├── UNI_NOTEBOOK_SPEC.md
 ├── docs/                    # Documentation
-├── crates/                  # Shared Rust crates (`uni-common`, `uni-http`, `uni-llm`, `uni-embedding`, `uni-search`, …)
+├── crates/                  # Shared Rust crates (uni-common, uni-http, uni-llm, uni-embedding, uni-search, uni-settings, uni-ssh, uni-terminal, …)
 ├── packages/                # Shared npm packages
-│   └── uni-ui/              # @uni/ui — React components + Mantine theme
+│   ├── uni-ui/              # @uni/ui — React components + Mantine theme + settings modules
+│   ├── uni-ssh-ui/          # @uni/ssh-ui — SSH tunnel settings UI
+│   └── uni-terminal-ui/     # @uni/terminal-ui — Terminal panel UI (xterm.js)
 └── apps/
     └── desktop/             # UNI AI Desktop (main app)
         ├── src/             # React frontend
@@ -52,10 +54,13 @@ cargo test -p ai-chat        # Desktop app tests only
 ## Testing
 
 ```bash
-npm run test           # TypeScript tests (Vitest) — from root (workspace)
+npm run test           # TypeScript tests (Vitest) — from root (desktop workspace)
 npm run test:watch     # TypeScript tests in watch mode — from apps/desktop
+npm run test -w packages/uni-ui           # @uni/ui tests (Vitest + jsdom + RTL)
+npm run test -w packages/uni-ssh-ui       # @uni/ssh-ui tests
+npm run test -w packages/uni-terminal-ui  # @uni/terminal-ui tests
 npm run test:rust      # Rust tests (cargo test --workspace)
-npm run test:all       # Full suite: typecheck + vitest + cargo test
+npm run test:all       # Full suite: typecheck + all package vitest + cargo test
 ```
 
 Run `npm run test:all` before committing. All tests must pass.
@@ -65,6 +70,8 @@ When adding new features, include tests:
 - DB operations → integration test in `apps/desktop/src-tauri/src/tests/`
 - TypeScript utilities → vitest in `apps/desktop/src/utils/__tests__/` or `apps/desktop/src/store/__tests__/`
 - New `invoke()` calls → contract test in `apps/desktop/src/store/__tests__/contracts.test.ts`
+- @uni/ui components/hooks → vitest in `packages/uni-ui/src/__tests__/` (jsdom env, React Testing Library)
+- @uni/ssh-ui, @uni/terminal-ui → vitest in respective `packages/*/src/__tests__/`
 
 ## Architecture
 
@@ -76,7 +83,6 @@ When adding new features, include tests:
   - `App.tsx` — Root layout (navigation sidebar + sidebar + main content)
   - `ChatArea.tsx`, `MessageInput.tsx`, `MessageList.tsx` — Chat UI
   - `CompareView.tsx`, `ComparisonsPage.tsx` — Model comparison
-  - `TerminalPanel.tsx` — Built-in terminal (xterm.js)
   - `Sidebar.tsx`, `NavigationSidebar.tsx`, `AppHeader.tsx` — Navigation
   - `ImageConfigBar.tsx` — Image generation settings bar
   - `SettingsPage.tsx`, `SnippetsPage.tsx`, `SearchPage.tsx` — Pages
@@ -105,10 +111,27 @@ Re-usable React components and theme for UNI apps. Wraps Mantine 8.
 - **Theme:** `uniTheme` (brand orange palette, Inter + JetBrains Mono, component overrides), `uniCssResolver`, `brandOrange`
 - **UniProvider:** Drop-in MantineProvider + Notifications + theme. Default dark color scheme.
 - **MarkdownRenderer:** react-markdown + remark-gfm + rehype-highlight. Import `@uni/ui/src/styles/markdown.css` for highlight.js theming.
+- **Settings module** (`src/settings/`): `SettingsAdapter` interface, `TauriSettingsAdapter` (wraps Tauri invoke, snake_case→camelCase mapping), `SettingsProvider` context, `useSettings(key)` hook (value/loading/set/delete/refresh). UniProvider accepts optional `settingsAdapter` prop.
 - **ConfirmModal:** Reusable confirm/cancel dialog.
 - **Re-exports:** `export * from '@mantine/core'`, `@mantine/hooks`, `@mantine/notifications`.
 - Apps can import Mantine components from `@uni/ui` or from `@mantine/core` directly (both work).
 - Desktop depends on `@uni/ui` via `file:../../packages/uni-ui` in `apps/desktop/package.json` (npm workspaces link).
+
+### Shared React Package: @uni/ssh-ui (`packages/uni-ssh-ui/`)
+
+SSH tunnel settings UI component. Uses `@uni/ui` settings adapter and `@tauri-apps/api` for Tauri invoke/listen. Exports `SshTunnelSettings`.
+
+### Shared React Package: @uni/terminal-ui (`packages/uni-terminal-ui/`)
+
+Terminal panel UI (xterm.js + tabs + PTY management). Exports `TerminalPanel` component. Uses `@tauri-apps/api` for terminal_create/write/resize/kill commands and pty-data/pty-exit events. Consumer must import `@xterm/xterm/css/xterm.css` in their entry point.
+
+### Shared Package Pattern
+
+Packages follow two types:
+- **Type 1** (settings-only UI, e.g. `@uni/ui` modules): Pure settings form using `useSettings(key)` hook. No Rust crate dependency.
+- **Type 2** (UI + Rust crate, e.g. `@uni/ssh-ui`, `@uni/terminal-ui`): React component + corresponding Rust crate (`uni-ssh`, `uni-terminal`). Uses Tauri `invoke`/`listen` for backend communication.
+
+All packages use: peer dependencies for React/Mantine/Tauri, `file:../../packages/...` links in desktop app, vitest + jsdom + RTL for tests.
 
 ### Shared Crates (`crates/`)
 
@@ -122,6 +145,9 @@ Re-usable React components and theme for UNI apps. Wraps Mantine 8.
 | `uni-audio` | Whisper STT (`transcribe_whisper` — OpenAI + Groq via base_url), OpenAI TTS (`speak_openai`, `openai_voice_ids`, `openai_model_ids`) |
 | `uni-python` | Managed Python runtime: discovery (`discover_python`), venv management (`PythonEnvironment`), script execution via JSON-RPC (`PythonExecutor`), script registry (`ScriptRegistry`), sandbox (`Sandbox`), bridge library extraction (`ensure_bridge`) |
 | `uni-converter` | Document→Markdown converter: `convert_file` (TXT, MD, HTML, CSV, PDF, RTF), `convert_url` (Jina Reader), `convert_youtube` (captions), `convert_text`, `guess_mime_type`. Python-enhanced via `uni-python`: `convert_file_with_python` (PDF/pymupdf, DOCX/mammoth, XLSX/openpyxl, PPTX/python-pptx, EPUB/ebooklib). PDF fallback: Python→Rust. |
+| `uni-settings` | File-based settings store: `SettingsStore` trait, `JsonSettingsStore` (atomic JSON writes via tmp file), key constants in `keys.rs` (~100+ keys across all domains), auto-detection and masking of sensitive values (api_key, password, token, secret), prefix-filtered listing |
+| `uni-ssh` | SSH tunnel with SOCKS5 proxy (russh): `SshTunnel` struct, connect/disconnect, local SOCKS5 listener, proxy URL resolution |
+| `uni-terminal` | PTY terminal sessions (portable-pty): session create/write/resize/kill, pty-data/pty-exit event emission |
 
 ### Backend — Commands (`apps/desktop/src-tauri/src/commands/`)
 
@@ -137,7 +163,8 @@ Re-usable React components and theme for UNI apps. Wraps Mantine 8.
 | `prompt_library` | Prompt library CRUD |
 | `comparisons` | Side-by-side model comparison |
 | `database` | Chat/message DB operations |
-| `settings` | App settings read/write |
+| `settings` | App settings read/write (legacy tauri-plugin-store) |
+| `uni_settings` | Unified settings CRUD via `uni-settings` crate (get/set/delete/get_all) |
 | `providers` | Custom provider management |
 | `ollama` | Ollama integration |
 | `embeddings` | Embedding generation |
@@ -188,7 +215,6 @@ Re-usable React components and theme for UNI apps. Wraps Mantine 8.
 
 - LLM API types (Message, ContentBlock, AttachmentInput, ChatRequest, StreamResponse, Usage, Model / ModelPricing, etc.) live in the **`uni-llm`** crate (`crates/uni-llm`), not under `models/`.
 - `db.rs` — DB-facing types: DbChat, DbMessage, folders, presets, providers, AgentRun, templates, snippets, etc.
-- `settings.rs` — `AppSettings` (store JSON)
 - `catalog.rs` — Model catalog entries
 - `comparison.rs` — Comparison data structures
 - `mcp.rs` — MCP server/tool definitions

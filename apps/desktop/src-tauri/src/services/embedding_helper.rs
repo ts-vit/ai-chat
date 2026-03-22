@@ -1,24 +1,27 @@
 // App-level embedding provider from settings store (OpenAI / Gemini via uni-embedding)
 
-use tauri::AppHandle;
-use tauri_plugin_store::StoreExt;
+use std::sync::Arc;
+use tauri::{AppHandle, Manager};
+use uni_settings::{JsonSettingsStore, SettingsStore};
 
 use crate::services::http_client::build_http_client;
 
-const STORE_NAME: &str = "settings.json";
+type SettingsState = Arc<JsonSettingsStore>;
 
-fn embedding_model_id_from_store(app: &AppHandle) -> Option<&'static str> {
-    let store = app.store(STORE_NAME).ok()?;
+async fn embedding_model_id_from_store(app: &AppHandle) -> Option<&'static str> {
+    let store = app.state::<SettingsState>();
     let gemini_key = store
-        .get("embeddingGeminiKey")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("embedding.gemini.api_key")
+        .await
+        .unwrap_or_default()
         .filter(|s| !s.trim().is_empty());
     if gemini_key.is_some() {
         return Some("gemini");
     }
     let openai_key = store
-        .get("embeddingOpenaiKey")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("embedding.openai.api_key")
+        .await
+        .unwrap_or_default()
         .filter(|s| !s.trim().is_empty());
     if openai_key.is_some() {
         return Some("openai");
@@ -31,14 +34,16 @@ fn embedding_model_id_from_store(app: &AppHandle) -> Option<&'static str> {
 pub async fn get_embedding_provider(
     app: &AppHandle,
 ) -> Option<Box<dyn uni_embedding::EmbeddingProvider>> {
-    let store = app.store(STORE_NAME).ok()?;
+    let store = app.state::<SettingsState>();
     let gemini_key = store
-        .get("embeddingGeminiKey")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("embedding.gemini.api_key")
+        .await
+        .unwrap_or_default()
         .filter(|s| !s.is_empty());
     let openai_key = store
-        .get("embeddingOpenaiKey")
-        .and_then(|v| v.as_str().map(String::from))
+        .get("embedding.openai.api_key")
+        .await
+        .unwrap_or_default()
         .filter(|s| !s.is_empty());
 
     let (model_id, api_key) = if let Some(k) = gemini_key {
@@ -55,8 +60,8 @@ pub async fn get_embedding_provider(
 
 /// LanceDB / vector index dimension for the configured embedding model.
 /// When no keys are set, defaults to OpenAI small dimensions so tables stay stable until configured.
-pub fn get_embedding_dimensions(app: &AppHandle) -> usize {
-    match embedding_model_id_from_store(app) {
+pub async fn get_embedding_dimensions(app: &AppHandle) -> usize {
+    match embedding_model_id_from_store(app).await {
         Some("gemini") => uni_embedding::default_dimensions("gemini"),
         Some("openai") | None => uni_embedding::default_dimensions("openai"),
         _ => uni_embedding::default_dimensions("openai"),

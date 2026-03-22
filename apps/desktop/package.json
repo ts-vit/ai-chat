@@ -17,6 +17,8 @@
     "test:all": "npm run typecheck && npm run test && cargo test -p ai-chat"
   },
   "dependencies": {
+    "@uni/ssh-ui": "file:../../packages/uni-ssh-ui",
+    "@uni/terminal-ui": "file:../../packages/uni-terminal-ui",
     "@uni/ui": "file:../../packages/uni-ui",
     "@fontsource/inter": "^5.2.8",
     "@fontsource/jetbrains-mono": "^5.2.8",

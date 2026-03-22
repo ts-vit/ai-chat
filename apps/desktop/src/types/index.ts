@@ -203,12 +203,6 @@ export interface AppSettings {
     braveApiKey?: string;
     terminalFontSize?: number;
     terminalShell?: string;
-    proxyEnabled?: boolean;
-    proxyType?: string;
-    proxyHost?: string;
-    proxyPort?: number;
-    proxyUsername?: string;
-    proxyPassword?: string;
     sshHost?: string;
     sshPort?: number;
     sshUsername?: string;

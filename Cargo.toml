@@ -8,6 +8,9 @@ members = [
     "crates/uni-audio",
     "crates/uni-python",
     "crates/uni-converter",
+    "crates/uni-settings",
+    "crates/uni-ssh",
+    "crates/uni-terminal",
     "apps/desktop/src-tauri",
 ]
 resolver = "2"

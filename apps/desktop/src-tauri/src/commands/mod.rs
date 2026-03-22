@@ -35,3 +35,4 @@ pub mod telegram;
 pub mod scheduler;
 pub mod knowledge_base;
 pub mod notebook;
+pub mod uni_settings;

@@ -1,0 +1,35 @@
+[package]
+name = "{{name}}"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "{{snakeCase name}}_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+{{#if hasDialogPlugin}}
+tauri-plugin-dialog = "2"
+{{/if}}
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+{{#if hasHttpClient}}
+reqwest = { version = "0.12", features = ["json"] }
+{{/if}}
+
+# UNI Framework — core
+uni-common = { path = "{{cratesRelPath}}/uni-common" }
+uni-settings = { path = "{{cratesRelPath}}/uni-settings" }
+{{#if crates.length}}
+
+# UNI Framework — modules
+{{#each crates}}
+{{this.name}} = { path = "{{this.path}}" }
+{{/each}}
+{{/if}}

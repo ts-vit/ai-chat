@@ -1,0 +1,84 @@
+{{#if hasSettingsPage}}
+import { useState } from "react";
+{{/if}}
+import { useTranslation } from "react-i18next";
+import { AppShell, Title, Text, Stack{{#if hasHeaderControls}}, Group, ActionIcon, Tooltip{{/if}} } from "@mantine/core";
+{{#if hasHeaderIcons}}
+import { {{#if hasSettingsPage}}IconSettings{{/if}}{{#if hasTerminalAndSettings}}, {{/if}}{{#if hasTerminal}}IconTerminal2{{/if}} } from "@tabler/icons-react";
+{{/if}}
+{{#if hasSettingsPage}}
+import { SettingsPage } from "./components/SettingsPage";
+{{/if}}
+{{#if hasTerminal}}
+import { TerminalPanel } from "@uni/terminal-ui";
+{{/if}}
+
+{{#if hasSettingsPage}}
+type View = "main" | "settings";
+{{/if}}
+
+export function App() {
+  const { t } = useTranslation();
+{{#if hasSettingsPage}}
+  const [view, setView] = useState<View>("main");
+{{/if}}
+{{#if hasTerminal}}
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalPosition, setTerminalPosition] = useState<"bottom" | "right">("bottom");
+{{/if}}
+
+  return (
+    <AppShell padding="md"{{#if hasHeaderControls}} header=\{{ height: 50 }}{{/if}}>
+{{#if hasHeaderControls}}
+      <AppShell.Header>
+        <Group h="100%" px="md" justify="space-between">
+          <Text fw={600}>{t("app.title")}</Text>
+          <Group gap="xs">
+{{#if hasTerminal}}
+            <Tooltip label={t("terminal.tooltip")}>
+              <ActionIcon variant="subtle" onClick={() => setTerminalOpen(o => !o)}>
+                <IconTerminal2 size={20} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+{{/if}}
+{{#if hasSettingsPage}}
+            <Tooltip label={t("common.settings")}>
+              <ActionIcon variant="subtle" onClick={() => setView(v => v === "settings" ? "main" : "settings")}>
+                <IconSettings size={20} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+{{/if}}
+          </Group>
+        </Group>
+      </AppShell.Header>
+{{/if}}
+      <AppShell.Main>
+{{#if hasSettingsPage}}
+        {view === "settings" ? (
+          <SettingsPage />
+        ) : (
+          <Stack align="center" justify="center" h="100vh" gap="md">
+            <Title order={1}>{t("app.title")}</Title>
+            <Text c="dimmed">{t("app.description")}</Text>
+          </Stack>
+        )}
+{{else}}
+        <Stack align="center" justify="center" h="100vh" gap="md">
+          <Title order={1}>{t("app.title")}</Title>
+          <Text c="dimmed">{t("app.description")}</Text>
+        </Stack>
+{{/if}}
+      </AppShell.Main>
+{{#if hasTerminal}}
+      {terminalOpen && (
+        <TerminalPanel
+          position={terminalPosition}
+          onPositionChange={setTerminalPosition}
+          onClose={() => setTerminalOpen(false)}
+          height={300}
+        />
+      )}
+{{/if}}
+    </AppShell>
+  );
+}

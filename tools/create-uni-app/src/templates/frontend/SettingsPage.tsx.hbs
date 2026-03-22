@@ -1,0 +1,49 @@
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { NavLink, ScrollArea, Stack } from "@mantine/core";
+{{#each settingsImports}}
+import { {{this.component}} } from "{{this.from}}";
+{{/each}}
+import {
+{{#each settingsNavIcons}}
+  {{this}},
+{{/each}}
+} from "@tabler/icons-react";
+
+type SettingsSection = {{#each settingsNavItems}}"{{this.key}}"{{#unless @last}} | {{/unless}}{{/each}};
+
+export function SettingsPage() {
+  const { t } = useTranslation();
+  const [activeSection, setActiveSection] = useState<SettingsSection>("{{firstSettingsKey}}");
+
+  const renderSection = () => {
+    switch (activeSection) {
+{{#each settingsNavItems}}
+      case "{{this.key}}":
+        return <{{this.component}} />;
+{{/each}}
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div style=\{{ display: "flex", height: "100%" }}>
+      <ScrollArea w={220} p="xs" style=\{{ borderRight: "1px solid var(--mantine-color-default-border)" }}>
+        <Stack gap={2}>
+{{#each settingsNavItems}}
+          <NavLink
+            label={t("{{this.labelKey}}")}
+            leftSection={<{{this.icon}} size={18} stroke={1.5} />}
+            active={activeSection === "{{this.key}}"}
+            onClick={() => setActiveSection("{{this.key}}")}
+          />
+{{/each}}
+        </Stack>
+      </ScrollArea>
+      <ScrollArea flex={1} p="lg">
+        {renderSection()}
+      </ScrollArea>
+    </div>
+  );
+}

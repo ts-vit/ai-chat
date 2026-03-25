@@ -10872,7 +10872,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "test-app2"
+name = "test-app"
 version = "0.1.0"
 dependencies = [
  "reqwest 0.13.2",

@@ -18,6 +18,7 @@ interface SshTunnelState {
     authType: string;
     password: string | null;
     privateKey: string | null;
+    extraParams?: Record<string, unknown>;
   }) => Promise<number>;
   disconnect: () => Promise<void>;
   removeKnownHost: (host: string, port: number) => Promise<void>;
@@ -133,10 +134,12 @@ export function useSshTunnel(t: (key: string, params?: Record<string, unknown>) 
       authType: string;
       password: string | null;
       privateKey: string | null;
+      extraParams?: Record<string, unknown>;
     }) => {
       setConnecting(true);
       try {
-        const port = await invoke<number>("ssh_tunnel_connect", config);
+        const { extraParams, ...baseConfig } = config;
+        const port = await invoke<number>("ssh_tunnel_connect", { ...baseConfig, ...extraParams });
         notifications.show({
           message: t("settings.vpn.ssh.connectSuccess", { port }),
           color: "green",

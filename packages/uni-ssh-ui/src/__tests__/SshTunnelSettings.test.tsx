@@ -79,11 +79,12 @@ function makeMockAdapter(
 
 function renderWithProvider(
   adapter: SettingsAdapter,
+  props: { extraConnectParams?: Record<string, unknown>; proxyUrlOverride?: string | null } = {},
 ) {
   return render(
     <MantineProvider>
       <SettingsProvider adapter={adapter}>
-        <SshTunnelSettings />
+        <SshTunnelSettings {...props} />
       </SettingsProvider>
     </MantineProvider>
   );
@@ -198,6 +199,71 @@ describe("SshTunnelSettings", () => {
     await waitFor(() => {
       expect(adapter.set).toHaveBeenCalledWith("ssh.host", "newhost.com");
     });
+  });
+
+  it("passes extraConnectParams to ssh_tunnel_connect", async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "ssh_tunnel_status") {
+        return { connected: false, localPort: null, remoteHost: null };
+      }
+      if (cmd === "ssh_tunnel_connect") {
+        return 1080;
+      }
+      return null;
+    });
+
+    const adapter = makeMockAdapter({
+      "ssh.host": "example.com",
+      "ssh.port": "22",
+      "ssh.username": "root",
+      "ssh.auth_type": "password",
+      "ssh.password": "secret",
+    });
+    renderWithProvider(adapter, {
+      extraConnectParams: { forwardRemoteHost: "127.0.0.1", forwardRemotePort: 8888 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("settings.vpn.ssh.connect")).toBeInTheDocument();
+    });
+
+    const connectBtn = screen.getByText("settings.vpn.ssh.connect").closest("button")!;
+    await waitFor(() => {
+      expect(connectBtn).not.toBeDisabled();
+    });
+
+    fireEvent.click(connectBtn);
+
+    await waitFor(() => {
+      expect(mockInvoke).toHaveBeenCalledWith("ssh_tunnel_connect", {
+        host: "example.com",
+        port: 22,
+        username: "root",
+        authType: "password",
+        password: "secret",
+        privateKey: null,
+        forwardRemoteHost: "127.0.0.1",
+        forwardRemotePort: 8888,
+      });
+    });
+  });
+
+  it("shows proxyUrlOverride when connected", async () => {
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "ssh_tunnel_status") {
+        return { connected: true, localPort: 34083, remoteHost: "example.com" };
+      }
+      return null;
+    });
+
+    const adapter = makeMockAdapter();
+    renderWithProvider(adapter, { proxyUrlOverride: "http://127.0.0.1:34083" });
+
+    await waitFor(() => {
+      expect(screen.getByText("http://127.0.0.1:34083")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(/socks5:/)).not.toBeInTheDocument();
   });
 
   it("toggles auto-connect switch and saves immediately", async () => {

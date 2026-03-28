@@ -133,6 +133,7 @@ All packages use: peer dependencies for React/Mantine/Tauri, `file:../../package
 | `uni-settings` | File-based settings store: `SettingsStore` trait, `JsonSettingsStore` (atomic JSON writes via tmp file), key constants in `keys.rs` (~100+ keys across all domains), auto-detection and masking of sensitive values (api_key, password, token, secret), prefix-filtered listing |
 | `uni-ssh` | SSH tunnel with SOCKS5 proxy (russh): `SshTunnel` struct, connect/disconnect, local SOCKS5 listener, proxy URL resolution |
 | `uni-terminal` | PTY terminal sessions (portable-pty): session create/write/resize/kill, pty-data/pty-exit event emission |
+| `uni-process` | Managed child processes: `ManagedProcess::spawn(ProcessConfig)`, async stdout/stderr events via `mpsc`, stdin writes, status watch, graceful kill |
 
 ### Backend — Commands (`apps/desktop/src-tauri/src/commands/`)
 

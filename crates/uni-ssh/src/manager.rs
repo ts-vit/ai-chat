@@ -151,6 +151,7 @@ impl SshTunnelManager {
                                     let ssh = ssh_for_listener.clone();
                                     let shutdown = shutdown_rx_listener.clone();
                                     if let Some(ref fwd) = fwd_config {
+                                        eprintln!("[ssh-tunnel] Accepted port-forward connection from {:?}", _addr);
                                         let remote_host = fwd.remote_host.clone();
                                         let remote_port = fwd.remote_port;
                                         tokio::spawn(async move {

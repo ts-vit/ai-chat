@@ -25,7 +25,12 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useSettings } from "@uni-fw/ui";
 import { useSshTunnel } from "./useSshTunnel";
 
-export function SshTunnelSettings() {
+interface SshTunnelSettingsProps {
+  extraConnectParams?: Record<string, unknown>;
+  proxyUrlOverride?: string | null;
+}
+
+export function SshTunnelSettings({ extraConnectParams, proxyUrlOverride }: SshTunnelSettingsProps = {}) {
   const { t } = useTranslation();
 
   // Settings (auto-save via useSettings)
@@ -151,6 +156,7 @@ export function SshTunnelSettings() {
       authType: currentAuthType,
       password,
       privateKey,
+      extraParams: extraConnectParams,
     });
   };
 
@@ -326,7 +332,7 @@ export function SshTunnelSettings() {
                 {t("settings.vpn.ssh.connected")}
               </Badge>
               <Text size="xs" c="dimmed">
-                socks5://127.0.0.1:{tunnel.status.localPort}
+                {proxyUrlOverride ?? `socks5://127.0.0.1:${tunnel.status.localPort}`}
               </Text>
               <Button
                 variant="light"

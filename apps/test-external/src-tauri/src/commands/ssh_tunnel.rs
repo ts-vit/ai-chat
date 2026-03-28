@@ -23,6 +23,7 @@ pub async fn ssh_tunnel_connect(
         password,
         private_key,
         known_hosts_path: app_data_dir.join("ssh_known_hosts"),
+        port_forward: None,
     };
     manager.connect(config).await
 }

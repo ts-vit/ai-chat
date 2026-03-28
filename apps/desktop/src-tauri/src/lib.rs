@@ -1175,6 +1175,7 @@ pub fn run() {
                     let config = uni_ssh::SshConfig {
                         host: host.clone(), port, username, auth_type, password, private_key,
                         known_hosts_path: app_data_dir.join("ssh_known_hosts"),
+                        port_forward: None,
                     };
                     match ssh_mgr.connect(config).await {
                         Ok(local_port) => log::info!("[ssh-autoconnect] connected to {}:{}, local SOCKS5 on 127.0.0.1:{}", host, port, local_port),

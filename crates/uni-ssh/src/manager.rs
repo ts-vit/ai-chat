@@ -7,6 +7,7 @@ use tokio::net::TcpListener;
 use tokio::sync::{broadcast, watch, Mutex};
 use tokio::task::JoinHandle;
 
+use crate::forward::handle_port_forward_connection;
 use crate::handler::SshHandler;
 use crate::socks5::handle_socks5_connection;
 use crate::types::{SshConfig, SshEvent, SshTunnelStatus};
@@ -14,6 +15,7 @@ use crate::types::{SshConfig, SshEvent, SshTunnelStatus};
 struct SshTunnelState {
     local_port: u16,
     remote_host: String,
+    is_port_forward: bool,
     shutdown_tx: watch::Sender<bool>,
     listener_handle: JoinHandle<()>,
     keepalive_handle: JoinHandle<()>,
@@ -117,10 +119,17 @@ impl SshTunnelManager {
 
             let ssh_handle = Arc::new(session);
 
-            // Bind SOCKS5 listener on random port
-            let listener = TcpListener::bind("127.0.0.1:0")
+            let is_port_forward = config.port_forward.is_some();
+
+            // Bind listener
+            let bind_port = config
+                .port_forward
+                .as_ref()
+                .map(|fwd| fwd.local_port)
+                .unwrap_or(0);
+            let listener = TcpListener::bind(format!("127.0.0.1:{}", bind_port))
                 .await
-                .map_err(|e| format!("Failed to bind SOCKS5 listener: {}", e))?;
+                .map_err(|e| format!("Failed to bind listener: {}", e))?;
             let local_port = listener
                 .local_addr()
                 .map_err(|e| format!("Failed to get local addr: {}", e))?
@@ -128,9 +137,10 @@ impl SshTunnelManager {
 
             let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-            // Spawn SOCKS5 acceptor loop
+            // Spawn acceptor loop (port forward or SOCKS5)
             let ssh_for_listener = ssh_handle.clone();
             let shutdown_rx_listener = shutdown_rx.clone();
+            let fwd_config = config.port_forward.clone();
             let listener_handle = tokio::spawn(async move {
                 loop {
                     let mut shutdown_check = shutdown_rx_listener.clone();
@@ -140,11 +150,21 @@ impl SshTunnelManager {
                                 Ok((stream, _addr)) => {
                                     let ssh = ssh_for_listener.clone();
                                     let shutdown = shutdown_rx_listener.clone();
-                                    tokio::spawn(async move {
-                                        if let Err(e) = handle_socks5_connection(stream, ssh, shutdown).await {
-                                            log::debug!("[ssh-tunnel] SOCKS5 connection error: {}", e);
-                                        }
-                                    });
+                                    if let Some(ref fwd) = fwd_config {
+                                        let remote_host = fwd.remote_host.clone();
+                                        let remote_port = fwd.remote_port;
+                                        tokio::spawn(async move {
+                                            if let Err(e) = handle_port_forward_connection(stream, ssh, remote_host, remote_port, shutdown).await {
+                                                log::debug!("[ssh-tunnel] Port forward connection error: {}", e);
+                                            }
+                                        });
+                                    } else {
+                                        tokio::spawn(async move {
+                                            if let Err(e) = handle_socks5_connection(stream, ssh, shutdown).await {
+                                                log::debug!("[ssh-tunnel] SOCKS5 connection error: {}", e);
+                                            }
+                                        });
+                                    }
                                 }
                                 Err(e) => {
                                     log::error!("[ssh-tunnel] Accept error: {}", e);
@@ -265,16 +285,24 @@ impl SshTunnelManager {
             *state = Some(SshTunnelState {
                 local_port,
                 remote_host: config.host,
+                is_port_forward,
                 shutdown_tx,
                 listener_handle,
                 keepalive_handle,
                 ssh_handle,
             });
 
-            log::info!(
-                "[ssh-tunnel] Connected, SOCKS5 proxy on 127.0.0.1:{}",
-                local_port
-            );
+            if is_port_forward {
+                log::info!(
+                    "[ssh-tunnel] Connected, port forward on 127.0.0.1:{}",
+                    local_port
+                );
+            } else {
+                log::info!(
+                    "[ssh-tunnel] Connected, SOCKS5 proxy on 127.0.0.1:{}",
+                    local_port
+                );
+            }
 
             Ok(local_port)
         })
@@ -308,9 +336,13 @@ impl SshTunnelManager {
 
     pub async fn get_proxy_url(&self) -> Option<String> {
         let state = self.state.lock().await;
-        state
-            .as_ref()
-            .map(|s| format!("socks5://127.0.0.1:{}", s.local_port))
+        state.as_ref().map(|s| {
+            if s.is_port_forward {
+                format!("http://127.0.0.1:{}", s.local_port)
+            } else {
+                format!("socks5://127.0.0.1:{}", s.local_port)
+            }
+        })
     }
 
     pub async fn get_status(&self) -> SshTunnelStatus {
@@ -411,5 +443,37 @@ mod tests {
         let manager = SshTunnelManager::new();
         let result = manager.disconnect().await;
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_port_forward_config_default() {
+        let config = SshConfig {
+            host: "example.com".into(),
+            port: 22,
+            username: "user".into(),
+            auth_type: "password".into(),
+            password: Some("pass".into()),
+            private_key: None,
+            known_hosts_path: std::path::PathBuf::from("/tmp/known_hosts"),
+            port_forward: None,
+        };
+        assert!(config.port_forward.is_none());
+    }
+
+    #[test]
+    fn test_port_forward_config_serialization() {
+        use crate::types::PortForwardConfig;
+
+        let fwd = PortForwardConfig {
+            local_port: 8888,
+            remote_host: "127.0.0.1".into(),
+            remote_port: 3128,
+        };
+
+        let json = serde_json::to_string(&fwd).unwrap();
+        let parsed: PortForwardConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.local_port, 8888);
+        assert_eq!(parsed.remote_host, "127.0.0.1");
+        assert_eq!(parsed.remote_port, 3128);
     }
 }

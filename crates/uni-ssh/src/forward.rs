@@ -89,8 +89,10 @@ async fn proxy_bidirectional(
     // SSH → TCP
     let ssh_to_tcp = tokio::spawn(async move {
         loop {
+            eprintln!("[port-forward] SSH->TCP: waiting for channel data...");
             let msg = {
                 let mut ch = channel_for_read.lock().await;
+                eprintln!("[port-forward] SSH->TCP: acquired lock, calling wait()...");
                 ch.wait().await
             };
             match msg {

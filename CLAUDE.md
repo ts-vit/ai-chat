@@ -13,8 +13,6 @@ ai-chat/
 ├── Cargo.toml              # Rust workspace root
 ├── package.json             # npm workspaces root
 ├── CLAUDE.md
-├── UNI_FRAMEWORK_SPEC.md
-├── UNI_NOTEBOOK_SPEC.md
 ├── docs/                    # Documentation
 ├── crates/                  # Shared Rust crates (uni-common, uni-http, uni-llm, uni-embedding, uni-search, uni-settings, uni-ssh, uni-terminal, …)
 ├── packages/                # Shared npm packages
@@ -185,6 +183,11 @@ All packages use: peer dependencies for React/Mantine/Tauri, `file:../../package
 | `injections` | Template variable resolution |
 | `telegram` | Telegram bot start/stop, auth, validation |
 | `scheduler` | Scheduled tasks CRUD, execution |
+| `model_catalog` | Model catalog sync (OpenRouter/Ollama), catalog queries |
+| `budget` | Cost tracking, budget checks, cost ledger |
+| `routing` | Rule-based and LLM-based model routing |
+| `knowledge_base` | Knowledge base CRUD, document indexing, chunked retrieval |
+| `notebook` | Notebook CRUD, cell execution, kernel management |
 
 ### Backend — Services (`apps/desktop/src-tauri/src/services/`)
 
@@ -229,7 +232,7 @@ All packages use: peer dependencies for React/Mantine/Tauri, `file:../../package
 
 SQLite via `sqlx` (WAL mode). Migrations: `DB_MIGRATIONS` array in `lib.rs` + ALTER TABLE via `let _ = sqlx::query("ALTER TABLE ...").execute(&pool).await;` (silently ignores duplicate errors).
 
-Key tables: `chats`, `messages`, `comparisons`, `comparison_messages`, `folders`, `presets`, `snippets`, `categories`, `chat_templates`, `mcp_servers`, `custom_providers`, `image_styles`, `agent_runs`, `agent_plans`, `agent_tasks`, `agent_memory`, `agent_memory_fts`, `chat_skills`, `skills`, `mode_settings`, `fs_audit_log`, `workspace_artifacts`, `projects`, `scheduled_tasks`
+Key tables: `chats`, `messages`, `comparisons`, `comparison_messages`, `folders`, `presets`, `snippets`, `categories`, `chat_templates`, `mcp_servers`, `custom_providers`, `image_styles`, `agent_runs`, `agent_plans`, `agent_tasks`, `agent_memory`, `agent_memory_fts`, `chat_skills`, `skills`, `mode_settings`, `fs_audit_log`, `workspace_artifacts`, `projects`, `scheduled_tasks`, `model_catalog`, `cost_ledger`, `routing_rules`, `knowledge_bases`, `notebooks`
 
 Notable columns: `chats.is_telegram_chat` (marks Telegram bot chat), `chats.scheduled_task_id` (links chat to scheduled task).
 
@@ -279,6 +282,9 @@ Built-in Telegram bot for remote access to UNI Assistant. Long polling (no exter
 
 ### Scheduler (`services/scheduler.rs`)
 Cron-based task scheduler. Table: `scheduled_tasks` (id, name, prompt, cron_expression, enabled, model, skill_id, project_id, deliver_telegram, deliver_desktop_notification, last_run_at, next_run_at, last_run_status, run_count). Background tokio task checks every 30s for due tasks. Each task = prompt sent to agent_loop. Results delivered via Telegram (if connected) and/or desktop notification. Context rotation when chat exceeds 100 messages. Uses `cron` crate for expression parsing. Reuses TelegramRunNotifier for agent completion. Auto-starts with app. `SchedulerPage` + `CreateScheduledTaskModal` with cron presets.
+
+### Cost Tracking, Routing & Budget (`commands/budget.rs`, `commands/routing.rs`, `commands/model_catalog.rs`)
+Model catalog synced from OpenRouter/Ollama into `model_catalog` table. `cost_ledger` records per-call costs (prompt/completion tokens × catalog pricing). `routing_rules` map task categories to models (rule-based or LLM-based via `llm_route_task`). Budget enforcement via `check_budget()` before LLM calls — emits `budget-exceeded` event and pauses agent/plan with status `paused_budget`. `agent_runs` tracks `prompt_tokens`, `completion_tokens`, `cost`, `assigned_model`. Sub-agent costs aggregated into orchestrator run.
 
 ## Critical Conventions
 

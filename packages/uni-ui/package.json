@@ -1,6 +1,6 @@
 {
   "name": "@uni-fw/ui",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "React components, Mantine theme, and settings modules for UNI Framework",
   "license": "MIT",
@@ -50,8 +50,10 @@
     "@mantine/hooks": "^8.0.0",
     "@mantine/notifications": "^8.0.0",
     "@tabler/icons-react": "^3.0.0",
+    "i18next": ">=23.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-i18next": ">=14.0.0"
   },
   "dependencies": {
     "react-markdown": "^10.1.0",

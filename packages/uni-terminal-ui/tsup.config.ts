@@ -1,4 +1,11 @@
 import { defineConfig } from "tsup";
+import pkg from "./package.json";
+
+const external = [
+  ...Object.keys(pkg.dependencies || {}),
+  ...Object.keys(pkg.peerDependencies || {}),
+  "react/jsx-runtime",
+];
 
 export default defineConfig({
   entry: ["src/index.ts"],
@@ -8,19 +15,7 @@ export default defineConfig({
   },
   sourcemap: true,
   clean: true,
-  external: [
-    "react",
-    "react-dom",
-    "react/jsx-runtime",
-    "@mantine/core",
-    "@mantine/hooks",
-    "@mantine/notifications",
-    "@tabler/icons-react",
-    "@tauri-apps/api",
-    "@xterm/xterm",
-    "@xterm/addon-fit",
-    "@xterm/addon-web-links",
-  ],
+  external,
   esbuildOptions(options) {
     options.jsx = "automatic";
   },

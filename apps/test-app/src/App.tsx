@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AppShell, Title, Text, Stack, Group, ActionIcon, Tooltip } from "@mantine/core";
 import { IconSettings, IconTerminal2 } from "@tabler/icons-react";
 import { SettingsPage } from "./components/SettingsPage";
-import { TerminalPanel } from "@uni/terminal-ui";
+import { TerminalPanel } from "@uni-fw/terminal-ui";
 
 type View = "main" | "settings";
 

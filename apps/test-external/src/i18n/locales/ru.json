@@ -1,0 +1,53 @@
+{
+  "app": {
+    "title": "Test External",
+    "description": "A UNI Framework application"
+  },
+  "common": {
+    "save": "Сохранить",
+    "cancel": "Отмена",
+    "delete": "Удалить",
+    "loading": "Загрузка...",
+    "settings": "Настройки"
+  },
+  "settings": {
+    "nav": {
+      "vpn": "VPN"
+    },
+    "vpn": {
+      "title": "SSH-туннель",
+      "ssh": {
+        "host": "SSH хост",
+        "hostPlaceholder": "example.com",
+        "port": "SSH порт",
+        "username": "Имя пользователя",
+        "usernamePlaceholder": "root",
+        "authPassword": "Пароль",
+        "authKey": "SSH-ключ",
+        "password": "Пароль",
+        "passwordPlaceholder": "Пароль SSH",
+        "keyPath": "Путь к приватному ключу",
+        "keyPathPlaceholder": "Выберите файл SSH-ключа",
+        "browseKey": "Обзор",
+        "autoConnect": "Авто-подключение при запуске",
+        "autoConnectDescription": "Автоматически устанавливать SSH-туннель при запуске приложения",
+        "connect": "Подключить",
+        "disconnect": "Отключить",
+        "connecting": "Подключение...",
+        "connected": "Подключён",
+        "disconnected": "Отключён",
+        "connectSuccess": "SSH-туннель установлен на порту {{port}}",
+        "connectError": "Не удалось подключиться",
+        "disconnectSuccess": "SSH-туннель отключён",
+        "reconnecting": "Переподключение...",
+        "reconnected": "SSH-туннель восстановлен",
+        "reconnectFailed": "Не удалось восстановить SSH-туннель после 5 попыток",
+        "hostKeyChanged": "Ключ SSH-хоста изменился",
+        "hostKeyChangedMessage": "Ключ SSH-хоста для {{host}}:{{port}} изменился. Это может указывать на проблему безопасности.",
+        "resetHostKey": "Сбросить ключ хоста",
+        "hostKeyReset": "Ключ хоста удалён. Можно переподключиться.",
+        "saved": "Сохранено"
+      }
+    }
+  }
+}

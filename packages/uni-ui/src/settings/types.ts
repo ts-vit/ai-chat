@@ -10,7 +10,7 @@ export interface SettingEntry {
 
 /**
  * Settings adapter interface.
- * Implement this to connect @uni/ui modules to any settings backend.
+ * Implement this to connect @uni-fw/ui modules to any settings backend.
  * Standard implementation: TauriSettingsAdapter.
  */
 export interface SettingsAdapter {

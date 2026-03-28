@@ -1,14 +1,27 @@
 {
-  "name": "create-uni-app",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@uni-fw/create-app",
+  "version": "0.1.1",
+  "description": "Scaffold a new UNI Framework application (Tauri 2 + React 19 + Rust)",
+  "license": "MIT",
+  "author": "Vitaly",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ts-vit/ai-chat",
+    "directory": "tools/create-uni-app"
+  },
   "type": "module",
   "bin": {
     "create-uni-app": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "templates",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts"
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "chalk": "^5.3.0",
@@ -21,6 +34,7 @@
     "@types/fs-extra": "^11.0.0",
     "@types/inquirer": "^9.0.0",
     "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.7.0"
   }

@@ -119,15 +119,15 @@ dependencies = [
  "tokio",
  "tokio-util",
  "uni-audio",
- "uni-common",
+ "uni-common 0.1.0",
  "uni-converter",
  "uni-embedding",
  "uni-http",
  "uni-llm",
  "uni-python",
  "uni-search",
- "uni-settings",
- "uni-ssh",
+ "uni-settings 0.1.0",
+ "uni-ssh 0.1.0",
  "uni-terminal",
  "uuid",
  "windows-sys 0.52.0",
@@ -10883,11 +10883,27 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-shell",
  "tokio",
- "uni-common",
+ "uni-common 0.1.0",
  "uni-http",
- "uni-settings",
- "uni-ssh",
+ "uni-settings 0.1.0",
+ "uni-ssh 0.1.0",
  "uni-terminal",
+]
+
+[[package]]
+name = "test-external"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-shell",
+ "tokio",
+ "uni-common 0.1.0 (git+https://github.com/ts-vit/ai-chat?branch=dev)",
+ "uni-settings 0.1.0 (git+https://github.com/ts-vit/ai-chat?branch=dev)",
+ "uni-ssh 0.1.0 (git+https://github.com/ts-vit/ai-chat?branch=dev)",
 ]
 
 [[package]]
@@ -11425,12 +11441,24 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "uni-common",
+ "uni-common 0.1.0",
 ]
 
 [[package]]
 name = "uni-common"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio-util",
+ "uuid",
+]
+
+[[package]]
+name = "uni-common"
+version = "0.1.0"
+source = "git+https://github.com/ts-vit/ai-chat?branch=dev#db40113a4f803a66f9136314a607a9dcf6948d35"
 dependencies = [
  "serde",
  "serde_json",
@@ -11452,7 +11480,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "uni-common",
+ "uni-common 0.1.0",
  "uni-python",
 ]
 
@@ -11465,7 +11493,7 @@ dependencies = [
  "reqwest 0.13.2",
  "serde",
  "serde_json",
- "uni-common",
+ "uni-common 0.1.0",
  "uni-http",
 ]
 
@@ -11478,7 +11506,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "uni-common",
+ "uni-common 0.1.0",
 ]
 
 [[package]]
@@ -11492,8 +11520,17 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "uni-common",
+ "uni-common 0.1.0",
  "uni-http",
+]
+
+[[package]]
+name = "uni-process"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+ "tracing",
+ "uni-common 0.1.0",
 ]
 
 [[package]]
@@ -11506,7 +11543,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml 0.8.2",
- "uni-common",
+ "uni-common 0.1.0",
  "which",
 ]
 
@@ -11520,7 +11557,7 @@ dependencies = [
  "reqwest 0.13.2",
  "serde",
  "serde_json",
- "uni-common",
+ "uni-common 0.1.0",
  "uni-http",
 ]
 
@@ -11533,12 +11570,38 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "uni-common",
+ "uni-common 0.1.0",
+]
+
+[[package]]
+name = "uni-settings"
+version = "0.1.0"
+source = "git+https://github.com/ts-vit/ai-chat?branch=dev#db40113a4f803a66f9136314a607a9dcf6948d35"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uni-common 0.1.0 (git+https://github.com/ts-vit/ai-chat?branch=dev)",
 ]
 
 [[package]]
 name = "uni-ssh"
 version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "log",
+ "russh",
+ "russh-keys",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "uni-ssh"
+version = "0.1.0"
+source = "git+https://github.com/ts-vit/ai-chat?branch=dev#db40113a4f803a66f9136314a607a9dcf6948d35"
 dependencies = [
  "async-trait",
  "log",

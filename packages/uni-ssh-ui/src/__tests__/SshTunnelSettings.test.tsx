@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { SettingsProvider } from "@uni/ui";
-import type { SettingsAdapter } from "@uni/ui";
+import { SettingsProvider } from "@uni-fw/ui";
+import type { SettingsAdapter } from "@uni-fw/ui";
 import { SshTunnelSettings } from "../SshTunnelSettings";
 import { MantineProvider } from "@mantine/core";
 

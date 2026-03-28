@@ -2,7 +2,7 @@ import type { SettingsAdapter, SettingEntry } from "./types";
 
 /**
  * Invoke function type — matches @tauri-apps/api/core invoke signature.
- * Passed as constructor parameter to keep @uni/ui free of Tauri dependency.
+ * Passed as constructor parameter to keep @uni-fw/ui free of Tauri dependency.
  */
 type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 

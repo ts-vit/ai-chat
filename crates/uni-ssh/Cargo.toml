@@ -2,6 +2,13 @@
 name = "uni-ssh"
 version = "0.1.0"
 edition = "2021"
+description = "SSH tunnel with SOCKS5 proxy and auto-reconnect for UNI Framework"
+license = "MIT"
+repository = "https://github.com/ts-vit/ai-chat"
+homepage = "https://github.com/ts-vit/ai-chat"
+keywords = ["ssh", "tunnel", "socks5", "proxy"]
+categories = ["network-programming"]
+readme = "README.md"
 
 [dependencies]
 russh = "0.46"

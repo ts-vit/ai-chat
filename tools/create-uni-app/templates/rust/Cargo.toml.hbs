@@ -24,12 +24,12 @@ reqwest = { version = "0.13.2", features = ["json", "socks"] }
 {{/if}}
 
 # UNI Framework — core
-uni-common = { path = "{{cratesRelPath}}/uni-common" }
-uni-settings = { path = "{{cratesRelPath}}/uni-settings" }
+uni-common = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }
+uni-settings = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }
 {{#if crates.length}}
 
 # UNI Framework — modules
 {{#each crates}}
-{{this.name}} = { path = "{{this.path}}" }
+{{this.name}} = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }
 {{/each}}
 {{/if}}

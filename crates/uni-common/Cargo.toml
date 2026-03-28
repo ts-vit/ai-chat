@@ -2,6 +2,13 @@
 name = "uni-common"
 version = "0.1.0"
 edition = "2021"
+description = "Common types, utilities, and error handling for UNI Framework"
+license = "MIT"
+repository = "https://github.com/ts-vit/ai-chat"
+homepage = "https://github.com/ts-vit/ai-chat"
+keywords = ["tauri", "ai", "framework", "desktop", "utilities"]
+categories = ["development-tools"]
+readme = "README.md"
 
 [dependencies]
 uuid = { version = "1", features = ["v4"] }

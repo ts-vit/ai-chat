@@ -1,44 +1,80 @@
 {
-  "name": "@uni/ui",
+  "name": "@uni-fw/ui",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "description": "React components, Mantine theme, and settings modules for UNI Framework",
+  "license": "MIT",
+  "author": "Vitaly",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ts-vit/ai-chat",
+    "directory": "packages/uni-ui"
+  },
+  "homepage": "https://github.com/ts-vit/ai-chat/tree/main/packages/uni-ui",
+  "keywords": [
+    "react",
+    "mantine",
+    "tauri",
+    "ai",
+    "ui-components",
+    "settings",
+    "theme"
+  ],
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./src/styles/*": "./src/styles/*"
+  },
+  "files": [
+    "dist",
+    "src/styles",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "peerDependencies": {
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "@mantine/core": "^8.0.0",
     "@mantine/hooks": "^8.0.0",
     "@mantine/notifications": "^8.0.0",
-    "@tabler/icons-react": "^3.0.0"
+    "@tabler/icons-react": "^3.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "dependencies": {
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "rehype-highlight": "^7.0.2"
+    "rehype-highlight": "^7.0.2",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
-    "vitest": "^3.0.0",
-    "@vitest/coverage-v8": "^3.0.0",
-    "jsdom": "^26.0.0",
-    "@testing-library/react": "^16.0.0",
-    "@testing-library/user-event": "^14.0.0",
-    "@testing-library/jest-dom": "^6.0.0",
-    "@vitejs/plugin-react": "^4.0.0",
-    "typescript": "^5.7.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
     "@mantine/core": "^8.3.15",
     "@mantine/hooks": "^8.3.15",
     "@mantine/notifications": "^8.3.15",
     "@tabler/icons-react": "^3.0.0",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.0.0",
     "@types/react": "^19.0.0",
-    "@types/react-dom": "^19.0.0"
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "@vitest/coverage-v8": "^3.0.0",
+    "jsdom": "^26.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, ScrollArea, Stack } from "@mantine/core";
-import { SshTunnelSettings } from "@uni/ssh-ui";
-import { TerminalSettings, OpenRouterSettings, OllamaSettings, GenerationSettings, InterfaceSettings, WebSearchSettings, BudgetSettings } from "@uni/ui";
+import { SshTunnelSettings } from "@uni-fw/ssh-ui";
+import { TerminalSettings, OpenRouterSettings, OllamaSettings, GenerationSettings, InterfaceSettings, WebSearchSettings, BudgetSettings } from "@uni-fw/ui";
 import {
   IconNetwork,
   IconTerminal2,

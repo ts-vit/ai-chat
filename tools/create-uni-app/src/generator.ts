@@ -1,4 +1,5 @@
 import path from "path";
+import { fileURLToPath } from "url";
 import fs from "fs-extra";
 import Handlebars from "handlebars";
 import ora from "ora";
@@ -10,6 +11,9 @@ import {
   type ModuleDefinition,
 } from "./modules.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Register helpers
 Handlebars.registerHelper("snakeCase", (str: string) =>
   str.replace(/-/g, "_"),
@@ -18,11 +22,18 @@ Handlebars.registerHelper("snakeCase", (str: string) =>
 export async function generateApp(config: AppConfig) {
   const spinner = ora("Creating app structure...").start();
 
-  const rootDir = findMonorepoRoot();
-  const appDir = path.join(rootDir, "apps", config.name);
+  const isExternal = !!config.output;
+  const rootDir = isExternal ? null : findMonorepoRoot();
+  const appDir = isExternal
+    ? path.resolve(config.output!)
+    : path.join(rootDir!, "apps", config.name);
 
   if (await fs.pathExists(appDir)) {
-    spinner.fail(`Directory apps/${config.name} already exists`);
+    spinner.fail(
+      isExternal
+        ? `Directory ${appDir} already exists`
+        : `Directory apps/${config.name} already exists`,
+    );
     process.exit(1);
   }
 
@@ -54,15 +65,13 @@ export async function generateApp(config: AppConfig) {
     .filter((m) => m.crate && m.type !== "core")
     .map((m) => ({
       name: m.crate!,
-      path: `../../../crates/${m.crate!}`,
     }));
 
   // npm packages for package.json
   const packages = selectedModules
     .filter((m) => m.package)
     .map((m) => ({
-      name: `@uni/${m.package!.replace("uni-", "")}`,
-      path: `../../packages/${m.package!}`,
+      name: `@uni-fw/${m.package!.replace("uni-", "")}`,
     }));
 
   // Settings page data
@@ -87,18 +96,13 @@ export async function generateApp(config: AppConfig) {
   ];
   const firstSettingsKey = settingsNavItems[0]?.key ?? "";
 
-  // Relative paths
-  const cratesRelPath = "../../../crates";
-  const packagesRelPath = "../../packages";
-
   // Template data
   const data = {
     name: config.name,
     displayName: config.displayName,
     description: config.description,
     identifier: config.identifier,
-    cratesRelPath,
-    packagesRelPath,
+    isExternal,
 
     // Module flags
     hasSshTunnel,
@@ -136,7 +140,8 @@ export async function generateApp(config: AppConfig) {
   }
 
   // Generate files from templates
-  const templatesDir = path.join(import.meta.dirname, "templates");
+  // Works from both src/ (dev) and dist/ (published) — templates/ is sibling
+  const templatesDir = path.resolve(__dirname, "../templates");
 
   const files: [string, string][] = [
     // Rust backend
@@ -157,6 +162,7 @@ export async function generateApp(config: AppConfig) {
     ],
     // Frontend
     ["frontend/package.json.hbs", "package.json"],
+    ["frontend/npmrc.hbs", ".npmrc"],
     ["frontend/index.html.hbs", "index.html"],
     ["frontend/vite.config.ts.hbs", "vite.config.ts"],
     ["frontend/tsconfig.json.hbs", "tsconfig.json"],
@@ -204,29 +210,60 @@ export async function generateApp(config: AppConfig) {
 
   // Generate i18n files programmatically
   spinner.text = "Generating i18n files...";
-  await generateI18n(rootDir, appDir, config, selectedModules);
-
-  // Copy icons from desktop app
-  spinner.text = "Copying icons...";
-  const desktopIcons = path.join(
-    rootDir,
-    "apps",
-    "desktop",
-    "src-tauri",
-    "icons",
-  );
-  const appIcons = path.join(appDir, "src-tauri", "icons");
-  if (await fs.pathExists(desktopIcons)) {
-    await fs.copy(desktopIcons, appIcons, {
-      filter: (src) => !src.includes("android") && !src.includes("ios"),
-    });
+  if (rootDir) {
+    await generateI18n(rootDir, appDir, config, selectedModules);
+  } else {
+    await generateI18nMinimal(appDir, config);
   }
 
-  // Add to workspace members in root Cargo.toml
-  spinner.text = "Updating workspace...";
-  await addToCargoWorkspace(rootDir, `apps/${config.name}/src-tauri`);
+  // Copy icons
+  spinner.text = "Copying icons...";
+  const appIcons = path.join(appDir, "src-tauri", "icons");
+  if (rootDir) {
+    const desktopIcons = path.join(
+      rootDir,
+      "apps",
+      "desktop",
+      "src-tauri",
+      "icons",
+    );
+    if (await fs.pathExists(desktopIcons)) {
+      await fs.copy(desktopIcons, appIcons, {
+        filter: (src) => !src.includes("android") && !src.includes("ios"),
+      });
+    }
+  } else {
+    // External project — copy default icons from templates
+    const defaultIconsDir = path.resolve(__dirname, "../templates/icons");
+    if (await fs.pathExists(defaultIconsDir)) {
+      await fs.mkdirp(appIcons);
+      const iconFiles = await fs.readdir(defaultIconsDir);
+      for (const file of iconFiles) {
+        await fs.copyFile(
+          path.join(defaultIconsDir, file),
+          path.join(appIcons, file),
+        );
+      }
+    }
+  }
 
-  spinner.succeed(`App created at apps/${config.name}/`);
+  if (isExternal) {
+    // Create root Cargo.toml workspace
+    const workspaceCargo = `[workspace]\nmembers = ["src-tauri"]\nresolver = "2"\n`;
+    await fs.writeFile(path.join(appDir, "Cargo.toml"), workspaceCargo);
+
+    // Create .gitignore
+    const gitignore = `node_modules/\ndist/\ntarget/\n.env\n*.log\n`;
+    await fs.writeFile(path.join(appDir, ".gitignore"), gitignore);
+
+    spinner.succeed(`App created at ${appDir}/`);
+  } else {
+    // Add to workspace members in root Cargo.toml
+    spinner.text = "Updating workspace...";
+    await addToCargoWorkspace(rootDir!, `apps/${config.name}/src-tauri`);
+
+    spinner.succeed(`App created at apps/${config.name}/`);
+  }
 
   // Summary
   if (selectedModules.filter((m) => m.type !== "core").length > 0) {
@@ -253,6 +290,36 @@ function dedupeImports(
     component: components.join(", "),
     from,
   }));
+}
+
+/** Generate minimal i18n files for external (standalone) projects */
+async function generateI18nMinimal(appDir: string, config: AppConfig) {
+  const en = {
+    app: { title: config.displayName, description: config.description },
+    common: {
+      save: "Save",
+      cancel: "Cancel",
+      delete: "Delete",
+      loading: "Loading...",
+      settings: "Settings",
+    },
+  };
+  const ru = {
+    app: { title: config.displayName, description: config.description },
+    common: {
+      save: "Сохранить",
+      cancel: "Отмена",
+      delete: "Удалить",
+      loading: "Загрузка...",
+      settings: "Настройки",
+    },
+  };
+  await fs.writeJson(path.join(appDir, "src/i18n/locales/en.json"), en, {
+    spaces: 2,
+  });
+  await fs.writeJson(path.join(appDir, "src/i18n/locales/ru.json"), ru, {
+    spaces: 2,
+  });
 }
 
 /** Generate i18n en.json and ru.json by extracting keys from Desktop i18n */
@@ -422,7 +489,7 @@ function findMonorepoRoot(): string {
     dir = path.dirname(dir);
   }
   throw new Error(
-    "Could not find monorepo root (looking for Cargo.toml + crates/)",
+    "Could not find monorepo root. Run from within the ai-chat monorepo, or use --output for standalone projects.",
   );
 }
 

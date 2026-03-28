@@ -1,5 +1,5 @@
 {
-  "name": "@uni/{{name}}",
+  "name": "@uni-fw/test-external",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -17,18 +17,9 @@
     "@tabler/icons-react": "^3.31.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-shell": "^2",
-{{#if hasDialogPlugin}}
     "@tauri-apps/plugin-dialog": "^2",
-{{/if}}
-    "@uni/ui": "file:{{packagesRelPath}}/uni-ui",
-{{#each packages}}
-    "{{this.name}}": "file:{{this.path}}",
-{{/each}}
-{{#if hasTerminal}}
-    "@xterm/xterm": "^5.5.0",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/addon-web-links": "^0.11.0",
-{{/if}}
+    "@uni-fw/ui": "^0.1.0",
+    "@uni-fw/ssh-ui": "^0.1.0",
     "i18next": "^25.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

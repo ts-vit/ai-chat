@@ -22,7 +22,7 @@ import {
   IconFolder,
 } from "@tabler/icons-react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useSettings } from "@uni/ui";
+import { useSettings } from "@uni-fw/ui";
 import { useSshTunnel } from "./useSshTunnel";
 
 export function SshTunnelSettings() {

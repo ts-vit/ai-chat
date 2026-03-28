@@ -21,7 +21,7 @@ export interface UniProviderProps {
   /** Auto-close notifications (ms). Defaults to 4000. */
   notificationAutoClose?: number;
   /**
-   * Settings adapter for @uni/ui modules.
+   * Settings adapter for @uni-fw/ui modules.
    * Use TauriSettingsAdapter for Tauri apps.
    * If not provided, useSettings() will throw — only omit if
    * you don't use any settings-dependent modules.

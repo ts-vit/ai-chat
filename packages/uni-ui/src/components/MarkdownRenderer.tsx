@@ -20,9 +20,9 @@ export interface MarkdownRendererProps {
  * Markdown renderer with GFM tables/links and syntax highlighting.
  * Wraps react-markdown + remark-gfm + rehype-highlight.
  *
- * Import markdown.css from @uni/ui for highlight.js theming:
+ * Import markdown.css from @uni-fw/ui for highlight.js theming:
  * ```
- * import "@uni/ui/src/styles/markdown.css";
+ * import "@uni-fw/ui/src/styles/markdown.css";
  * ```
  */
 export function MarkdownRenderer({

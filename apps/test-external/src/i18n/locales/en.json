@@ -1,0 +1,53 @@
+{
+  "app": {
+    "title": "Test External",
+    "description": "A UNI Framework application"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "loading": "Loading...",
+    "settings": "Settings"
+  },
+  "settings": {
+    "nav": {
+      "vpn": "VPN"
+    },
+    "vpn": {
+      "title": "SSH Tunnel",
+      "ssh": {
+        "host": "SSH Host",
+        "hostPlaceholder": "example.com",
+        "port": "SSH Port",
+        "username": "Username",
+        "usernamePlaceholder": "root",
+        "authPassword": "Password",
+        "authKey": "SSH Key",
+        "password": "Password",
+        "passwordPlaceholder": "SSH password",
+        "keyPath": "Private key path",
+        "keyPathPlaceholder": "Select SSH key file",
+        "browseKey": "Browse",
+        "autoConnect": "Auto-connect on startup",
+        "autoConnectDescription": "Automatically establish SSH tunnel when app starts",
+        "connect": "Connect",
+        "disconnect": "Disconnect",
+        "connecting": "Connecting...",
+        "connected": "Connected",
+        "disconnected": "Disconnected",
+        "connectSuccess": "SSH tunnel established on port {{port}}",
+        "connectError": "Failed to connect",
+        "disconnectSuccess": "SSH tunnel disconnected",
+        "reconnecting": "Reconnecting...",
+        "reconnected": "SSH tunnel restored",
+        "reconnectFailed": "Failed to restore SSH tunnel after 5 attempts",
+        "hostKeyChanged": "SSH host key changed",
+        "hostKeyChangedMessage": "The SSH host key for {{host}}:{{port}} has changed. This could indicate a security issue.",
+        "resetHostKey": "Reset host key",
+        "hostKeyReset": "Host key removed. You can reconnect now.",
+        "saved": "Saved"
+      }
+    }
+  }
+}

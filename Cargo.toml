@@ -11,7 +11,9 @@ members = [
     "crates/uni-settings",
     "crates/uni-ssh",
     "crates/uni-terminal",
+    "crates/uni-process",
     "apps/desktop/src-tauri",
     "apps/test-app/src-tauri",
+    "apps/test-external/src-tauri",
 ]
 resolver = "2"

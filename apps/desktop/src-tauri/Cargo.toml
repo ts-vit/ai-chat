@@ -18,17 +18,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-uni-common = { path = "../../../crates/uni-common" }
-uni-http = { path = "../../../crates/uni-http" }
-uni-llm = { path = "../../../crates/uni-llm" }
-uni-embedding = { path = "../../../crates/uni-embedding" }
-uni-search = { path = "../../../crates/uni-search" }
-uni-audio = { path = "../../../crates/uni-audio" }
-uni-python = { path = "../../../crates/uni-python" }
-uni-converter = { path = "../../../crates/uni-converter" }
-uni-settings = { path = "../../../crates/uni-settings" }
-uni-ssh = { path = "../../../crates/uni-ssh" }
-uni-terminal = { path = "../../../crates/uni-terminal" }
+uni-common = { version = "0.1", path = "../../../crates/uni-common" }
+uni-http = { version = "0.1", path = "../../../crates/uni-http" }
+uni-llm = { version = "0.1", path = "../../../crates/uni-llm" }
+uni-embedding = { version = "0.1", path = "../../../crates/uni-embedding" }
+uni-search = { version = "0.1", path = "../../../crates/uni-search" }
+uni-audio = { version = "0.1", path = "../../../crates/uni-audio" }
+uni-python = { version = "0.1", path = "../../../crates/uni-python" }
+uni-converter = { version = "0.1", path = "../../../crates/uni-converter" }
+uni-settings = { version = "0.1", path = "../../../crates/uni-settings" }
+uni-ssh = { version = "0.1", path = "../../../crates/uni-ssh" }
+uni-terminal = { version = "0.1", path = "../../../crates/uni-terminal" }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }

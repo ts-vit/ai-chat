@@ -1,0 +1,26 @@
+[package]
+name = "test-external"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "test_external_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+# UNI Framework — core
+uni-common = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }
+uni-settings = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }
+
+# UNI Framework — modules
+uni-ssh = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }

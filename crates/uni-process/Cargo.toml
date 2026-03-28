@@ -1,0 +1,16 @@
+[package]
+name = "uni-process"
+version = "0.1.0"
+edition = "2021"
+description = "Child process management with async streaming for UNI Framework"
+license = "MIT"
+repository = "https://github.com/ts-vit/ai-chat"
+homepage = "https://github.com/ts-vit/ai-chat"
+keywords = ["process", "child-process", "async", "streaming", "management"]
+categories = ["asynchronous", "os"]
+readme = "README.md"
+
+[dependencies]
+uni-common = { version = "0.1", path = "../uni-common" }
+tokio = { version = "1", features = ["process", "io-util", "sync", "time", "macros", "rt"] }
+tracing = "0.1"

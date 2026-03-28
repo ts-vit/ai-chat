@@ -1,0 +1,10 @@
+src/
+!src/styles/
+tsup.config.ts
+tsconfig.json
+tsconfig.build.json
+vitest.config.*
+*.test.*
+__tests__/
+node_modules/
+.turbo/

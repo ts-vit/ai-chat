@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppSettings } from "../types";
-import { OpenRouterSettings, GenerationSettings, InterfaceSettings, WebSearchSettings, BudgetSettings, TerminalSettings, OllamaSettings } from "@uni/ui";
-import { SshTunnelSettings } from "@uni/ssh-ui";
+import { OpenRouterSettings, GenerationSettings, InterfaceSettings, WebSearchSettings, BudgetSettings, TerminalSettings, OllamaSettings } from "@uni-fw/ui";
+import { SshTunnelSettings } from "@uni-fw/ssh-ui";
 import {
     Box,
     Button,

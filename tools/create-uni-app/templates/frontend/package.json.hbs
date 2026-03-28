@@ -1,0 +1,53 @@
+{
+{{#if isExternal}}
+  "name": "{{name}}",
+{{else}}
+  "name": "@uni-fw/{{name}}",
+{{/if}}
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "vite:dev": "vite",
+    "vite:build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:rust": "cargo test --workspace",
+    "test:all": "npm run typecheck && npm run test && npm run test:rust"
+  },
+  "dependencies": {
+    "@mantine/core": "^8.3.15",
+    "@mantine/hooks": "^8.3.15",
+    "@mantine/notifications": "^8.3.15",
+    "@tabler/icons-react": "^3.31.0",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-shell": "^2",
+{{#if hasDialogPlugin}}
+    "@tauri-apps/plugin-dialog": "^2",
+{{/if}}
+    "@uni-fw/ui": "^0.1.0",
+{{#each packages}}
+    "{{this.name}}": "^0.1.0",
+{{/each}}
+{{#if hasTerminal}}
+    "@xterm/xterm": "^5.5.0",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-web-links": "^0.11.0",
+{{/if}}
+    "i18next": "^25.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-i18next": "^15.4.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+import path from "path";
 import chalk from "chalk";
 import { askQuestions, type AppConfig } from "./prompts.js";
 import { generateApp } from "./generator.js";
@@ -13,6 +13,8 @@ function parseArgs(): Partial<AppConfig> | null {
       result.displayName = args[++i];
     else if (args[i] === "--description" && args[i + 1])
       result.description = args[++i];
+    else if (args[i] === "--output" && args[i + 1])
+      result.output = args[++i];
     else if (args[i] === "--modules" && args[i + 1]) {
       modules = args[++i].split(",").filter(Boolean);
     }
@@ -41,6 +43,7 @@ async function main() {
       description: cliArgs.description ?? "A UNI Framework application",
       identifier: `com.uni.${name}`,
       modules: cliArgs.modules ?? [],
+      output: cliArgs.output,
     };
   } else {
     config = await askQuestions();
@@ -48,9 +51,12 @@ async function main() {
 
   await generateApp(config);
 
+  const appPath = config.output
+    ? path.resolve(config.output)
+    : `apps/${config.name}`;
   console.log(chalk.green("\n  App created successfully!"));
   console.log(chalk.dim(`\nNext steps:`));
-  console.log(chalk.dim(`  cd apps/${config.name}`));
+  console.log(chalk.dim(`  cd ${appPath}`));
   console.log(chalk.dim(`  npm install`));
   console.log(chalk.dim(`  npm run dev\n`));
 }

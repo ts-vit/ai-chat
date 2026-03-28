@@ -1,12 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
-import { UniProvider, TauriSettingsAdapter } from "@uni/ui";
+import { UniProvider, TauriSettingsAdapter } from "@uni-fw/ui";
 import { App } from "./App";
 import "./i18n/i18n";
-{{#if hasTerminal}}
-import "@xterm/xterm/css/xterm.css";
-{{/if}}
 
 const settingsAdapter = new TauriSettingsAdapter(invoke);
 

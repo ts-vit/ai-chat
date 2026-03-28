@@ -16,9 +16,9 @@ ai-chat/
 ├── docs/                    # Documentation
 ├── crates/                  # Shared Rust crates (uni-common, uni-http, uni-llm, uni-embedding, uni-search, uni-settings, uni-ssh, uni-terminal, …)
 ├── packages/                # Shared npm packages
-│   ├── uni-ui/              # @uni/ui — React components + Mantine theme + settings modules
-│   ├── uni-ssh-ui/          # @uni/ssh-ui — SSH tunnel settings UI
-│   └── uni-terminal-ui/     # @uni/terminal-ui — Terminal panel UI (xterm.js)
+│   ├── uni-ui/              # @uni-fw/ui — React components + Mantine theme + settings modules
+│   ├── uni-ssh-ui/          # @uni-fw/ssh-ui — SSH tunnel settings UI
+│   └── uni-terminal-ui/     # @uni-fw/terminal-ui — Terminal panel UI (xterm.js)
 └── apps/
     └── desktop/             # UNI AI Desktop (main app)
         ├── src/             # React frontend
@@ -54,11 +54,16 @@ cargo test -p ai-chat        # Desktop app tests only
 ```bash
 npm run test           # TypeScript tests (Vitest) — from root (desktop workspace)
 npm run test:watch     # TypeScript tests in watch mode — from apps/desktop
-npm run test -w packages/uni-ui           # @uni/ui tests (Vitest + jsdom + RTL)
-npm run test -w packages/uni-ssh-ui       # @uni/ssh-ui tests
-npm run test -w packages/uni-terminal-ui  # @uni/terminal-ui tests
+npm run test -w packages/uni-ui           # @uni-fw/ui tests (Vitest + jsdom + RTL)
+npm run test -w packages/uni-ssh-ui       # @uni-fw/ssh-ui tests
+npm run test -w packages/uni-terminal-ui  # @uni-fw/terminal-ui tests
 npm run test:rust      # Rust tests (cargo test --workspace)
 npm run test:all       # Full suite: typecheck + all package vitest + cargo test
+
+# Single test file:
+npx vitest run apps/desktop/src/store/__tests__/contracts.test.ts
+npx vitest run packages/uni-ui/src/__tests__/SomeComponent.test.tsx
+cargo test -p uni-common test_name        # Single Rust test by name
 ```
 
 Run `npm run test:all` before committing. All tests must pass.
@@ -68,8 +73,8 @@ When adding new features, include tests:
 - DB operations → integration test in `apps/desktop/src-tauri/src/tests/`
 - TypeScript utilities → vitest in `apps/desktop/src/utils/__tests__/` or `apps/desktop/src/store/__tests__/`
 - New `invoke()` calls → contract test in `apps/desktop/src/store/__tests__/contracts.test.ts`
-- @uni/ui components/hooks → vitest in `packages/uni-ui/src/__tests__/` (jsdom env, React Testing Library)
-- @uni/ssh-ui, @uni/terminal-ui → vitest in respective `packages/*/src/__tests__/`
+- @uni-fw/ui components/hooks → vitest in `packages/uni-ui/src/__tests__/` (jsdom env, React Testing Library)
+- @uni-fw/ssh-ui, @uni-fw/terminal-ui → vitest in respective `packages/*/src/__tests__/`
 
 ## Architecture
 
@@ -77,57 +82,39 @@ When adding new features, include tests:
 
 - `apps/desktop/src/store/chatStore.ts` — Single Zustand store managing all app state. All Tauri `invoke()` calls live here.
 - `apps/desktop/src/types/index.ts` — All TypeScript type definitions
-- `apps/desktop/src/components/` — UI components:
-  - `App.tsx` — Root layout (navigation sidebar + sidebar + main content)
-  - `ChatArea.tsx`, `MessageInput.tsx`, `MessageList.tsx` — Chat UI
-  - `CompareView.tsx`, `ComparisonsPage.tsx` — Model comparison
-  - `Sidebar.tsx`, `NavigationSidebar.tsx`, `AppHeader.tsx` — Navigation
-  - `ImageConfigBar.tsx` — Image generation settings bar
-  - `SettingsPage.tsx`, `SnippetsPage.tsx`, `SearchPage.tsx` — Pages
-  - `MemoryPage.tsx` — Agent memory management
-  - `SkillsPage.tsx` — Skills management
-  - `PlansPage.tsx` — Task plans list
-  - `PlanPanel.tsx` — Plan sidebar (task cards, progress)
-  - `AgentStatusBar.tsx` — Agent step progress, cancel/continue
-  - `WorkspacePanel.tsx` — Shared workspace artifacts panel (right sidebar)
-  - `ProjectDashboardPage.tsx` — Project dashboard (goal, chats, artifacts, memory, plans)
-  - `CreateProjectModal.tsx` — Project creation modal
-  - `PromptLibraryPage.tsx` — Prompt library with categories
-  - `SchedulerPage.tsx` — Scheduled tasks management
-  - `CreateScheduledTaskModal.tsx` — Create/edit scheduled task modal
-  - `settings/` — Settings sections (OpenRouter, Audio, Mcp, Proxy, Terminal, WebSearch, CustomProviders, Templates, TelegramSection, etc.)
+- `apps/desktop/src/components/` — UI components (App.tsx is root layout; `settings/` subdirectory for settings sections)
 - `apps/desktop/src/i18n/locales/{en,ru}.json` — i18n translations (both must be kept in sync)
 - `apps/desktop/src/utils/` — notify, injections, tokenCount, formatDate
-- `apps/desktop/src/styles/` — app.css, resize.css; duplicate `markdown.css` kept for reference (global highlight.js styles are loaded from `@uni/ui` in `main.tsx`)
+- `apps/desktop/src/styles/` — app.css, resize.css; duplicate `markdown.css` kept for reference (global highlight.js styles are loaded from `@uni-fw/ui` in `main.tsx`)
 - `apps/desktop/src/constants/` — mcpPresets, folderColors, modes (`MODE_DEFINITIONS`), promptCategories, skillIcons
 - UI: Mantine 8, icons from @tabler/icons-react
 
-### Shared React Package: @uni/ui (`packages/uni-ui/`)
+### Shared React Package: @uni-fw/ui (`packages/uni-ui/`)
 
 Re-usable React components and theme for UNI apps. Wraps Mantine 8.
 
 - **Theme:** `uniTheme` (brand orange palette, Inter + JetBrains Mono, component overrides), `uniCssResolver`, `brandOrange`
 - **UniProvider:** Drop-in MantineProvider + Notifications + theme. Default dark color scheme.
-- **MarkdownRenderer:** react-markdown + remark-gfm + rehype-highlight. Import `@uni/ui/src/styles/markdown.css` for highlight.js theming.
+- **MarkdownRenderer:** react-markdown + remark-gfm + rehype-highlight. Import `@uni-fw/ui/src/styles/markdown.css` for highlight.js theming.
 - **Settings module** (`src/settings/`): `SettingsAdapter` interface, `TauriSettingsAdapter` (wraps Tauri invoke, snake_case→camelCase mapping), `SettingsProvider` context, `useSettings(key)` hook (value/loading/set/delete/refresh). UniProvider accepts optional `settingsAdapter` prop.
 - **ConfirmModal:** Reusable confirm/cancel dialog.
 - **Re-exports:** `export * from '@mantine/core'`, `@mantine/hooks`, `@mantine/notifications`.
-- Apps can import Mantine components from `@uni/ui` or from `@mantine/core` directly (both work).
-- Desktop depends on `@uni/ui` via `file:../../packages/uni-ui` in `apps/desktop/package.json` (npm workspaces link).
+- Apps can import Mantine components from `@uni-fw/ui` or from `@mantine/core` directly (both work).
+- Desktop depends on `@uni-fw/ui` via `file:../../packages/uni-ui` in `apps/desktop/package.json` (npm workspaces link).
 
-### Shared React Package: @uni/ssh-ui (`packages/uni-ssh-ui/`)
+### Shared React Package: @uni-fw/ssh-ui (`packages/uni-ssh-ui/`)
 
-SSH tunnel settings UI component. Uses `@uni/ui` settings adapter and `@tauri-apps/api` for Tauri invoke/listen. Exports `SshTunnelSettings`.
+SSH tunnel settings UI component. Uses `@uni-fw/ui` settings adapter and `@tauri-apps/api` for Tauri invoke/listen. Exports `SshTunnelSettings`.
 
-### Shared React Package: @uni/terminal-ui (`packages/uni-terminal-ui/`)
+### Shared React Package: @uni-fw/terminal-ui (`packages/uni-terminal-ui/`)
 
 Terminal panel UI (xterm.js + tabs + PTY management). Exports `TerminalPanel` component. Uses `@tauri-apps/api` for terminal_create/write/resize/kill commands and pty-data/pty-exit events. Consumer must import `@xterm/xterm/css/xterm.css` in their entry point.
 
 ### Shared Package Pattern
 
 Packages follow two types:
-- **Type 1** (settings-only UI, e.g. `@uni/ui` modules): Pure settings form using `useSettings(key)` hook. No Rust crate dependency.
-- **Type 2** (UI + Rust crate, e.g. `@uni/ssh-ui`, `@uni/terminal-ui`): React component + corresponding Rust crate (`uni-ssh`, `uni-terminal`). Uses Tauri `invoke`/`listen` for backend communication.
+- **Type 1** (settings-only UI, e.g. `@uni-fw/ui` modules): Pure settings form using `useSettings(key)` hook. No Rust crate dependency.
+- **Type 2** (UI + Rust crate, e.g. `@uni-fw/ssh-ui`, `@uni-fw/terminal-ui`): React component + corresponding Rust crate (`uni-ssh`, `uni-terminal`). Uses Tauri `invoke`/`listen` for backend communication.
 
 All packages use: peer dependencies for React/Mantine/Tauri, `file:../../packages/...` links in desktop app, vitest + jsdom + RTL for tests.
 
@@ -191,42 +178,16 @@ All packages use: peer dependencies for React/Mantine/Tauri, `file:../../package
 
 ### Backend — Services (`apps/desktop/src-tauri/src/services/`)
 
+Key services (others are discoverable via file names):
 - **`http_client.rs`** — Tauri wrapper: resolves active proxy (SSH tunnel → manual settings from store), then `uni_http::build_http_client`. All app HTTP MUST use `build_http_client(app, timeout)` from here, not raw `Client::new()`.
 - **Retry (`uni-http`)** — `retry_http_request` with exponential backoff and Retry-After for 429. Max 3 retries. Used before first SSE chunk in chat/comparisons/llm_stream.
 - **`llm_stream.rs`** — Shared LLM SSE streaming service. Uses `uni_llm::SseParser` for SSE parsing; retry via `uni-http`. Used by agent.rs; `stream_llm_call()` with configurable event prefix.
 - **`embedding_helper.rs`** — Resolves `uni_embedding::EmbeddingProvider` from settings store (OpenAI / Gemini keys) and `build_http_client`; `get_embedding_dimensions()` for LanceDB table width at startup.
-- `memory_vector_store.rs` — LanceDB vector storage for agent memory
-- `memory_fts.rs` — FTS5 indexing for agent memory (uses `uni_search::fts_escape_query` for MATCH queries)
-- `memory_search.rs` — Combined memory search (FTS + vector)
-- `vector_store.rs` — LanceDB vector storage (chat search)
-- `hybrid_search.rs` — Combined FTS5 + vector search (chat search)
-- `fts.rs` — Full-text search indexing (chat search; uses `uni_search::fts_escape_query`)
-- **`uni-search`** (`crates/uni-search`) — Text chunking for embeddings/KB, reranker trait + Cohere/Jina implementations, shared `fts_escape_query` for FTS5 MATCH syntax
-- `mcp_client.rs` / `mcp_manager.rs` — MCP protocol client & server lifecycle
-- `builtin_mcp_client.rs` / `builtin_fs_server.rs` — Built-in MCP filesystem server
-- `audio_recorder.rs` — Microphone recording (cpal)
-- **`uni-audio`** — STT (`transcribe_whisper` for OpenAI / Groq-compatible endpoints) and TTS (`speak_openai`, `openai_voice_ids`, `openai_model_ids`); playback of TTS mp3 uses rodio in `commands/audio.rs`
-- `terminal.rs` — PTY process management (portable-pty)
-- `web_search.rs` / `web_content.rs` — Web search & page extraction
-- `ssh_tunnel.rs` — SSH tunnel with SOCKS5 proxy (russh)
-- `model_manager.rs` — Model list cache with TTL
-- `sub_agent.rs` — Sub-agent spawn config, status, and result types
-- `telegram_bot.rs` — Telegram Bot API client, long polling, message handling, agent integration
-- `scheduler.rs` — Background task scheduler, cron-based execution, Telegram delivery
+- Search services: `fts.rs` + `vector_store.rs` + `hybrid_search.rs` (chat search); `memory_fts.rs` + `memory_vector_store.rs` + `memory_search.rs` (agent memory). All FTS uses `uni_search::fts_escape_query`.
 
 ### Backend — Models (`apps/desktop/src-tauri/src/models/`)
 
-- LLM API types (Message, ContentBlock, AttachmentInput, ChatRequest, StreamResponse, Usage, Model / ModelPricing, etc.) live in the **`uni-llm`** crate (`crates/uni-llm`), not under `models/`.
-- `db.rs` — DB-facing types: DbChat, DbMessage, folders, presets, providers, AgentRun, templates, snippets, etc.
-- `catalog.rs` — Model catalog entries
-- `comparison.rs` — Comparison data structures
-- `mcp.rs` — MCP server/tool definitions
-- `memory.rs` — Agent memory data structures
-- `skill.rs` — Skill definitions
-- `plan.rs` — Plan and task data structures
-- `prompt_library.rs` — Prompt library models
-- `workspace.rs` — WorkspaceArtifact data structure
-- `project.rs` — Project, ProjectSummary data structures
+LLM API types (Message, ContentBlock, ChatRequest, StreamResponse, Usage, Model, etc.) live in the **`uni-llm`** crate, not under `models/`. App-specific DB-facing types (DbChat, DbMessage, AgentRun, etc.) are in `db.rs`. Other model files map 1:1 to their domain (catalog, comparison, mcp, memory, skill, plan, workspace, project, prompt_library).
 
 ### Database
 

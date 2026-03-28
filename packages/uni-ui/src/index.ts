@@ -15,7 +15,7 @@ export { useSettings, type UseSettingsResult } from "./settings";
 // Modules
 export * from "./modules";
 
-// Re-export Mantine for convenience — apps import from @uni/ui instead of @mantine/core directly
+// Re-export Mantine for convenience — apps import from @uni-fw/ui instead of @mantine/core directly
 export * from "@mantine/core";
 export * from "@mantine/hooks";
 export { Notifications, notifications } from "@mantine/notifications";

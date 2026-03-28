@@ -6,6 +6,7 @@ export interface AppConfig {
   description: string;
   identifier: string;
   modules: string[];
+  output?: string;
 }
 
 export async function askQuestions(): Promise<AppConfig> {

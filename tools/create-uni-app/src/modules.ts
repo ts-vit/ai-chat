@@ -52,7 +52,7 @@ export const CORE_MODULES: ModuleDefinition[] = [
   },
   {
     id: "uni-ui",
-    name: "@uni/ui",
+    name: "@uni-fw/ui",
     description: "React components, theme, UniProvider, useSettings",
     type: "core",
     category: "core",
@@ -60,7 +60,7 @@ export const CORE_MODULES: ModuleDefinition[] = [
   },
 ];
 
-// Optional UI modules (type 1) — settings UI living in @uni/ui
+// Optional UI modules (type 1) — settings UI living in @uni-fw/ui
 export const UI_MODULES: ModuleDefinition[] = [
   {
     id: "openrouter",
@@ -69,7 +69,7 @@ export const UI_MODULES: ModuleDefinition[] = [
     type: "ui",
     category: "settings",
     settingsComponent: "OpenRouterSettings",
-    settingsImportFrom: "@uni/ui",
+    settingsImportFrom: "@uni-fw/ui",
     settingsNav: {
       key: "openRouter",
       icon: "IconKey",
@@ -84,7 +84,7 @@ export const UI_MODULES: ModuleDefinition[] = [
     type: "ui",
     category: "settings",
     settingsComponent: "OllamaSettings",
-    settingsImportFrom: "@uni/ui",
+    settingsImportFrom: "@uni-fw/ui",
     settingsNav: {
       key: "ollama",
       icon: "IconServer",
@@ -99,7 +99,7 @@ export const UI_MODULES: ModuleDefinition[] = [
     type: "ui",
     category: "settings",
     settingsComponent: "GenerationSettings",
-    settingsImportFrom: "@uni/ui",
+    settingsImportFrom: "@uni-fw/ui",
     settingsNav: {
       key: "generation",
       icon: "IconAdjustments",
@@ -114,7 +114,7 @@ export const UI_MODULES: ModuleDefinition[] = [
     type: "ui",
     category: "settings",
     settingsComponent: "InterfaceSettings",
-    settingsImportFrom: "@uni/ui",
+    settingsImportFrom: "@uni-fw/ui",
     settingsNav: {
       key: "interface",
       icon: "IconPalette",
@@ -129,7 +129,7 @@ export const UI_MODULES: ModuleDefinition[] = [
     type: "ui",
     category: "settings",
     settingsComponent: "WebSearchSettings",
-    settingsImportFrom: "@uni/ui",
+    settingsImportFrom: "@uni-fw/ui",
     settingsNav: {
       key: "webSearch",
       icon: "IconWorldSearch",
@@ -144,7 +144,7 @@ export const UI_MODULES: ModuleDefinition[] = [
     type: "ui",
     category: "settings",
     settingsComponent: "BudgetSettings",
-    settingsImportFrom: "@uni/ui",
+    settingsImportFrom: "@uni-fw/ui",
     settingsNav: {
       key: "budget",
       icon: "IconCurrencyDollar",
@@ -177,7 +177,7 @@ export const UI_RUST_MODULES: ModuleDefinition[] = [
     eventBridge: "async",
     rustUses: ["use uni_ssh::SshTunnelManager"],
     settingsComponent: "SshTunnelSettings",
-    settingsImportFrom: "@uni/ssh-ui",
+    settingsImportFrom: "@uni-fw/ssh-ui",
     settingsNav: {
       key: "ssh",
       icon: "IconNetwork",
@@ -206,7 +206,7 @@ export const UI_RUST_MODULES: ModuleDefinition[] = [
     eventBridge: "thread",
     rustUses: ["use uni_terminal::TerminalManager"],
     settingsComponent: "TerminalSettings",
-    settingsImportFrom: "@uni/ui",
+    settingsImportFrom: "@uni-fw/ui",
     settingsNav: {
       key: "terminal-settings",
       icon: "IconTerminal2",

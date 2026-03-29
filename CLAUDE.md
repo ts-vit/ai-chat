@@ -14,17 +14,20 @@ ai-chat/
 ├── package.json             # npm workspaces root
 ├── CLAUDE.md
 ├── docs/                    # Documentation
-├── crates/                  # Shared Rust crates (uni-common, uni-http, uni-llm, uni-embedding, uni-search, uni-settings, uni-ssh, uni-terminal, …)
+├── crates/                  # Shared Rust crates (uni-common, uni-http, uni-llm, uni-db, uni-mcp, …)
 ├── packages/                # Shared npm packages
 │   ├── uni-ui/              # @uni-fw/ui — React components + Mantine theme + settings modules
 │   ├── uni-ssh-ui/          # @uni-fw/ssh-ui — SSH tunnel settings UI
 │   └── uni-terminal-ui/     # @uni-fw/terminal-ui — Terminal panel UI (xterm.js)
+├── tools/
+│   └── create-uni-app/      # CLI scaffolding tool for new UNI Framework apps
 └── apps/
-    └── desktop/             # UNI AI Desktop (main app)
-        ├── src/             # React frontend
-        ├── src-tauri/       # Rust backend
-        ├── package.json
-        └── ...configs
+    ├── desktop/             # UNI AI Desktop (main app)
+    │   ├── src/             # React frontend
+    │   ├── src-tauri/       # Rust backend
+    │   └── package.json
+    ├── test-app/            # Test app using UNI Framework core + utilities
+    └── test-external/       # Test app using UNI Framework core + SSH
 ```
 
 ## Commands
@@ -134,6 +137,11 @@ All packages use: peer dependencies for React/Mantine/Tauri, `file:../../package
 | `uni-ssh` | SSH tunnel with SOCKS5 proxy (russh): `SshTunnel` struct, connect/disconnect, local SOCKS5 listener, proxy URL resolution |
 | `uni-terminal` | PTY terminal sessions (portable-pty): session create/write/resize/kill, pty-data/pty-exit event emission |
 | `uni-process` | Managed child processes: `ManagedProcess::spawn(ProcessConfig)`, async stdout/stderr events via `mpsc`, stdin writes, status watch, graceful kill |
+| `uni-web-search` | Web search providers (Tavily, Brave, DuckDuckGo, Google) and content fetching (Jina Reader, YouTube transcripts) |
+| `uni-db` | SQLite database layer: pool creation, migration system, CRUD helpers via sqlx |
+| `uni-git` | Git operations via gitoxide: status, diff, tree, log, branch info |
+| `uni-markdown` | Markdown parsing/transformation via pulldown-cmark: AST parsing, section manipulation |
+| `uni-mcp` | MCP (Model Context Protocol) JSON-RPC 2.0 client over stdio for connecting to MCP servers |
 
 ### Backend — Commands (`apps/desktop/src-tauri/src/commands/`)
 

@@ -19,8 +19,8 @@ serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 
 # UNI Framework — core
-uni-common = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }
-uni-settings = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }
+uni-common = { path = "../../../crates/uni-common" }
+uni-settings = { path = "../../../crates/uni-settings" }
 
 # UNI Framework — modules
-uni-ssh = { git = "https://github.com/ts-vit/ai-chat", branch = "dev" }
+uni-ssh = { path = "../../../crates/uni-ssh" }

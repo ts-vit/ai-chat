@@ -5,6 +5,16 @@ export { brandOrange, uniCssResolver, uniTheme } from "./theme";
 export { UniProvider, type UniProviderProps } from "./components";
 export { MarkdownRenderer, type MarkdownRendererProps } from "./components";
 export { ConfirmModal, type ConfirmModalProps } from "./components";
+export { SessionTabs } from "./components";
+export type { SessionTabsProps, SessionTab, TabStatus } from "./components";
+export { ResizablePanel } from "./components";
+export type { ResizablePanelProps, SplitDirection } from "./components";
+export { EmptyState } from "./components";
+export type { EmptyStateProps } from "./components";
+export { KeyValueEditor } from "./components";
+export type { KeyValueEditorProps, KeyValuePair } from "./components";
+export { StatusBadge } from "./components";
+export type { StatusBadgeProps, StatusVariant } from "./components";
 
 // Settings
 export type { SettingsAdapter, SettingEntry } from "./settings";

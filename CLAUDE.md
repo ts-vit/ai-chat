@@ -332,13 +332,14 @@ See `docs/STYLEGUIDE.md` for visual conventions. Key points: brand color `#D4854
 
 ### Store Architecture
 Single Zustand store decomposed into domain slices in `apps/desktop/src/store/slices/`:
-- `chatSlice.ts` (~840 lines) — Core chat, messaging, folders, projects, attachments, TTS
-- `agentSlice.ts` (~900 lines) — Agent loop, memory, skills, workspace, plans, scheduler
-- `settingsSlice.ts` (~480 lines) — Settings, providers, models, Ollama, MCP, filesystem
-- `uiSlice.ts` (~560 lines) — View navigation, modes, comparisons, telegram
-- `snippetsSlice.ts` (~320 lines) — Snippets, presets, categories, templates, prompt library
+- `chatSlice.ts` (~1560 lines) — Core chat, messaging, folders, projects, attachments, TTS
+- `agentSlice.ts` (~1100 lines) — Agent loop, memory, skills, workspace, plans, scheduler
+- `settingsSlice.ts` (~660 lines) — Settings, providers, models, Ollama, MCP, filesystem
+- `uiSlice.ts` (~640 lines) — View navigation, modes, comparisons, telegram
+- `snippetsSlice.ts` (~420 lines) — Snippets, presets, categories, templates, prompt library
+- `kbSlice.ts` (~260 lines) — Knowledge base CRUD, document indexing, chat KB attachment, search
 - `helpers.ts` — Shared helpers (resolveProvider, DB mappers, reloadChatMessages)
-- `chatStore.ts` (~290 lines) — Hub: combines slices, exports `useChatStore`
+- `chatStore.ts` (~380 lines) — Hub: combines slices, exports `useChatStore`
 All components import from `useChatStore` unchanged. Cross-slice access via `get()` returning full `StoreState`.
 
 ### Communication

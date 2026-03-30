@@ -104,6 +104,19 @@ describe("TerminalPanel", () => {
                 cols: 80,
                 rows: 24,
                 shell: undefined,
+                cwd: undefined,
+            });
+        });
+    });
+
+    it("passes cwd to terminal_create when provided", async () => {
+        renderWithMantine(<TerminalPanel {...defaultProps} cwd="/projects/my-app" />);
+        await waitFor(() => {
+            expect(mockInvoke).toHaveBeenCalledWith("terminal_create", {
+                cols: 80,
+                rows: 24,
+                shell: undefined,
+                cwd: "/projects/my-app",
             });
         });
     });

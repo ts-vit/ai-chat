@@ -32,6 +32,7 @@ export function TerminalPanel({
     onClose,
     fontSize = 13,
     shell,
+    cwd,
 }: TerminalPanelProps) {
     const { t } = useTranslation();
     const { colorScheme } = useMantineColorScheme();
@@ -95,6 +96,7 @@ export function TerminalPanel({
                 cols: term.cols,
                 rows: term.rows,
                 shell: shell || undefined,
+                cwd: cwd || undefined,
             });
 
             const proxyUrl: string | null = await invoke("get_current_proxy_url");
@@ -159,7 +161,7 @@ export function TerminalPanel({
                 }
             }, 50);
         },
-        [fontSize, shell, getTheme, t]
+        [fontSize, shell, cwd, getTheme, t]
     );
 
     const switchTab = useCallback(

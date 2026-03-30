@@ -1,6 +1,6 @@
 {
   "name": "@uni-fw/terminal-ui",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "description": "Terminal panel UI component with xterm.js for UNI Framework",
   "license": "MIT",

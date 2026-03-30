@@ -10,6 +10,7 @@ export interface TerminalPanelProps {
     onClose: () => void;
     fontSize?: number;
     shell?: string;
+    cwd?: string;
 }
 
 export interface TerminalTab {

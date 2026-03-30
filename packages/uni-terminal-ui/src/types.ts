@@ -22,4 +22,5 @@ export interface TerminalTab {
     unlistenData: UnlistenFn | null;
     unlistenExit: UnlistenFn | null;
     proxyUrl: string | null;
+    keydownHandler: ((e: KeyboardEvent) => void) | null;
 }

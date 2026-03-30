@@ -79,6 +79,21 @@ export function TerminalPanel({
 
             term.open(containerDiv);
 
+            // Prevent WebView from intercepting Ctrl+key combinations
+            // so they reach xterm properly (Ctrl+C for SIGINT, etc.)
+            term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+                // Let browser handle Ctrl+Shift+I (DevTools)
+                if (event.ctrlKey && event.shiftKey && event.key === 'I') {
+                    return false;
+                }
+                // Let browser handle F5, F12
+                if (event.key === 'F5' || event.key === 'F12') {
+                    return false;
+                }
+                // All other keys — let xterm handle them (including Ctrl+C, Ctrl+V, Ctrl+D, etc.)
+                return true;
+            });
+
             // Show this tab's container
             containerDiv.style.display = "block";
             // Hide all other tabs
@@ -133,6 +148,48 @@ export function TerminalPanel({
                 }, 300);
             }
 
+            // Intercept Ctrl+key at DOM level (capture phase) before WebView2 steals them
+            const keydownHandler = (e: KeyboardEvent) => {
+                if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+                    const key = e.key.toLowerCase();
+
+                    // Ctrl+C: copy if text selected, SIGINT if not
+                    if (key === "c") {
+                        if (term.hasSelection()) {
+                            const selection = term.getSelection();
+                            if (selection) {
+                                navigator.clipboard.writeText(selection).catch(() => {});
+                            }
+                            term.clearSelection();
+                            e.preventDefault();
+                            e.stopPropagation();
+                            return;
+                        }
+                        // No selection — send SIGINT
+                        e.preventDefault();
+                        e.stopPropagation();
+                        invoke("terminal_write", {
+                            sessionId,
+                            data: "\x03",
+                        }).catch(() => {});
+                        return;
+                    }
+
+                    // Other terminal control characters
+                    const terminalKeys = ["d", "z", "l", "a", "e", "r", "w", "u", "k", "p", "n", "b", "f"];
+                    if (terminalKeys.includes(key)) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const charCode = key.charCodeAt(0) - 96;
+                        invoke("terminal_write", {
+                            sessionId,
+                            data: String.fromCharCode(charCode),
+                        }).catch(() => {});
+                    }
+                }
+            };
+            containerDiv.addEventListener("keydown", keydownHandler, true);
+
             const newTab: TerminalTab = {
                 id: sessionId,
                 title: tabTitle,
@@ -142,6 +199,7 @@ export function TerminalPanel({
                 unlistenData,
                 unlistenExit,
                 proxyUrl,
+                keydownHandler,
             };
 
             setTabs((prev) => [...prev, newTab]);
@@ -200,6 +258,9 @@ export function TerminalPanel({
             invoke("terminal_kill", { sessionId: tabId }).catch(() => {});
             tab.unlistenData?.();
             tab.unlistenExit?.();
+            if (tab.keydownHandler) {
+                tab.containerDiv.removeEventListener("keydown", tab.keydownHandler, true);
+            }
             tab.terminal.dispose();
             tab.containerDiv.remove();
 
@@ -242,6 +303,9 @@ export function TerminalPanel({
             invoke("terminal_kill", { sessionId: tab.id }).catch(() => {});
             tab.unlistenData?.();
             tab.unlistenExit?.();
+            if (tab.keydownHandler) {
+                tab.containerDiv.removeEventListener("keydown", tab.keydownHandler, true);
+            }
             tab.terminal.dispose();
             tab.containerDiv.remove();
         }
@@ -289,6 +353,9 @@ export function TerminalPanel({
                 invoke("terminal_kill", { sessionId: tab.id }).catch(() => {});
                 tab.unlistenData?.();
                 tab.unlistenExit?.();
+                if (tab.keydownHandler) {
+                    tab.containerDiv.removeEventListener("keydown", tab.keydownHandler, true);
+                }
                 tab.terminal.dispose();
             }
         };

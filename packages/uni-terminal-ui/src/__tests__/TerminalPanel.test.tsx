@@ -9,6 +9,7 @@ const mockDispose = vi.fn();
 const mockOpen = vi.fn();
 const mockLoadAddon = vi.fn();
 const mockOnData = vi.fn();
+const mockAttachCustomKeyEventHandler = vi.fn();
 
 vi.mock("@xterm/xterm", () => ({
     Terminal: vi.fn().mockImplementation(() => ({
@@ -17,6 +18,7 @@ vi.mock("@xterm/xterm", () => ({
         dispose: mockDispose,
         loadAddon: mockLoadAddon,
         onData: mockOnData,
+        attachCustomKeyEventHandler: mockAttachCustomKeyEventHandler,
         cols: 80,
         rows: 24,
         options: {},

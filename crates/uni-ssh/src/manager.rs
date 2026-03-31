@@ -179,33 +179,22 @@ impl SshTunnelManager {
             });
 
             // Spawn keepalive monitor with auto-reconnect
-            let ssh_for_keepalive = ssh_handle.clone();
             let shutdown_rx_keepalive = shutdown_rx.clone();
             let manager_for_keepalive = this.clone();
             let event_tx = this.event_tx.clone();
             let keepalive_handle = tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(60));
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
                 let mut shutdown = shutdown_rx_keepalive;
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
-                            // Lightweight check with timeout while russh native keepalive
-                            // handles the actual SSH ping packets.
-                            let check = tokio::time::timeout(
-                                Duration::from_secs(10),
-                                ssh_for_keepalive.channel_open_session()
-                            ).await;
-
-                            let is_connection_lost = match check {
-                                Ok(Ok(channel)) => {
-                                    let _ = channel.close().await;
-                                    false
-                                }
-                                Ok(Err(_)) | Err(_) => true,
+                            let listener_dead = {
+                                let state = manager_for_keepalive.state.lock().await;
+                                state.as_ref().map(|s| s.listener_handle.is_finished()).unwrap_or(true)
                             };
 
-                            if is_connection_lost {
-                                log::warn!("[ssh-tunnel] Keepalive failed, connection lost");
+                            if listener_dead {
+                                eprintln!("[ssh-tunnel] Listener task died, connection lost - starting reconnect");
 
                                 if *manager_for_keepalive.manually_disconnected.lock().await {
                                     let _ = event_tx.send(SshEvent::Disconnected);
@@ -250,7 +239,7 @@ impl SshTunnelManager {
                                             .await
                                         {
                                             Ok(new_port) => {
-                                                log::info!(
+                                                eprintln!(
                                                     "[ssh-tunnel] Reconnected on attempt {}, port {}",
                                                     attempt,
                                                     new_port
@@ -261,7 +250,7 @@ impl SshTunnelManager {
                                                 break;
                                             }
                                             Err(e) => {
-                                                log::warn!(
+                                                eprintln!(
                                                     "[ssh-tunnel] Reconnect attempt {}/5 failed: {}",
                                                     attempt,
                                                     e

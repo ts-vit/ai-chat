@@ -62,11 +62,9 @@ impl SshTunnelManager {
         config: SshConfig,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u16, String>> + Send>> {
         Box::pin(async move {
-            let ssh_config = client::Config {
-                keepalive_interval: Some(Duration::from_secs(30)),
-                keepalive_max: 3,
-                ..Default::default()
-            };
+            let mut ssh_config = client::Config::default();
+            ssh_config.keepalive_interval = Some(Duration::from_secs(15));
+            ssh_config.keepalive_max = 3;
 
             let handler = SshHandler {
                 host: config.host.clone(),
@@ -186,12 +184,27 @@ impl SshTunnelManager {
             let manager_for_keepalive = this.clone();
             let event_tx = this.event_tx.clone();
             let keepalive_handle = tokio::spawn(async move {
-                let mut interval = tokio::time::interval(Duration::from_secs(30));
+                let mut interval = tokio::time::interval(Duration::from_secs(60));
                 let mut shutdown = shutdown_rx_keepalive;
                 loop {
                     tokio::select! {
                         _ = interval.tick() => {
-                            if let Err(_e) = ssh_for_keepalive.channel_open_session().await {
+                            // Lightweight check with timeout while russh native keepalive
+                            // handles the actual SSH ping packets.
+                            let check = tokio::time::timeout(
+                                Duration::from_secs(10),
+                                ssh_for_keepalive.channel_open_session()
+                            ).await;
+
+                            let is_connection_lost = match check {
+                                Ok(Ok(channel)) => {
+                                    let _ = channel.close().await;
+                                    false
+                                }
+                                Ok(Err(_)) | Err(_) => true,
+                            };
+
+                            if is_connection_lost {
                                 log::warn!("[ssh-tunnel] Keepalive failed, connection lost");
 
                                 if *manager_for_keepalive.manually_disconnected.lock().await {
